@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "next build",
+    "build": "pnpm --filter @buildworth/shared --filter @buildworth/config --filter @buildworth/validation --filter @buildworth/observability --filter @buildworth/database --filter @buildworth/scoring --filter @buildworth/ui --filter @buildworth/ai --filter @buildworth/source-connectors --filter @buildworth/opportunity-engine run build && next build",
     "start": "next start -p 3000",
     "lint": "tsc --noEmit",
     "type-check": "tsc --noEmit",
