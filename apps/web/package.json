@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "tsc --noEmit",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "db:generate": "pnpm --filter @buildworth/database run db:generate"
   },
   "dependencies": {
     "@buildworth/config": "workspace:*",
