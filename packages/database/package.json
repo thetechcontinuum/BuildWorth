@@ -1,0 +1,34 @@
+{
+  "name": "@buildworth/database",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "node dist/seed.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@buildworth/shared": "workspace:*",
+    "@prisma/client": "^5.16.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "prisma": "^5.16.1",
+    "typescript": "^5.5.2"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}

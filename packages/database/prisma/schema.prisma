@@ -1,0 +1,355 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+enum Role {
+  USER
+  ADMIN
+  REVIEWER
+}
+
+enum SubscriptionTier {
+  FREE
+  PRO
+  TEAM
+  ENTERPRISE
+}
+
+enum SignalType {
+  PAIN_COMPLAINT
+  WORKAROUND_REQUEST
+  PURCHASE_INTENT
+  COMPETITOR_DISSATISFACTION
+  FEATURE_REQUEST
+  EMERGING_TECH
+  NOISE
+}
+
+enum OpportunityStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum CustomerType {
+  B2B
+  B2C
+  PROSUMER
+  INTERNAL_TOOL
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  OCCASIONAL
+}
+
+model User {
+  id            String            @id @default(uuid())
+  email         String            @unique
+  name          String?
+  role          Role              @default(USER)
+  tier          SubscriptionTier  @default(FREE)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  
+  savedOpportunities SavedOpportunity[]
+  auditLogs          AuditLog[]
+  scoreOverrides     ScoreOverride[]
+
+  @@map("users")
+}
+
+model Source {
+  id                  String       @id @default(uuid())
+  key                 String       @unique
+  name                String
+  description         String
+  adapterType         String
+  accessMethod        String
+  rateLimitPerMinute  Int          @default(60)
+  isEnabled           Boolean      @default(true)
+  termsNotes          String?
+  attributionRequired Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  runs       SourceRun[]
+  rawSignals RawSignal[]
+
+  @@map("sources")
+}
+
+model SourceRun {
+  id              String      @id @default(uuid())
+  sourceId        String
+  source          Source      @relation(fields: [sourceId], references: [id])
+  status          String      // SUCCESS, FAILED, RUNNING
+  signalsIngested Int         @default(0)
+  errorMessage    String?
+  startedAt       DateTime    @default(now())
+  finishedAt      DateTime?
+
+  rawSignals RawSignal[]
+
+  @@map("source_runs")
+}
+
+model RawSignal {
+  id                 String       @id @default(uuid())
+  sourceId           String
+  source             Source       @relation(fields: [sourceId], references: [id])
+  sourceRunId        String?
+  sourceRun          SourceRun?   @relation(fields: [sourceRunId], references: [id])
+  externalId         String
+  sourceUrl          String
+  authorFingerprint  String?
+  title              String?
+  rawContent         String
+  contentHash        String       @unique
+  publishedAt        DateTime
+  createdAt          DateTime     @default(now())
+
+  normalizedSignal   NormalizedSignal?
+
+  @@map("raw_signals")
+}
+
+model NormalizedSignal {
+  id                 String       @id @default(uuid())
+  rawSignalId        String       @unique
+  rawSignal          RawSignal    @relation(fields: [rawSignalId], references: [id])
+  signalType         SignalType
+  sanitizedExcerpt   String
+  problemSummary     String
+  actorRole          String?
+  workflowContext    String?
+  severityScore      Int          @default(1)
+  frequencyScore     Int          @default(1)
+  intentToPayScore   Int          @default(0)
+  extractedEntities  String[]     @default([])
+  confidenceScore    Int          @default(0)
+  isProcessed        Boolean      @default(false)
+  createdAt          DateTime     @default(now())
+
+  clusterMemberships ClusterMember[]
+  evidenceLinks      EvidenceLink[]
+
+  @@map("normalized_signals")
+}
+
+model ProblemCluster {
+  id                 String          @id @default(uuid())
+  title              String
+  summary            String
+  signalCount        Int             @default(0)
+  vertical           String
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  members            ClusterMember[]
+  opportunities      Opportunity[]
+
+  @@map("problem_clusters")
+}
+
+model ClusterMember {
+  id                 String           @id @default(uuid())
+  clusterId          String
+  cluster            ProblemCluster   @relation(fields: [clusterId], references: [id])
+  normalizedSignalId String
+  normalizedSignal   NormalizedSignal @relation(fields: [normalizedSignalId], references: [id])
+  distanceScore      Float            @default(0.0)
+  createdAt          DateTime         @default(now())
+
+  @@unique([clusterId, normalizedSignalId])
+  @@map("cluster_members")
+}
+
+model Opportunity {
+  id                            String             @id @default(uuid())
+  slug                          String             @unique
+  title                         String
+  oneSentenceSummary            String
+  problemStatement              String
+  jobsToBeDone                  String[]
+  proposedProduct               String
+  narrowMvpScope                String[]
+  targetCustomerSegments        String[]
+  economicBuyer                 String
+  endUser                       String
+  buyingTrigger                 String
+  existingWorkflow              String
+  painSeverity                  Severity
+  painFrequency                 Frequency
+  status                        OpportunityStatus  @default(DRAFT)
+  customerType                  CustomerType       @default(B2B)
+  industry                      String
+  
+  // Minor units (cents)
+  estimatedMvpCostMinCents      Int
+  estimatedMvpCostMaxCents      Int
+  estimatedTimeToMvpMinWeeks    Int
+  estimatedTimeToMvpMaxWeeks    Int
+  estimatedMonthlyOpCostMinCents Int
+  estimatedMonthlyOpCostMaxCents Int
+  currency                      String             @default("USD")
+
+  recommendedNextExperiment     String
+  majorAssumptions              String[]           @default([])
+  majorRisks                    String[]           @default([])
+
+  problemClusterId              String?
+  problemCluster                ProblemCluster?    @relation(fields: [problemClusterId], references: [id])
+
+  createdAt                     DateTime           @default(now())
+  updatedAt                     DateTime           @updatedAt
+
+  scorecards                    Scorecard[]
+  evidenceLinks                 EvidenceLink[]
+  revisions                     OpportunityRevision[]
+  savedByUsers                  SavedOpportunity[]
+  scoreOverrides                ScoreOverride[]
+
+  @@map("opportunities")
+}
+
+model Scorecard {
+  id                       String             @id @default(uuid())
+  opportunityId            String
+  opportunity              Opportunity        @relation(fields: [opportunityId], references: [id])
+  opportunityScore         Int                // 0 - 100
+  evidenceConfidenceScore  Int                // 0 - 100
+  demandScore              Int                // 0 - 100
+  feasibilityScore         Int                // 0 - 100
+  economicsScore           Int                // 0 - 100
+  competitionScore         Int                // 0 - 100
+  goMarketScore            Int                // 0 - 100
+  rubricVersion            String             @default("1.0.0")
+  isHypothesisOnly         Boolean            @default(false)
+  createdAt                DateTime           @default(now())
+
+  dimensions               ScoreDimension[]
+
+  @@map("scorecards")
+}
+
+model ScoreDimension {
+  id             String       @id @default(uuid())
+  scorecardId    String
+  scorecard      Scorecard    @relation(fields: [scorecardId], references: [id])
+  dimensionKey   String
+  name           String
+  score          Int
+  maxScore       Int
+  explanation    String
+  evidenceIds    String[]     @default([])
+  assumptions    String[]     @default([])
+
+  @@map("score_dimensions")
+}
+
+model EvidenceLink {
+  id                 String           @id @default(uuid())
+  opportunityId      String
+  opportunity        Opportunity      @relation(fields: [opportunityId], references: [id])
+  normalizedSignalId String
+  normalizedSignal   NormalizedSignal @relation(fields: [normalizedSignalId], references: [id])
+  claimSnippet       String
+  relevanceScore     Float            @default(1.0)
+  createdAt          DateTime         @default(now())
+
+  @@map("evidence_links")
+}
+
+model OpportunityRevision {
+  id             String       @id @default(uuid())
+  opportunityId  String
+  opportunity    Opportunity  @relation(fields: [opportunityId], references: [id])
+  revisionNumber Int
+  snapshotData   Json
+  reasonForChange String
+  createdAt      DateTime     @default(now())
+
+  @@map("opportunity_revisions")
+}
+
+model ScoreOverride {
+  id             String       @id @default(uuid())
+  opportunityId  String
+  opportunity    Opportunity  @relation(fields: [opportunityId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  dimensionKey   String
+  originalScore  Int
+  overriddenScore Int
+  reason         String
+  createdAt      DateTime     @default(now())
+
+  @@map("score_overrides")
+}
+
+model SavedOpportunity {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  opportunityId  String
+  opportunity    Opportunity  @relation(fields: [opportunityId], references: [id])
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, opportunityId])
+  @@map("saved_opportunities")
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id])
+  action         String
+  entityType     String
+  entityId       String
+  details        Json?
+  ipAddress      String?
+  createdAt      DateTime     @default(now())
+
+  @@map("audit_logs")
+}
+
+model AiSpendLedgerRecord {
+  id                 String       @id @default(uuid())
+  model              String
+  promptTokens       Int
+  completionTokens   Int
+  costMinorUnits     Int          // integer cents
+  purpose            String
+  createdAt          DateTime     @default(now())
+
+  @@map("ai_spend_ledger_records")
+}
+
+model KillSwitch {
+  id          String   @id @default(uuid())
+  subsystem   String   @unique // e.g. "ALL", "AI_GENERATION", "INGESTION", "AUTO_PUBLISH"
+  isActive    Boolean  @default(false)
+  reason      String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("kill_switches")
+}

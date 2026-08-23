@@ -1,0 +1,21 @@
+{
+  "name": "@buildworth/scheduler",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@buildworth/config": "workspace:*",
+    "@buildworth/database": "workspace:*",
+    "@buildworth/observability": "workspace:*",
+    "@buildworth/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "typescript": "^5.5.2"
+  }
+}

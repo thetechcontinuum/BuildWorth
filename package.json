@@ -1,0 +1,30 @@
+{
+  "name": "buildworth-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
+    "test": "turbo run test:run",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "db:generate": "turbo run db:generate",
+    "db:push": "turbo run db:push",
+    "db:seed": "turbo run db:seed",
+    "typecheck": "turbo run type-check",
+    "pipeline:run": "pnpm --filter @buildworth/opportunity-engine run pipeline:run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "prettier": "^3.3.2",
+    "turbo": "^2.0.4",
+    "typescript": "^5.5.2",
+    "vercel": "^59.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
