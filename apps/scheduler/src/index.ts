@@ -7,9 +7,9 @@ export const SCHEDULED_TASKS = [
     description: "Ingest signals from Hacker News, Reddit, GitHub, Product Hunt",
   },
   {
-    name: "daily_problem_clustering",
-    cron: "0 2 * * *",
-    description: "Run pgvector clustering and synthesize new problem spaces",
+    name: "morning_06am_opportunity_discovery",
+    cron: "0 6 * * *",
+    description: "Execute 06:00 AM full AI market scan, pgvector clustering and new opportunity synthesis",
   },
   {
     name: "daily_spend_ledger_reset",
@@ -19,8 +19,9 @@ export const SCHEDULED_TASKS = [
 ];
 
 async function runScheduler() {
-  logger.info("BuildWorth Ingestion Cron Scheduler initialized.", {
+  logger.info("BuildWorth 06:00 AM Ingestion & Discovery Cron Scheduler initialized.", {
     tasksCount: SCHEDULED_TASKS.length,
+    schedule: "Every morning at 06:00 AM (0 6 * * *)",
   });
 
   process.on("SIGINT", () => {

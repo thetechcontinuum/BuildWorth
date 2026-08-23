@@ -121,12 +121,18 @@ importers:
       '@buildworth/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@buildworth/opportunity-engine':
+        specifier: workspace:*
+        version: link:../../packages/opportunity-engine
       '@buildworth/scoring':
         specifier: workspace:*
         version: link:../../packages/scoring
       '@buildworth/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@buildworth/source-connectors':
+        specifier: workspace:*
+        version: link:../../packages/source-connectors
       '@buildworth/ui':
         specifier: workspace:*
         version: link:../../packages/ui

@@ -8,7 +8,10 @@ const nextConfig = {
     "@buildworth/validation",
     "@buildworth/observability",
     "@buildworth/database",
-    "@buildworth/ui"
+    "@buildworth/ui",
+    "@buildworth/ai",
+    "@buildworth/source-connectors",
+    "@buildworth/opportunity-engine"
   ],
 };
 
