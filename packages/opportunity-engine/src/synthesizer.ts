@@ -2,6 +2,7 @@ import { ProblemClusterResult } from "./clustering/cluster-manager.js";
 import { calculateEconomics } from "./economics.js";
 import { evaluateOpportunityScorecard } from "@buildworth/scoring";
 import { critiqueOpportunity } from "./critic.js";
+import { ClaimEvidenceLinkItem } from "@buildworth/shared";
 
 export interface CompleteOpportunityBlueprint {
   slug: string;
@@ -36,6 +37,7 @@ export interface CompleteOpportunityBlueprint {
   recommendedNextExperiment: string;
   scorecard: ReturnType<typeof evaluateOpportunityScorecard>;
   criticReport: ReturnType<typeof critiqueOpportunity>;
+  evidenceLinks: ClaimEvidenceLinkItem[];
 }
 
 /**
@@ -53,7 +55,7 @@ export function synthesizeOpportunity(
       name: "Pain Evidence",
       maxScore: 15,
       rawScore: 14,
-      explanation: "Recurring complaints across 3 independent platforms.",
+      explanation: "Recurring complaints documented across multiple discussions.",
       evidenceIds: ["ev-1", "ev-2"],
       assumptions: [],
     },
@@ -62,7 +64,7 @@ export function synthesizeOpportunity(
       name: "Buyer Demand & WTP",
       maxScore: 15,
       rawScore: 13,
-      explanation: "Users explicitly stated willingness to pay $100-$300/mo.",
+      explanation: "Active buyer demand and stated willingness to pay.",
       evidenceIds: ["ev-3"],
       assumptions: [],
     },
@@ -131,34 +133,9 @@ export function synthesizeOpportunity(
     },
   ];
 
-  const confidenceSignals = [
-    {
-      id: "sig-1",
-      sourceType: "GITHUB",
-      sourceCredibilityWeight: 0.9,
-      isDirectBuyerIntent: true,
-      publishedAt: new Date(),
-      extractedUserCount: 10,
-    },
-    {
-      id: "sig-2",
-      sourceType: "HACKERNEWS",
-      sourceCredibilityWeight: 0.85,
-      isDirectBuyerIntent: true,
-      publishedAt: new Date(),
-      extractedUserCount: 8,
-    },
-    {
-      id: "sig-3",
-      sourceType: "REDDIT",
-      sourceCredibilityWeight: 0.8,
-      isDirectBuyerIntent: false,
-      publishedAt: new Date(),
-      extractedUserCount: 12,
-    },
-  ];
+  const evidenceLinks: ClaimEvidenceLinkItem[] = [];
 
-  const scorecard = evaluateOpportunityScorecard(dimensionInputs, { signals: confidenceSignals });
+  const scorecard = evaluateOpportunityScorecard(dimensionInputs, { evidenceLinks });
 
   const criticReport = critiqueOpportunity({
     title: cluster.title,
@@ -228,5 +205,6 @@ export function synthesizeOpportunity(
       "Launch a targeted landing page offering 5 pilot licenses with a 14-day money-back guarantee.",
     scorecard,
     criticReport,
+    evidenceLinks,
   };
 }

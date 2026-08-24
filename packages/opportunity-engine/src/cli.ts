@@ -25,9 +25,15 @@ async function main() {
     console.log(`  - Opportunity Score: ${opp.scorecard.opportunityScore}/100`);
     console.log(`  - Evidence Confidence: ${opp.scorecard.evidenceConfidenceScore}%`);
     console.log(`  - Economic Buyer: ${opp.economicBuyer}`);
-    console.log(`  - Plausible Pricing: ${opp.economics.plausibleMonthlyPriceRange.minMinor / 100} - ${opp.economics.plausibleMonthlyPriceRange.maxMinor / 100} USD/mo`);
-    console.log(`  - Break-Even Customers: ${opp.economics.breakEvenCustomerCount.min} - ${opp.economics.breakEvenCustomerCount.max}`);
-    console.log(`  - Critic Status: ${opp.criticReport.isApproved ? "APPROVED" : "REQUIRES_REVIEW"}\n`);
+    console.log(
+      `  - Plausible Pricing: ${opp.economics.plausibleMonthlyPriceRange.minMinor / 100} - ${opp.economics.plausibleMonthlyPriceRange.maxMinor / 100} USD/mo`,
+    );
+    console.log(
+      `  - Break-Even Customers: ${opp.economics.breakEvenCustomerCount.min} - ${opp.economics.breakEvenCustomerCount.max}`,
+    );
+    console.log(
+      `  - Critic Status: ${opp.criticReport.isApproved ? "APPROVED" : "REQUIRES_REVIEW"}\n`,
+    );
 
     const dossier = generateVentureDossierMarkdown(opp);
     console.log("Generated Venture Dossier Preview:");
@@ -37,7 +43,7 @@ async function main() {
   console.log("=======================================================\n");
 }
 
-main().catch(err => {
+main().catch((err) => {
   logger.error("Pipeline CLI execution failed", err);
   process.exit(1);
 });

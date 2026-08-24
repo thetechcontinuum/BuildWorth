@@ -9,3 +9,4 @@ export * from "./adapters/github.js";
 export * from "./adapters/producthunt.js";
 export * from "./registry.js";
 export * from "./runner.js";
+export * from "./safe-fetch.js";

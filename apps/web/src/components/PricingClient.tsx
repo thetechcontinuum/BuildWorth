@@ -84,20 +84,20 @@ const PLANS: Plan[] = [
 const FAQS = [
   {
     q: "Can I cancel or switch my plan anytime?",
-    a: "Yes. You can upgrade, downgrade, or cancel your subscription at any time with a single click from your account settings. No lock-in contracts."
+    a: "Yes. You can upgrade, downgrade, or cancel your subscription at any time with a single click from your account settings. No lock-in contracts.",
   },
   {
     q: "How does the 14-day free trial work?",
-    a: "You get full uncensored access to all Pro features for 14 days. You can cancel before the trial ends without being charged a single cent."
+    a: "You get full uncensored access to all Pro features for 14 days. You can cancel before the trial ends without being charged a single cent.",
   },
   {
     q: "What payment methods are supported?",
-    a: "We support all major credit cards (Visa, Mastercard, American Express), Apple Pay, Google Pay, and SEPA bank transfers."
+    a: "We support all major credit cards (Visa, Mastercard, American Express), Apple Pay, Google Pay, and SEPA bank transfers.",
   },
   {
     q: "How often are new opportunities published?",
-    a: "Our Agnes AI discovery pipeline scans global developer & market communities 24/7. New opportunities are analyzed, scored, and published every morning at 06:00 AM."
-  }
+    a: "Our automated market discovery pipeline scans global developer & market communities 24/7. New opportunities are analyzed, scored, and published every morning at 06:00 AM.",
+  },
 ];
 
 export function PricingClient() {
@@ -132,18 +132,24 @@ export function PricingClient() {
       {/* Header */}
       <div className="text-center space-y-4 max-w-2xl mx-auto">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-          <Sparkles className="w-3.5 h-3.5" /> Zero AI Hallucinations • 100% Market Signal Backed
+          <Sparkles className="w-3.5 h-3.5" /> Evidence-Backed Startup Intelligence • Transparent
+          Confidence Scoring
         </div>
         <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
-          Invest in Opportunities, Not Hallucinations
+          Invest in Opportunities Backed by Verifiable Market Evidence
         </h1>
         <p className="text-base text-zinc-400">
-          Save hundreds of engineering hours by building products with verifiable customer demand and proven willingness to pay.
+          Save hundreds of engineering hours by building products with verifiable customer demand
+          and proven willingness to pay.
         </p>
 
         {/* Billing Toggle */}
         <div className="pt-4 flex items-center justify-center gap-3">
-          <span className={`text-xs font-medium ${billingPeriod === "monthly" ? "text-white" : "text-zinc-500"}`}>Monthly</span>
+          <span
+            className={`text-xs font-medium ${billingPeriod === "monthly" ? "text-white" : "text-zinc-500"}`}
+          >
+            Monthly
+          </span>
           <button
             onClick={() => setBillingPeriod(billingPeriod === "monthly" ? "annual" : "monthly")}
             className="w-12 h-6 rounded-full bg-zinc-800 p-1 border border-zinc-700 transition-colors relative"
@@ -153,7 +159,9 @@ export function PricingClient() {
               className={`w-4 h-4 rounded-full bg-indigo-500 transition-transform ${billingPeriod === "annual" ? "translate-x-6" : "translate-x-0"}`}
             />
           </button>
-          <span className={`text-xs font-medium flex items-center gap-1.5 ${billingPeriod === "annual" ? "text-white" : "text-zinc-500"}`}>
+          <span
+            className={`text-xs font-medium flex items-center gap-1.5 ${billingPeriod === "annual" ? "text-white" : "text-zinc-500"}`}
+          >
             Annual Billing
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
               SAVE 20%
@@ -225,9 +233,12 @@ export function PricingClient() {
       {/* Enterprise Banner */}
       <div className="p-8 rounded-2xl bg-gradient-to-r from-zinc-900 via-indigo-950/40 to-zinc-900 border border-zinc-800 flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="space-y-1 text-center md:text-left">
-          <h3 className="text-lg font-bold text-white">Need Custom Source Ingestion or Private Intelligence?</h3>
+          <h3 className="text-lg font-bold text-white">
+            Need Custom Source Ingestion or Private Intelligence?
+          </h3>
           <p className="text-xs text-zinc-400">
-            We deploy private signal scrapers and customized scoring rubrics for VC funds, private equity, and enterprise R&D.
+            We deploy private signal scrapers and customized scoring rubrics for VC funds, private
+            equity, and enterprise R&D.
           </p>
         </div>
         <button
@@ -243,7 +254,10 @@ export function PricingClient() {
         <h2 className="text-2xl font-bold text-white text-center">Frequently Asked Questions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {FAQS.map((faq, idx) => (
-            <div key={idx} className="p-5 rounded-xl bg-zinc-900/50 border border-zinc-800/80 space-y-2">
+            <div
+              key={idx}
+              className="p-5 rounded-xl bg-zinc-900/50 border border-zinc-800/80 space-y-2"
+            >
               <h4 className="text-sm font-semibold text-zinc-200">{faq.q}</h4>
               <p className="text-xs text-zinc-400 leading-relaxed">{faq.a}</p>
             </div>
@@ -269,7 +283,9 @@ export function PricingClient() {
                     {selectedPlan.name} Plan
                   </span>
                   <h3 className="text-xl font-bold text-white">
-                    {selectedPlan.id === "enterprise" ? "Enterprise Inquiry" : "Complete Your Subscription"}
+                    {selectedPlan.id === "enterprise"
+                      ? "Enterprise Inquiry"
+                      : "Complete Your Subscription"}
                   </h3>
                   <p className="text-xs text-zinc-400">
                     {selectedPlan.id === "enterprise"
@@ -280,7 +296,9 @@ export function PricingClient() {
 
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-medium text-zinc-300 mb-1">Full Name</label>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">
+                      Full Name
+                    </label>
                     <input
                       type="text"
                       required
@@ -292,7 +310,9 @@ export function PricingClient() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-zinc-300 mb-1">Work Email</label>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">
+                      Work Email
+                    </label>
                     <input
                       type="email"
                       required
@@ -305,7 +325,9 @@ export function PricingClient() {
 
                   {selectedPlan.id !== "pro" && (
                     <div>
-                      <label className="block text-xs font-medium text-zinc-300 mb-1">Company / Studio</label>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1">
+                        Company / Studio
+                      </label>
                       <input
                         type="text"
                         placeholder="e.g. Continuum Ventures"
@@ -320,12 +342,17 @@ export function PricingClient() {
                     <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-400 space-y-2">
                       <div className="flex justify-between items-center text-white font-medium">
                         <span>Due Today:</span>
-                        <span className="text-emerald-400 font-bold">$0.00 (14-Day Free Trial)</span>
+                        <span className="text-emerald-400 font-bold">
+                          $0.00 (14-Day Free Trial)
+                        </span>
                       </div>
                       <div className="flex justify-between items-center text-[11px] text-zinc-500">
                         <span>Then:</span>
                         <span>
-                          {billingPeriod === "annual" ? selectedPlan.annualPrice : selectedPlan.monthlyPrice}/month (billed {billingPeriod})
+                          {billingPeriod === "annual"
+                            ? selectedPlan.annualPrice
+                            : selectedPlan.monthlyPrice}
+                          /month (billed {billingPeriod})
                         </span>
                       </div>
                     </div>
@@ -342,7 +369,11 @@ export function PricingClient() {
                   ) : (
                     <>
                       <ShieldCheck className="w-4 h-4" />
-                      <span>{selectedPlan.id === "enterprise" ? "Submit Enterprise Inquiry" : "Activate 14-Day Free Trial"}</span>
+                      <span>
+                        {selectedPlan.id === "enterprise"
+                          ? "Submit Enterprise Inquiry"
+                          : "Activate 14-Day Free Trial"}
+                      </span>
                     </>
                   )}
                 </button>
@@ -358,7 +389,9 @@ export function PricingClient() {
                 </div>
                 <div className="space-y-1">
                   <h3 className="text-lg font-bold text-white">
-                    {selectedPlan.id === "enterprise" ? "Inquiry Received!" : "Welcome to BuildWorth Pro!"}
+                    {selectedPlan.id === "enterprise"
+                      ? "Inquiry Received!"
+                      : "Welcome to BuildWorth Pro!"}
                   </h3>
                   <p className="text-xs text-zinc-400">
                     {selectedPlan.id === "enterprise"

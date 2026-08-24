@@ -23,13 +23,108 @@ enum SubscriptionTier {
 }
 
 enum SignalType {
-  PAIN_COMPLAINT
-  WORKAROUND_REQUEST
-  PURCHASE_INTENT
-  COMPETITOR_DISSATISFACTION
+  PAIN
+  WORKAROUND
   FEATURE_REQUEST
-  EMERGING_TECH
+  PURCHASE_INTENT
+  WILLINGNESS_TO_PAY
+  COMPETITOR_COMPLAINT
+  JOB_POSTING
+  PROCUREMENT
+  SEARCH_DEMAND
+  PRICING
+  TECHNOLOGY_ENABLER
+  MARKET_ACTIVITY
+  CONTRADICTING_EVIDENCE
+  PAIN_COMPLAINT // Legacy compatibility
+  WORKAROUND_REQUEST // Legacy compatibility
+  COMPETITOR_DISSATISFACTION // Legacy compatibility
+  EMERGING_TECH // Legacy compatibility
   NOISE
+  PAIN_POINT // Legacy value
+  FEATURE_REQUEST_LEGACY // Legacy value
+  BUDGET_SIGNAL // Legacy value
+  COMPETITOR_CHURN // Legacy value
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  VERIFIED
+  REJECTED
+  STALE
+  INACCESSIBLE
+}
+
+enum VerificationMethod {
+  AUTOMATED_SOURCE_VALIDATION
+  HUMAN_REVIEW
+  TRUSTED_API
+  IMPORTED_VERIFIED_DATASET
+}
+
+enum EvidenceOrigin {
+  COLLECTED
+  HUMAN_SUBMITTED
+  IMPORTED
+  SYNTHETIC_FIXTURE
+  LEGACY_UNCLASSIFIED
+}
+
+enum SourceCredibilityTier {
+  TIER_1_PRIMARY
+  TIER_2_CREDIBLE_PUBLIC
+  TIER_3_SECONDARY
+}
+
+enum SourcePolicyStatus {
+  UNKNOWN
+  REVIEW_REQUIRED
+  ALLOWED
+  ALLOWED_WITH_RESTRICTIONS
+  BLOCKED
+}
+
+enum RelationshipType {
+  SUPPORTS
+  CONTRADICTS
+}
+
+enum SupportStrength {
+  WEAK
+  MODERATE
+  STRONG
+}
+
+enum DatePrecision {
+  EXACT_TIMESTAMP
+  DAY
+  MONTH
+  UNKNOWN
+}
+
+enum PublicationQualityStatus {
+  VERIFIED
+  PARTIALLY_VERIFIED
+  HYPOTHESIS
+  EVIDENCE_PENDING
+  STALE
+}
+
+enum ClaimType {
+  PAIN_EXISTENCE
+  PAIN_SEVERITY
+  PAIN_FREQUENCY
+  CURRENT_WORKAROUND
+  BUYER_IDENTITY
+  BUYER_DEMAND
+  WILLINGNESS_TO_PAY
+  MARKET_ATTRACTIVENESS
+  COMPETITOR_GAP
+  TECHNICAL_FEASIBILITY
+  MVP_COST
+  CUSTOMER_BENEFIT
+  PLAUSIBLE_PRICING
+  GO_TO_MARKET_ACCESSIBILITY
 }
 
 enum OpportunityStatus {
@@ -62,14 +157,14 @@ enum Frequency {
 }
 
 model User {
-  id            String            @id @default(uuid())
-  email         String            @unique
-  name          String?
-  role          Role              @default(USER)
-  tier          SubscriptionTier  @default(FREE)
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  
+  id        String           @id @default(uuid())
+  email     String           @unique
+  name      String?
+  role      Role             @default(USER)
+  tier      SubscriptionTier @default(FREE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
   savedOpportunities SavedOpportunity[]
   auditLogs          AuditLog[]
   scoreOverrides     ScoreOverride[]
@@ -78,33 +173,44 @@ model User {
 }
 
 model Source {
-  id                  String       @id @default(uuid())
-  key                 String       @unique
-  name                String
-  description         String
-  adapterType         String
-  accessMethod        String
-  rateLimitPerMinute  Int          @default(60)
-  isEnabled           Boolean      @default(true)
-  termsNotes          String?
-  attributionRequired Boolean      @default(true)
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  id                       String                 @id @default(uuid())
+  key                      String                 @unique
+  name                     String
+  description              String
+  sourceFamily             String?                @default("COMMUNITY")
+  baseUrl                  String?
+  adapterType              String
+  accessMethod             String
+  credibilityTier          SourceCredibilityTier?
+  policyStatus             SourcePolicyStatus     @default(UNKNOWN)
+  policyReviewedAt         DateTime?
+  policyReviewedBy         String?
+  policyNotes              String?
+  rateLimitPerMinute       Int                    @default(60)
+  isEnabled                Boolean                @default(true)
+  termsNotes               String?
+  attributionRequired      Boolean                @default(true)
+  permittedExcerptLength   Int                    @default(280)
+  storageRestrictions      String?
+  lastSuccessfulCollection DateTime?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
 
-  runs       SourceRun[]
-  rawSignals RawSignal[]
+  runs            SourceRun[]
+  rawSignals      RawSignal[]
+  evidenceSignals NormalizedSignal[]
 
   @@map("sources")
 }
 
 model SourceRun {
-  id              String      @id @default(uuid())
+  id              String    @id @default(uuid())
   sourceId        String
-  source          Source      @relation(fields: [sourceId], references: [id])
-  status          String      // SUCCESS, FAILED, RUNNING
-  signalsIngested Int         @default(0)
+  source          Source    @relation(fields: [sourceId], references: [id])
+  status          String // SUCCESS, FAILED, RUNNING
+  signalsIngested Int       @default(0)
   errorMessage    String?
-  startedAt       DateTime    @default(now())
+  startedAt       DateTime  @default(now())
   finishedAt      DateTime?
 
   rawSignals RawSignal[]
@@ -113,59 +219,109 @@ model SourceRun {
 }
 
 model RawSignal {
-  id                 String       @id @default(uuid())
-  sourceId           String
-  source             Source       @relation(fields: [sourceId], references: [id])
-  sourceRunId        String?
-  sourceRun          SourceRun?   @relation(fields: [sourceRunId], references: [id])
-  externalId         String
-  sourceUrl          String
-  authorFingerprint  String?
-  title              String?
-  rawContent         String
-  contentHash        String       @unique
-  publishedAt        DateTime
-  createdAt          DateTime     @default(now())
+  id                String     @id @default(uuid())
+  sourceId          String
+  source            Source     @relation(fields: [sourceId], references: [id])
+  sourceRunId       String?
+  sourceRun         SourceRun? @relation(fields: [sourceRunId], references: [id])
+  externalId        String
+  sourceUrl         String
+  authorFingerprint String?
+  title             String?
+  rawContent        String
+  contentHash       String     @unique
+  publishedAt       DateTime?
+  createdAt         DateTime   @default(now())
 
-  normalizedSignal   NormalizedSignal?
+  normalizedSignal NormalizedSignal?
 
   @@map("raw_signals")
 }
 
 model NormalizedSignal {
-  id                 String       @id @default(uuid())
-  rawSignalId        String       @unique
-  rawSignal          RawSignal    @relation(fields: [rawSignalId], references: [id])
-  signalType         SignalType
-  sanitizedExcerpt   String
-  problemSummary     String
-  actorRole          String?
-  workflowContext    String?
-  severityScore      Int          @default(1)
-  frequencyScore     Int          @default(1)
-  intentToPayScore   Int          @default(0)
-  extractedEntities  String[]     @default([])
-  confidenceScore    Int          @default(0)
-  isProcessed        Boolean      @default(false)
-  createdAt          DateTime     @default(now())
+  id          String     @id @default(uuid())
+  rawSignalId String?    @unique
+  rawSignal   RawSignal? @relation(fields: [rawSignalId], references: [id])
+  sourceId    String?
+  source      Source?    @relation(fields: [sourceId], references: [id])
+
+  signalType     SignalType      @default(PAIN)
+  evidenceOrigin EvidenceOrigin? @default(LEGACY_UNCLASSIFIED)
+
+  originalUrl  String?
+  canonicalUrl String?
+  sourceTitle  String?
+  authorOrg    String?
+
+  publishedAt          DateTime?
+  publishedAtPrecision DatePrecision @default(UNKNOWN)
+  collectedAt          DateTime      @default(now())
+  language             String        @default("en")
+
+  sanitizedExcerpt String
+  problemSummary   String
+  actorRole        String?
+  workflowContext  String?
+
+  severityScore     Int      @default(1)
+  frequencyScore    Int      @default(1)
+  intentToPayScore  Int      @default(0)
+  extractedEntities String[] @default([])
+  confidenceScore   Int      @default(0)
+
+  purchaseIntent Boolean @default(false)
+  spendingSignal String?
+  desiredOutcome String?
+
+  evidenceQuality            Float     @default(0.8)
+  recencyScore               Float     @default(1.0)
+  credibilityScore           Float     @default(0.8)
+  contentFingerprint         String?
+  duplicateGroupKey          String?
+  independenceKey            String?
+  independenceMethod         String?
+  independenceConfidence     Float     @default(1.0)
+  independenceOverride       String?
+  independenceOverrideReason String?
+  independenceOverriddenAt   DateTime?
+
+  verificationStatus       VerificationStatus  @default(UNVERIFIED)
+  verificationMethod       VerificationMethod?
+  verifiedAt               DateTime?
+  verifiedBy               String?
+  verificationNotes        String?
+  lastAccessibilityCheckAt DateTime?
+
+  metadata    Json?
+  isProcessed Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   clusterMemberships ClusterMember[]
   evidenceLinks      EvidenceLink[]
 
+  @@index([sourceId])
+  @@index([publishedAt])
+  @@index([verificationStatus])
+  @@index([signalType])
+  @@index([contentFingerprint])
+  @@index([duplicateGroupKey])
+  @@index([independenceKey])
+  @@index([canonicalUrl])
   @@map("normalized_signals")
 }
 
 model ProblemCluster {
-  id                 String          @id @default(uuid())
-  title              String
-  summary            String
-  signalCount        Int             @default(0)
-  vertical           String
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  id          String   @id @default(uuid())
+  title       String
+  summary     String
+  signalCount Int      @default(0)
+  vertical    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  members            ClusterMember[]
-  opportunities      Opportunity[]
+  members       ClusterMember[]
+  opportunities Opportunity[]
 
   @@map("problem_clusters")
 }
@@ -184,172 +340,213 @@ model ClusterMember {
 }
 
 model Opportunity {
-  id                            String             @id @default(uuid())
-  slug                          String             @unique
-  title                         String
-  oneSentenceSummary            String
-  problemStatement              String
-  jobsToBeDone                  String[]
-  proposedProduct               String
-  narrowMvpScope                String[]
-  targetCustomerSegments        String[]
-  economicBuyer                 String
-  endUser                       String
-  buyingTrigger                 String
-  existingWorkflow              String
-  painSeverity                  Severity
-  painFrequency                 Frequency
-  status                        OpportunityStatus  @default(DRAFT)
-  customerType                  CustomerType       @default(B2B)
-  industry                      String
-  
+  id                     String            @id @default(uuid())
+  slug                   String            @unique
+  title                  String
+  oneSentenceSummary     String
+  problemStatement       String
+  jobsToBeDone           String[]
+  proposedProduct        String
+  narrowMvpScope         String[]
+  targetCustomerSegments String[]
+  economicBuyer          String
+  endUser                String
+  buyingTrigger          String
+  existingWorkflow       String
+  painSeverity           Severity
+  painFrequency          Frequency
+  status                 OpportunityStatus @default(DRAFT)
+  customerType           CustomerType      @default(B2B)
+  industry               String
+
+  publicationQualityStatus PublicationQualityStatus @default(HYPOTHESIS)
+  isDemoFixture            Boolean                  @default(false)
+  currentRevisionId        String?                  @unique
+
   // Minor units (cents)
-  estimatedMvpCostMinCents      Int
-  estimatedMvpCostMaxCents      Int
-  estimatedTimeToMvpMinWeeks    Int
-  estimatedTimeToMvpMaxWeeks    Int
+  estimatedMvpCostMinCents       Int
+  estimatedMvpCostMaxCents       Int
+  estimatedTimeToMvpMinWeeks     Int
+  estimatedTimeToMvpMaxWeeks     Int
   estimatedMonthlyOpCostMinCents Int
   estimatedMonthlyOpCostMaxCents Int
-  currency                      String             @default("USD")
+  currency                       String @default("USD")
 
-  recommendedNextExperiment     String
-  majorAssumptions              String[]           @default([])
-  majorRisks                    String[]           @default([])
+  recommendedNextExperiment String
+  majorAssumptions          String[] @default([])
+  majorRisks                String[] @default([])
 
-  problemClusterId              String?
-  problemCluster                ProblemCluster?    @relation(fields: [problemClusterId], references: [id])
+  problemClusterId String?
+  problemCluster   ProblemCluster? @relation(fields: [problemClusterId], references: [id])
 
-  createdAt                     DateTime           @default(now())
-  updatedAt                     DateTime           @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  scorecards                    Scorecard[]
-  evidenceLinks                 EvidenceLink[]
-  revisions                     OpportunityRevision[]
-  savedByUsers                  SavedOpportunity[]
-  scoreOverrides                ScoreOverride[]
+  scorecards     Scorecard[]
+  evidenceLinks  EvidenceLink[]
+  revisions      OpportunityRevision[]
+  savedByUsers   SavedOpportunity[]
+  scoreOverrides ScoreOverride[]
 
   @@map("opportunities")
 }
 
-model Scorecard {
-  id                       String             @id @default(uuid())
-  opportunityId            String
-  opportunity              Opportunity        @relation(fields: [opportunityId], references: [id])
-  opportunityScore         Int                // 0 - 100
-  evidenceConfidenceScore  Int                // 0 - 100
-  demandScore              Int                // 0 - 100
-  feasibilityScore         Int                // 0 - 100
-  economicsScore           Int                // 0 - 100
-  competitionScore         Int                // 0 - 100
-  goMarketScore            Int                // 0 - 100
-  rubricVersion            String             @default("1.0.0")
-  isHypothesisOnly         Boolean            @default(false)
-  createdAt                DateTime           @default(now())
+model OpportunityRevision {
+  id              String      @id @default(uuid())
+  opportunityId   String
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id])
+  revisionNumber  Int
+  snapshotData    Json
+  reasonForChange String
+  createdAt       DateTime    @default(now())
 
-  dimensions               ScoreDimension[]
+  evidenceLinks EvidenceLink[]
+
+  @@unique([opportunityId, revisionNumber])
+  @@map("opportunity_revisions")
+}
+
+model EvidenceLink {
+  id String @id @default(uuid())
+
+  // Authoritative revision relation
+  opportunityRevisionId String?
+  opportunityRevision   OpportunityRevision? @relation(fields: [opportunityRevisionId], references: [id])
+
+  // Legacy compatibility relation
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+
+  normalizedSignalId String
+  normalizedSignal   NormalizedSignal @relation(fields: [normalizedSignalId], references: [id])
+
+  claimType       ClaimType @default(PAIN_EXISTENCE)
+  claimIdentifier String    @default("pain_existence")
+  claimSnippet    String
+
+  relationshipType RelationshipType @default(SUPPORTS)
+  supportStrength  SupportStrength  @default(MODERATE)
+  explanation      String?
+  relevanceScore   Float            @default(1.0)
+  createdAt        DateTime         @default(now())
+
+  @@unique([opportunityRevisionId, normalizedSignalId, claimIdentifier, relationshipType])
+  @@index([opportunityRevisionId])
+  @@index([opportunityId])
+  @@index([normalizedSignalId])
+  @@index([claimIdentifier])
+  @@index([relationshipType])
+  @@map("evidence_links")
+}
+
+model Scorecard {
+  id                      String      @id @default(uuid())
+  opportunityId           String
+  opportunity             Opportunity @relation(fields: [opportunityId], references: [id])
+  opportunityScore        Int // 0 - 100
+  evidenceConfidenceScore Int // 0 - 100
+  demandScore             Int // 0 - 100
+  feasibilityScore        Int // 0 - 100
+  economicsScore          Int // 0 - 100
+  competitionScore        Int // 0 - 100
+  goMarketScore           Int // 0 - 100
+  rubricVersion           String      @default("2.0.0")
+  isHypothesisOnly        Boolean     @default(false)
+  createdAt               DateTime    @default(now())
+
+  dimensions ScoreDimension[]
 
   @@map("scorecards")
 }
 
 model ScoreDimension {
-  id             String       @id @default(uuid())
-  scorecardId    String
-  scorecard      Scorecard    @relation(fields: [scorecardId], references: [id])
-  dimensionKey   String
-  name           String
-  score          Int
-  maxScore       Int
-  explanation    String
-  evidenceIds    String[]     @default([])
-  assumptions    String[]     @default([])
+  id           String    @id @default(uuid())
+  scorecardId  String
+  scorecard    Scorecard @relation(fields: [scorecardId], references: [id])
+  dimensionKey String
+  name         String
+  score        Int
+  maxScore     Int
+  explanation  String
+  evidenceIds  String[]  @default([])
+  assumptions  String[]  @default([])
 
   @@map("score_dimensions")
 }
 
-model EvidenceLink {
-  id                 String           @id @default(uuid())
-  opportunityId      String
-  opportunity        Opportunity      @relation(fields: [opportunityId], references: [id])
-  normalizedSignalId String
-  normalizedSignal   NormalizedSignal @relation(fields: [normalizedSignalId], references: [id])
-  claimSnippet       String
-  relevanceScore     Float            @default(1.0)
-  createdAt          DateTime         @default(now())
-
-  @@map("evidence_links")
-}
-
-model OpportunityRevision {
-  id             String       @id @default(uuid())
-  opportunityId  String
-  opportunity    Opportunity  @relation(fields: [opportunityId], references: [id])
-  revisionNumber Int
-  snapshotData   Json
-  reasonForChange String
-  createdAt      DateTime     @default(now())
-
-  @@map("opportunity_revisions")
-}
-
 model ScoreOverride {
-  id             String       @id @default(uuid())
-  opportunityId  String
-  opportunity    Opportunity  @relation(fields: [opportunityId], references: [id])
-  userId         String
-  user           User         @relation(fields: [userId], references: [id])
-  dimensionKey   String
-  originalScore  Int
+  id              String      @id @default(uuid())
+  opportunityId   String
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id])
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  dimensionKey    String
+  originalScore   Int
   overriddenScore Int
-  reason         String
-  createdAt      DateTime     @default(now())
+  reason          String
+  createdAt       DateTime    @default(now())
 
   @@map("score_overrides")
 }
 
 model SavedOpportunity {
-  id             String       @id @default(uuid())
-  userId         String
-  user           User         @relation(fields: [userId], references: [id])
-  opportunityId  String
-  opportunity    Opportunity  @relation(fields: [opportunityId], references: [id])
-  createdAt      DateTime     @default(now())
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  createdAt     DateTime    @default(now())
 
   @@unique([userId, opportunityId])
   @@map("saved_opportunities")
 }
 
 model AuditLog {
-  id             String       @id @default(uuid())
-  userId         String?
-  user           User?        @relation(fields: [userId], references: [id])
-  action         String
-  entityType     String
-  entityId       String
-  details        Json?
-  ipAddress      String?
-  createdAt      DateTime     @default(now())
+  id                      String   @id @default(uuid())
+  userId                  String?
+  user                    User?    @relation(fields: [userId], references: [id])
+  action                  String // EVIDENCE_VERIFIED, CONFIDENCE_RECALCULATED, QUALITY_GATE_EVALUATED, etc.
+  entityType              String // EVIDENCE_SIGNAL, OPPORTUNITY_REVISION, SCORECARD
+  entityId                String
+  evidenceId              String?
+  opportunityRevisionId   String?
+  previousState           String?
+  newState                String?
+  reason                  String?
+  verificationMethod      String?
+  confidenceRubricVersion String?
+  publicationGateVersion  String?
+  evidenceIdsUsed         String[] @default([])
+  previousConfidence      Int?
+  newConfidence           Int?
+  details                 Json?
+  ipAddress               String?
+  createdAt               DateTime @default(now())
 
+  @@index([entityType, entityId])
+  @@index([evidenceId])
+  @@index([opportunityRevisionId])
   @@map("audit_logs")
 }
 
 model AiSpendLedgerRecord {
-  id                 String       @id @default(uuid())
-  model              String
-  promptTokens       Int
-  completionTokens   Int
-  costMinorUnits     Int          // integer cents
-  purpose            String
-  createdAt          DateTime     @default(now())
+  id               String   @id @default(uuid())
+  model            String
+  promptTokens     Int
+  completionTokens Int
+  costMinorUnits   Int // integer cents
+  purpose          String
+  createdAt        DateTime @default(now())
 
   @@map("ai_spend_ledger_records")
 }
 
 model KillSwitch {
-  id          String   @id @default(uuid())
-  subsystem   String   @unique // e.g. "ALL", "AI_GENERATION", "INGESTION", "AUTO_PUBLISH"
-  isActive    Boolean  @default(false)
-  reason      String?
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  subsystem String   @unique // e.g. "ALL", "AI_GENERATION", "INGESTION", "AUTO_PUBLISH"
+  isActive  Boolean  @default(false)
+  reason    String?
+  updatedAt DateTime @updatedAt
 
   @@map("kill_switches")
 }

@@ -2,7 +2,17 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Radar, ShieldCheck, User, LogOut, Sparkles, X, Mail, CheckCircle2, ArrowRight } from "lucide-react";
+import {
+  Radar,
+  ShieldCheck,
+  User,
+  LogOut,
+  Sparkles,
+  X,
+  Mail,
+  CheckCircle2,
+  ArrowRight,
+} from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 export function HeaderNav() {
@@ -106,13 +116,16 @@ export function HeaderNav() {
                   </div>
                   <h3 className="text-xl font-bold text-white">Sign In to BuildWorth</h3>
                   <p className="text-xs text-zinc-400">
-                    Enter the email you used for your subscription to access all 40-attribute venture blueprints.
+                    Enter the email you used for your subscription to access all 40-attribute
+                    venture blueprints.
                   </p>
                 </div>
 
                 <form onSubmit={handleMagicLinkSubmit} className="space-y-3">
                   <div>
-                    <label className="block text-xs font-medium text-zinc-300 mb-1">Subscriber Email</label>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">
+                      Subscriber Email
+                    </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
                       <input

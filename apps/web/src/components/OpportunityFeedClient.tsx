@@ -2,7 +2,16 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-import { Search, SlidersHorizontal, ChevronDown, ChevronUp, ArrowRight, Sparkles, ShieldCheck } from "lucide-react";
+import {
+  Search,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
+  ArrowRight,
+  Sparkles,
+  ShieldCheck,
+  HelpCircle,
+} from "lucide-react";
 import { ScoreBadge, ConfidenceMeter } from "@buildworth/ui";
 import { formatMoneyRange } from "@buildworth/shared";
 import { StoredOpportunity, INITIAL_OPPORTUNITIES } from "@/lib/opportunity-store";
@@ -13,32 +22,17 @@ export function OpportunityFeedClient() {
   const [selectedIndustry, setSelectedIndustry] = useState("ALL");
   const [minScore, setMinScore] = useState(0);
   const [minConfidence, setMinConfidence] = useState(0);
-  const [sortBy, setSortBy] = useState<"SCORE" | "CONFIDENCE" | "COST" | "SIGNALS" | "DATE">("DATE");
+  const [sortBy, setSortBy] = useState<"SCORE" | "CONFIDENCE" | "COST" | "SIGNALS" | "DATE">(
+    "DATE",
+  );
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem("buildworth_discovered_opps");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const map = new Map<string, StoredOpportunity>();
-          parsed.forEach((o: StoredOpportunity) => map.set(o.slug, o));
-          INITIAL_OPPORTUNITIES.forEach((o: StoredOpportunity) => {
-            if (!map.has(o.slug)) map.set(o.slug, o);
-          });
-          setOpportunities(Array.from(map.values()));
-        }
-      } catch {
-        // ignore
-      }
-    }
-
     fetch("/api/opportunities")
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
         if (data && data.opportunities && Array.isArray(data.opportunities)) {
-          setOpportunities(prev => {
+          setOpportunities((prev) => {
             const map = new Map<string, StoredOpportunity>();
             data.opportunities.forEach((o: StoredOpportunity) => map.set(o.slug, o));
             prev.forEach((o: StoredOpportunity) => {
@@ -67,7 +61,8 @@ export function OpportunityFeedClient() {
         return true;
       })
       .sort((a, b) => {
-        if (sortBy === "DATE") return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+        if (sortBy === "DATE")
+          return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
         if (sortBy === "SCORE") return b.opportunityScore - a.opportunityScore;
         if (sortBy === "CONFIDENCE") return b.confidenceScore - a.confidenceScore;
         if (sortBy === "COST") return a.costRange.minMinor - b.costRange.minMinor;
@@ -76,21 +71,28 @@ export function OpportunityFeedClient() {
       });
   }, [opportunities, searchQuery, selectedIndustry, minScore, minConfidence, sortBy]);
 
-  const industries = ["ALL", "DevOps & Compliance", "Data Engineering & FinOps", "B2B SaaS RevOps", "AI Engineering & Ops"];
+  const industries = [
+    "ALL",
+    "DevOps & Compliance",
+    "Data Engineering & FinOps",
+    "B2B SaaS RevOps",
+    "AI Engineering & Ops",
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Clean Read-Only System Status Banner */}
+      {/* Clean Defensible System Status Banner */}
       <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2.5">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
           <span className="text-zinc-300 font-medium">
-            Daily Intelligence Automated Pipeline: <strong className="text-white">Active (Every morning at 06:00 AM)</strong>
+            Daily Intelligence Automated Pipeline:{" "}
+            <strong className="text-white">Active (Every morning at 06:00 AM)</strong>
           </span>
         </div>
         <div className="flex items-center gap-2 text-zinc-500 font-mono text-[11px]">
           <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-          <span>Calibrated via Agnes AI & Empirical Market Signals</span>
+          <span>Evidence-backed startup intelligence with transparent confidence scoring</span>
         </div>
       </div>
 
@@ -153,8 +155,8 @@ export function OpportunityFeedClient() {
                 className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-200"
               >
                 <option value={0}>All</option>
+                <option value={80}>80+</option>
                 <option value={85}>85+</option>
-                <option value={90}>90+</option>
               </select>
             </label>
             <label className="flex items-center gap-1.5">
@@ -165,8 +167,8 @@ export function OpportunityFeedClient() {
                 className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-200"
               >
                 <option value={0}>All</option>
+                <option value={50}>50%+</option>
                 <option value={75}>75%+</option>
-                <option value={85}>85%+</option>
               </select>
             </label>
           </div>
@@ -182,7 +184,8 @@ export function OpportunityFeedClient() {
         ) : (
           filteredItems.map((op) => {
             const isExpanded = expandedSlug === op.slug;
-            const isFresh = Date.now() - new Date(op.publishedAt).getTime() < 3600 * 1000 * 24;
+            const isFresh = Date.now() - new Date(op.publishedAt).getTime() < 3600 * 1000 * 48;
+            const isVerified = op.publicationQualityStatus === "VERIFIED";
 
             return (
               <div
@@ -191,14 +194,24 @@ export function OpportunityFeedClient() {
               >
                 <div className="flex flex-col md:flex-row justify-between gap-6">
                   <div className="space-y-3 flex-1">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5 flex-wrap">
                       <span className="text-xs font-mono text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded">
                         {op.industry}
                       </span>
-                      <span className="text-xs text-zinc-500 font-mono">
-                        {op.signalsCount} Verified Signals
-                      </span>
-                      {isFresh && (
+
+                      {isVerified ? (
+                        <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded font-mono flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                          {op.signalsCount} verified signals across 3 sources
+                        </span>
+                      ) : (
+                        <span className="text-xs text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded font-mono flex items-center gap-1">
+                          <HelpCircle className="w-3 h-3 text-amber-400" />
+                          Hypothesis — evidence not yet verified
+                        </span>
+                      )}
+
+                      {isFresh && isVerified && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center gap-1">
                           <Sparkles className="w-3 h-3" /> NEW DISCOVERY
                         </span>
@@ -268,7 +281,7 @@ export function OpportunityFeedClient() {
                   <div className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-3 text-xs">
                     <div className="font-semibold text-white flex items-center justify-between">
                       <span>9-Dimension Rubric Breakdown (Score: {op.opportunityScore}/100)</span>
-                      <span className="text-zinc-500 font-mono">Rubric v1.0.0</span>
+                      <span className="text-zinc-500 font-mono">Rubric v2.0.0</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
                       {op.dimensionBreakdown.map((dim, idx) => (
@@ -282,7 +295,12 @@ export function OpportunityFeedClient() {
                               {dim.score}/{dim.maxScore}
                             </span>
                           </div>
-                          <p className="text-[11px] text-zinc-400">{dim.explanation}</p>
+                          <p className="text-[11px] text-zinc-400">
+                            {dim.isAssumption ? (
+                              <span className="text-amber-400/90 font-medium">[Assumption] </span>
+                            ) : null}
+                            {dim.explanation}
+                          </p>
                         </div>
                       ))}
                     </div>

@@ -1,209 +1,173 @@
 import { describe, it, expect } from "vitest";
-import { evaluateOpportunityScorecard, calculateEvidenceConfidence } from "../src/index.js";
+import {
+  evaluateOpportunityScorecard,
+  calculateEvidenceConfidence,
+  ClaimEvidenceLinkItem,
+  EvidenceSignalItem,
+} from "../src/index.js";
 
-describe("Scoring Engine", () => {
-  it("calculates 100-point opportunity score accurately", () => {
-    const dimensionInputs = [
-      {
-        key: "pain_evidence",
-        name: "Pain Evidence",
-        maxScore: 15,
-        rawScore: 14,
-        explanation: "High pain",
-        evidenceIds: ["ev-1"],
-        assumptions: [],
-      },
-      {
-        key: "buyer_demand_wtp",
-        name: "Buyer Demand",
-        maxScore: 15,
-        rawScore: 13,
-        explanation: "Active WTP",
-        evidenceIds: ["ev-2"],
-        assumptions: [],
-      },
-      {
-        key: "technical_feasibility",
-        name: "Feasibility",
-        maxScore: 15,
-        rawScore: 15,
-        explanation: "Standard Next.js stack",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "economics",
-        name: "Economics",
-        maxScore: 15,
-        rawScore: 14,
-        explanation: "90% gross margin",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "market_attractiveness",
-        name: "Market",
-        maxScore: 10,
-        rawScore: 9,
-        explanation: "Growing market",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "buyer_accessibility",
-        name: "Accessibility",
-        maxScore: 10,
-        rawScore: 8,
-        explanation: "DevOps communities",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "competition_differentiation",
-        name: "Competition",
-        maxScore: 10,
-        rawScore: 8,
-        explanation: "Clear differentiation",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "speed_to_validation",
-        name: "Speed",
-        maxScore: 5,
-        rawScore: 5,
-        explanation: "14-day test",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "defensibility",
-        name: "Defensibility",
-        maxScore: 5,
-        rawScore: 4,
-        explanation: "Workflow lock-in",
-        evidenceIds: [],
-        assumptions: [],
-      },
-    ];
-
-    const confidenceSignals = [
-      {
-        id: "sig-1",
-        sourceType: "GITHUB",
-        sourceCredibilityWeight: 0.9,
-        isDirectBuyerIntent: true,
-        publishedAt: new Date(),
-        extractedUserCount: 15,
-      },
-      {
-        id: "sig-2",
-        sourceType: "REDDIT",
-        sourceCredibilityWeight: 0.8,
-        isDirectBuyerIntent: true,
-        publishedAt: new Date(),
-        extractedUserCount: 12,
-      },
-      {
-        id: "sig-3",
-        sourceType: "HACKERNEWS",
-        sourceCredibilityWeight: 0.85,
-        isDirectBuyerIntent: false,
-        publishedAt: new Date(),
-        extractedUserCount: 8,
-      },
-      {
-        id: "sig-4",
-        sourceType: "PRODUCTHUNT",
-        sourceCredibilityWeight: 0.75,
-        isDirectBuyerIntent: true,
-        publishedAt: new Date(),
-        extractedUserCount: 20,
-      },
-    ];
-
-    const result = evaluateOpportunityScorecard(dimensionInputs, { signals: confidenceSignals });
-
-    expect(result.opportunityScore).toBe(90);
-    expect(result.evidenceConfidenceScore).toBeGreaterThanOrEqual(80);
-    expect(result.isHypothesisOnly).toBe(false);
-    expect(result.demandScore).toBe(90);
-    expect(result.feasibilityScore).toBe(100);
+describe("Scoring Engine Rubric v2.0.0", () => {
+  const mockSignal = (overrides: Partial<EvidenceSignalItem> = {}): EvidenceSignalItem => ({
+    id: "sig-" + Math.random().toString(36).slice(2, 7),
+    sourceName: "Hacker News",
+    sourceType: "HACKERNEWS_API",
+    sourceFamily: "FORUM",
+    credibilityTier: "TIER_2_CREDIBLE_PUBLIC",
+    signalType: "PAIN",
+    evidenceOrigin: "COLLECTED",
+    publishedAt: new Date(Date.now() - 30 * 24 * 3600 * 1000), // 30 days ago
+    publishedAtPrecision: "EXACT_TIMESTAMP",
+    collectedAt: new Date(),
+    language: "en",
+    sanitizedExcerpt: "Recurring problem in our CI/CD pipeline",
+    problemSummary: "Pipeline screenshot capture burden",
+    purchaseIntent: false,
+    evidenceQuality: 0.9,
+    recencyScore: 1.0,
+    credibilityScore: 0.8,
+    independenceKey: "hn:story:12345",
+    independenceConfidence: 1.0,
+    verificationStatus: "VERIFIED",
+    verificationMethod: "TRUSTED_API",
+    ...overrides,
   });
 
-  it("flags high opportunity score with low confidence as hypothesis only", () => {
-    const dimensionInputs = [
-      {
-        key: "pain_evidence",
-        name: "Pain Evidence",
-        maxScore: 15,
-        rawScore: 15,
-        explanation: "High pain",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "buyer_demand_wtp",
-        name: "Buyer Demand",
-        maxScore: 15,
-        rawScore: 15,
-        explanation: "High demand",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "technical_feasibility",
-        name: "Feasibility",
-        maxScore: 15,
-        rawScore: 15,
-        explanation: "",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "economics",
-        name: "Economics",
-        maxScore: 15,
-        rawScore: 15,
-        explanation: "",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "market_attractiveness",
-        name: "Market",
-        maxScore: 10,
-        rawScore: 10,
-        explanation: "",
-        evidenceIds: [],
-        assumptions: [],
-      },
-      {
-        key: "buyer_accessibility",
-        name: "Accessibility",
-        maxScore: 10,
-        rawScore: 10,
-        explanation: "",
-        evidenceIds: [],
-        assumptions: [],
-      },
+  const mockLink = (
+    claimType: ClaimEvidenceLinkItem["claimType"],
+    signal: EvidenceSignalItem,
+    relationshipType: "SUPPORTS" | "CONTRADICTS" = "SUPPORTS",
+  ): ClaimEvidenceLinkItem => ({
+    id: "link-" + Math.random().toString(36).slice(2, 7),
+    normalizedSignalId: signal.id,
+    signal,
+    claimType,
+    claimIdentifier: claimType.toLowerCase(),
+    claimSnippet: "Claim supported by signal",
+    relationshipType,
+    supportStrength: "STRONG",
+    relevanceScore: 0.95,
+  });
+
+  it("calculates 0 confidence when no verified evidence exists", () => {
+    const res = calculateEvidenceConfidence({ evidenceLinks: [] });
+    expect(res.score).toBe(0);
+    expect(res.explanation.weakestEvidenceArea).toContain("No verified evidence");
+  });
+
+  it("excludes SYNTHETIC_FIXTURE and LEGACY_UNCLASSIFIED from confidence", () => {
+    const syntheticSignal = mockSignal({ evidenceOrigin: "SYNTHETIC_FIXTURE" });
+    const legacySignal = mockSignal({ evidenceOrigin: "LEGACY_UNCLASSIFIED" });
+
+    const res = calculateEvidenceConfidence({
+      evidenceLinks: [
+        mockLink("PAIN_EXISTENCE", syntheticSignal),
+        mockLink("BUYER_DEMAND", legacySignal),
+      ],
+    });
+
+    expect(res.score).toBe(0);
+  });
+
+  it("rewards direct buyer intent, multiple independent sources, and key claim coverage", () => {
+    const sig1 = mockSignal({
+      id: "sig-1",
+      sourceFamily: "FORUM",
+      credibilityTier: "TIER_2_CREDIBLE_PUBLIC",
+      independenceKey: "hn:story:101",
+      signalType: "PAIN",
+    });
+    const sig2 = mockSignal({
+      id: "sig-2",
+      sourceFamily: "CODE_HOST",
+      credibilityTier: "TIER_1_PRIMARY",
+      independenceKey: "github:issue:202",
+      signalType: "BUYER_IDENTITY" as any,
+    });
+    const sig3 = mockSignal({
+      id: "sig-3",
+      sourceFamily: "COMMUNITY",
+      credibilityTier: "TIER_2_CREDIBLE_PUBLIC",
+      independenceKey: "reddit:post:303",
+      signalType: "WILLINGNESS_TO_PAY",
+      purchaseIntent: true,
+      spendingSignal: "$199/mo",
+    });
+    const sig4 = mockSignal({
+      id: "sig-4",
+      sourceFamily: "PROCUREMENT",
+      credibilityTier: "TIER_1_PRIMARY",
+      independenceKey: "procure:rfp:404",
+      signalType: "PURCHASE_INTENT",
+      purchaseIntent: true,
+      spendingSignal: "$15k annual",
+    });
+
+    const links = [
+      mockLink("PAIN_EXISTENCE", sig1),
+      mockLink("BUYER_IDENTITY", sig2),
+      mockLink("BUYER_DEMAND", sig3),
+      mockLink("WILLINGNESS_TO_PAY", sig4),
+      mockLink("TECHNICAL_FEASIBILITY", sig2),
     ];
 
-    // Only 1 anonymous weak signal
-    const weakSignals = [
-      {
-        id: "sig-weak",
-        sourceType: "ANONYMOUS",
-        sourceCredibilityWeight: 0.2,
-        isDirectBuyerIntent: false,
-        publishedAt: new Date(Date.now() - 400 * 24 * 3600 * 1000),
-        extractedUserCount: 1,
-      },
+    const res = calculateEvidenceConfidence({ evidenceLinks: links });
+    expect(res.score).toBeGreaterThanOrEqual(70);
+    expect(res.explanation.positiveComponents.directBuyerIntentScore).toBeGreaterThanOrEqual(10);
+    expect(res.explanation.positiveComponents.claimCoverageScore).toBeGreaterThanOrEqual(12);
+  });
+
+  it("applies contradiction penalty for contradictory evidence", () => {
+    const sigSupport = mockSignal({
+      id: "sig-sup-1",
+      independenceKey: "group:1",
+      signalType: "PAIN",
+    });
+    const sigContra = mockSignal({
+      id: "sig-con-1",
+      independenceKey: "group:2",
+      signalType: "CONTRADICTING_EVIDENCE",
+      sanitizedExcerpt: "We built an internal script in 1 hour and would never pay for SaaS",
+    });
+
+    const supportingLinks = [
+      mockLink("PAIN_EXISTENCE", sigSupport, "SUPPORTS"),
+      mockLink("BUYER_DEMAND", sigSupport, "SUPPORTS"),
     ];
 
-    const result = evaluateOpportunityScorecard(dimensionInputs, { signals: weakSignals });
-    expect(result.opportunityScore).toBeGreaterThanOrEqual(70);
-    expect(result.evidenceConfidenceScore).toBeLessThan(50);
-    expect(result.isHypothesisOnly).toBe(true);
+    const mixedLinks = [
+      ...supportingLinks,
+      mockLink("WILLINGNESS_TO_PAY", sigContra, "CONTRADICTS"),
+    ];
+
+    const supportOnlyRes = calculateEvidenceConfidence({ evidenceLinks: supportingLinks });
+    const mixedRes = calculateEvidenceConfidence({ evidenceLinks: mixedLinks });
+
+    expect(mixedRes.explanation.contradictionPenalty).toBeGreaterThan(0);
+    expect(mixedRes.score).toBeLessThan(supportOnlyRes.score);
+  });
+
+  it("applies penalty for unknown publication dates", () => {
+    const knownDateSignal = mockSignal({
+      id: "sig-known",
+      publishedAt: new Date(Date.now() - 10 * 24 * 3600 * 1000),
+      publishedAtPrecision: "EXACT_TIMESTAMP",
+    });
+
+    const unknownDateSignal = mockSignal({
+      id: "sig-unknown",
+      publishedAt: null,
+      publishedAtPrecision: "UNKNOWN",
+    });
+
+    const knownRes = calculateEvidenceConfidence({
+      evidenceLinks: [mockLink("PAIN_EXISTENCE", knownDateSignal)],
+    });
+    const unknownRes = calculateEvidenceConfidence({
+      evidenceLinks: [mockLink("PAIN_EXISTENCE", unknownDateSignal)],
+    });
+
+    expect(knownRes.explanation.positiveComponents.recencyScore).toBeGreaterThan(
+      unknownRes.explanation.positiveComponents.recencyScore,
+    );
   });
 });

@@ -1,6 +1,6 @@
 import { BaseSourceAdapter } from "./adapters/base.js";
 import { IngestionResult, SanitizedSignal } from "./types.js";
-import { sanitizeRawContent } from "./sanitizer.js";
+import { sanitizeRawContent, deriveIndependenceKey } from "./sanitizer.js";
 import { computeContentHash, canonicalizeUrl } from "./dedup.js";
 import { logger } from "@buildworth/observability";
 
@@ -41,6 +41,12 @@ export async function runAdapterIngestion(
           continue;
         }
 
+        const { key: independenceKey, method: independenceMethod } = deriveIndependenceKey(
+          adapter.sourceKey,
+          raw.externalId,
+          canonicalUrl,
+        );
+
         const sanitized: SanitizedSignal = {
           externalId: raw.externalId,
           sourceKey: adapter.sourceKey,
@@ -51,6 +57,9 @@ export async function runAdapterIngestion(
           publishedAt: raw.publishedAt,
           metadata: raw.metadata || {},
           authorFingerprint: raw.authorFingerprint,
+          independenceKey,
+          independenceMethod,
+          evidenceOrigin: "COLLECTED",
         };
 
         result.signals.push(sanitized);

@@ -1,5 +1,7 @@
-import { ScoringDimensionInput } from "./types.js";
-import { ScoreDimensionResult } from "@buildworth/shared";
+import { ScoringDimensionInput, ConfidenceInput } from "./types.js";
+import { ScoreDimensionResult, ScorecardResult } from "@buildworth/shared";
+import { calculateEvidenceConfidence } from "./confidence-score.js";
+import { calculateNormalizedSubscores } from "./subscores.js";
 
 export const SCORING_RUBRIC_V1 = [
   { key: "pain_evidence", name: "Pain Evidence", maxScore: 15 },
@@ -43,5 +45,29 @@ export function calculateOpportunityScore(dimensions: ScoringDimensionInput[]): 
   return {
     totalScore: Math.min(100, Math.max(0, Math.round(total))),
     dimensionResults,
+  };
+}
+
+/**
+ * Complete evaluation of scorecard combining 9-dimension opportunity score and deterministic evidence confidence.
+ */
+export function evaluateOpportunityScorecard(
+  dimensions: ScoringDimensionInput[],
+  confidenceInput: ConfidenceInput,
+): ScorecardResult {
+  const { totalScore, dimensionResults } = calculateOpportunityScore(dimensions);
+  const confidenceResult = calculateEvidenceConfidence(confidenceInput);
+  const subscores = calculateNormalizedSubscores(dimensionResults);
+
+  const isHypothesisOnly = confidenceResult.score < 50;
+
+  return {
+    opportunityScore: totalScore,
+    evidenceConfidenceScore: confidenceResult.score,
+    isHypothesisOnly,
+    dimensions: dimensionResults,
+    rubricVersion: "2.0.0",
+    calculatedAt: new Date().toISOString(),
+    ...subscores,
   };
 }

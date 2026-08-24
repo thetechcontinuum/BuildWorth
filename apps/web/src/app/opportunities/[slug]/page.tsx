@@ -2,8 +2,10 @@ import React from "react";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle2, ShieldCheck, DollarSign, Users, Wrench } from "lucide-react";
 import { ScoreBadge, ConfidenceMeter } from "@buildworth/ui";
-import { formatMoneyRange } from "@buildworth/shared";
+import { formatMoneyRange, ClaimType } from "@buildworth/shared";
 import { getStoredOpportunityBySlug } from "@/lib/opportunity-store";
+import { MarketEvidenceSection } from "@/components/MarketEvidenceSection";
+import { ClaimEvidenceBadge } from "@/components/ClaimEvidenceBadge";
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
   const opp = getStoredOpportunityBySlug(params.slug);
@@ -14,35 +16,30 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 }
 
 export default function OpportunityDetailPage({ params }: { params: { slug: string } }) {
-  const opp = getStoredOpportunityBySlug(params.slug) || {
-    title: "Automated SOC2 Git Evidence Collector for Vercel Monorepos",
-    summary: "Eliminate quarterly 40-hour screenshot capture sprints for DevOps teams by binding commit signatures to audit controls.",
-    opportunityScore: 89,
-    confidenceScore: 84,
-    industry: "DevOps & Security Compliance",
-    customerType: "B2B",
-    buyer: "VP of Engineering or Head of Security",
-    costRange: { minMinor: 500000, maxMinor: 1200000, currency: "USD" as const },
-    timeToMvpWeeks: { min: 4, max: 8 },
-    recommendedExperiment: "Pre-sell 5 annual pilot licenses to Series A CTOs at $199/mo with a 14-day refund guarantee.",
-    jobsToBeDone: [
-      "Collect compliance screenshots and cryptographic logs automatically on every git merge",
-      "Export structured audit-ready evidence packages for external auditors",
-      "Alert security leads when unreviewed pull requests merge to production"
-    ],
-    narrowMvpScope: [
-      "GitHub Action for PR approval signature verification",
-      "Vercel deployment environment snapshot webhook",
-      "Evidence dashboard with exportable PDF/ZIP audit bundles"
-    ],
-    existingWorkflow: "Manual screenshots of PR approvals and Vercel env configs stored in shared Google Drive folders.",
-    buyingTrigger: "Upcoming annual SOC2 Type II audit deadline",
-    competitors: [
-      { name: "Vanta / Drata", weakness: "High price ($15k+/yr), complex setup, lacks native deep git-commit binding" },
-      { name: "Manual Google Drive Folders", weakness: "High labor cost (40+ engineering hours per quarter), error-prone" }
-    ],
-    dimensionBreakdown: []
+  const opp = getStoredOpportunityBySlug(params.slug);
+
+  if (!opp) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
+        Opportunity blueprint not found.
+      </div>
+    );
+  }
+
+  const getClaimEvidenceCount = (type: ClaimType) => {
+    return (opp.evidenceLinks || []).filter(
+      (l) =>
+        l.claimType === type &&
+        l.signal?.verificationStatus === "VERIFIED" &&
+        l.signal?.evidenceOrigin !== "SYNTHETIC_FIXTURE" &&
+        l.signal?.evidenceOrigin !== "LEGACY_UNCLASSIFIED",
+    ).length;
   };
+
+  const painCount = getClaimEvidenceCount("PAIN_EXISTENCE");
+  const buyerDemandCount = getClaimEvidenceCount("BUYER_DEMAND");
+  const wtpCount = getClaimEvidenceCount("WILLINGNESS_TO_PAY");
+  const feasibilityCount = getClaimEvidenceCount("TECHNICAL_FEASIBILITY");
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto py-4">
@@ -56,9 +53,20 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
       {/* Header Summary Card */}
       <div className="p-8 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <span className="text-xs font-mono text-zinc-400 bg-zinc-800 px-2.5 py-1 rounded">
-            {opp.industry} • {opp.customerType}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-zinc-400 bg-zinc-800 px-2.5 py-1 rounded">
+              {opp.industry} • {opp.customerType}
+            </span>
+            {opp.publicationQualityStatus === "VERIFIED" ? (
+              <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded">
+                Verified Market Intelligence
+              </span>
+            ) : (
+              <span className="text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded">
+                Hypothesis — Evidence not yet verified
+              </span>
+            )}
+          </div>
           <ScoreBadge score={opp.opportunityScore} size="lg" />
         </div>
 
@@ -88,9 +96,7 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
           </div>
           <div>
             <span className="text-zinc-500 block font-medium">Plausible Pricing</span>
-            <span className="text-zinc-200 font-mono font-semibold">
-              $149 - $399 /mo
-            </span>
+            <span className="text-zinc-200 font-mono font-semibold">$149 - $399 /mo</span>
           </div>
         </div>
 
@@ -98,18 +104,27 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
       </div>
 
       {/* Structured Sections */}
-      <div className="space-y-6">
-        {/* Section 1: Problem & Jobs to be Done */}
+      <div className="space-y-8">
+        {/* Section 1: Problem & Jobs to be Done with Claim Citation Badges */}
         <section className="p-6 rounded-xl bg-zinc-900/40 border border-zinc-800 space-y-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Users className="w-5 h-5 text-indigo-400" /> Problem Space & Workaround
-          </h2>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Users className="w-5 h-5 text-indigo-400" /> Problem Space & Workaround
+            </h2>
+            <div className="flex items-center gap-2">
+              <ClaimEvidenceBadge claimType="PAIN_EXISTENCE" sourcesCount={painCount} />
+              <ClaimEvidenceBadge claimType="BUYER_DEMAND" sourcesCount={buyerDemandCount} />
+            </div>
+          </div>
+
           <div className="space-y-2 text-sm text-zinc-300">
             <div>
-              <strong className="text-zinc-200">Existing Workaround:</strong> {opp.existingWorkflow || "Manual spreadsheets and scripts."}
+              <strong className="text-zinc-200">Existing Workaround:</strong>{" "}
+              {opp.existingWorkflow || "Manual spreadsheets and scripts."}
             </div>
             <div>
-              <strong className="text-zinc-200">Buying Trigger:</strong> {opp.buyingTrigger || "Quarterly audit deadline or executive review."}
+              <strong className="text-zinc-200">Buying Trigger:</strong>{" "}
+              {opp.buyingTrigger || "Quarterly audit deadline or executive review."}
             </div>
           </div>
           <div className="space-y-2 pt-2">
@@ -117,11 +132,13 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
               Jobs to be Done
             </span>
             <ul className="space-y-1.5 text-sm text-zinc-300">
-              {(opp.jobsToBeDone || [
-                "Collect and verify compliance evidence automatically",
-                "Generate audit-ready reports without manual engineering hours",
-                "Alert team leads when unreviewed pull requests deploy"
-              ]).map((job, idx) => (
+              {(
+                opp.jobsToBeDone || [
+                  "Collect and verify compliance evidence automatically",
+                  "Generate audit-ready reports without manual engineering hours",
+                  "Alert team leads when unreviewed pull requests deploy",
+                ]
+              ).map((job, idx) => (
                 <li key={idx} className="flex items-start gap-2">
                   <CheckCircle2 className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
                   <span>{job}</span>
@@ -131,17 +148,31 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
           </div>
         </section>
 
-        {/* Section 2: Proposed Product & MVP Scope */}
+        {/* Section 2: Core Market Evidence & Source Attribution (Prominently Placed) */}
+        <MarketEvidenceSection
+          evidenceLinks={opp.evidenceLinks || []}
+          publicationQualityStatus={opp.publicationQualityStatus}
+          isDemoFixture={opp.isDemoFixture}
+          confidenceScore={opp.confidenceScore}
+        />
+
+        {/* Section 3: Proposed Product & MVP Scope */}
         <section className="p-6 rounded-xl bg-zinc-900/40 border border-zinc-800 space-y-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Wrench className="w-5 h-5 text-indigo-400" /> Proposed Product & Narrow MVP Scope
-          </h2>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Wrench className="w-5 h-5 text-indigo-400" /> Proposed Product & Narrow MVP Scope
+            </h2>
+            <ClaimEvidenceBadge claimType="TECHNICAL_FEASIBILITY" sourcesCount={feasibilityCount} />
+          </div>
+
           <ul className="space-y-1.5 text-sm text-zinc-300">
-            {(opp.narrowMvpScope || [
-              "Automated webhook ingestion adapter",
-              "Real-time heuristic evaluation engine",
-              "Dashboard with exportable audit packages"
-            ]).map((item, idx) => (
+            {(
+              opp.narrowMvpScope || [
+                "Automated webhook ingestion adapter",
+                "Real-time heuristic evaluation engine",
+                "Dashboard with exportable audit packages",
+              ]
+            ).map((item, idx) => (
               <li key={idx} className="flex items-start gap-2">
                 <span className="text-xs font-mono text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded shrink-0">
                   {idx + 1}
@@ -152,16 +183,29 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
           </ul>
         </section>
 
-        {/* Section 3: Competition & Differentiation */}
+        {/* Section 4: Competition & Differentiation */}
         <section className="p-6 rounded-xl bg-zinc-900/40 border border-zinc-800 space-y-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-indigo-400" /> Competition & Incumbent Gaps
-          </h2>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-indigo-400" /> Competition & Buyer Willingness to
+              Pay
+            </h2>
+            <ClaimEvidenceBadge claimType="WILLINGNESS_TO_PAY" sourcesCount={wtpCount} />
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-            {(opp.competitors || [
-              { name: "Incumbent Enterprise Platforms", weakness: "Complex $15k+ annual contracts and heavy onboarding" },
-              { name: "Manual In-House Scripts", weakness: "Fragile maintenance burden and high developer hourly cost" }
-            ]).map((comp, idx) => (
+            {(
+              opp.competitors || [
+                {
+                  name: "Incumbent Enterprise Platforms",
+                  weakness: "Complex $15k+ annual contracts and heavy onboarding",
+                },
+                {
+                  name: "Manual In-House Scripts",
+                  weakness: "Fragile maintenance burden and high developer hourly cost",
+                },
+              ]
+            ).map((comp, idx) => (
               <div
                 key={idx}
                 className="p-4 rounded-lg bg-zinc-950/60 border border-zinc-800 space-y-1"
@@ -173,7 +217,7 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
           </div>
         </section>
 
-        {/* Section 4: Recommended Next Validation Experiment */}
+        {/* Section 5: Recommended Next Validation Experiment */}
         <section className="p-6 rounded-xl bg-gradient-to-br from-indigo-950/30 to-zinc-900/40 border border-indigo-500/30 space-y-3">
           <div className="flex items-center gap-2 text-indigo-400 font-semibold text-base">
             <ShieldCheck className="w-5 h-5" /> Recommended Next Validation Experiment

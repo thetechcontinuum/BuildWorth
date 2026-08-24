@@ -1,3 +1,10 @@
+import {
+  EvidenceSignalItem,
+  ClaimEvidenceLinkItem,
+  ClaimType,
+  ConfidenceExplanation,
+} from "@buildworth/shared";
+
 export interface ScoringDimensionInput {
   key: string;
   name: string;
@@ -8,16 +15,9 @@ export interface ScoringDimensionInput {
   assumptions: string[];
 }
 
-export interface EvidenceSignalItem {
-  id: string;
-  sourceType: string;
-  sourceCredibilityWeight: number; // 0 - 1
-  isDirectBuyerIntent: boolean;
-  publishedAt: Date;
-  extractedUserCount: number;
-}
-
 export interface ConfidenceInput {
-  signals: EvidenceSignalItem[];
+  evidenceLinks: ClaimEvidenceLinkItem[];
   now?: Date;
 }
+
+export { EvidenceSignalItem, ClaimEvidenceLinkItem, ClaimType, ConfidenceExplanation };

@@ -9,7 +9,8 @@ export const SCHEDULED_TASKS = [
   {
     name: "morning_06am_opportunity_discovery",
     cron: "0 6 * * *",
-    description: "Execute 06:00 AM full AI market scan, pgvector clustering and new opportunity synthesis",
+    description:
+      "Execute 06:00 AM full AI market scan, pgvector clustering and new opportunity synthesis",
   },
   {
     name: "daily_spend_ledger_reset",

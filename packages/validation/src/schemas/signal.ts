@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const SignalTypeSchema = z.enum([
+export const LegacySignalTypeSchema = z.enum([
   "PAIN_COMPLAINT",
   "WORKAROUND_REQUEST",
   "PURCHASE_INTENT",
@@ -22,7 +22,7 @@ export const RawSignalInputSchema = z.object({
 });
 
 export const NormalizedSignalSchema = z.object({
-  signalType: SignalTypeSchema,
+  signalType: LegacySignalTypeSchema,
   sanitizedExcerpt: z.string().max(1000),
   problemSummary: z.string().min(5),
   actorRole: z.string().optional(),

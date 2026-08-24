@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllStoredOpportunities, addStoredOpportunity, StoredOpportunity } from "@/lib/opportunity-store";
+import {
+  getAllStoredOpportunities,
+  addStoredOpportunity,
+  StoredOpportunity,
+} from "@/lib/opportunity-store";
 
 export const dynamic = "force-dynamic";
 
@@ -8,13 +12,13 @@ export async function GET() {
   return NextResponse.json({
     success: true,
     totalCount: opps.length,
-    opportunities: opps
+    opportunities: opps,
   });
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as StoredOpportunity;
+    const body = (await request.json()) as StoredOpportunity;
     if (!body.title || !body.slug) {
       return NextResponse.json({ error: "Invalid opportunity payload" }, { status: 400 });
     }

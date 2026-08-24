@@ -18,12 +18,16 @@ export function AdminPipelineTrigger() {
       const data = await res.json();
 
       if (data.success) {
-        setLog(`[SUCCESS] ${new Date().toLocaleTimeString()} - Completed in ${data.executionTimeMs}ms. Published ${data.newOpportunitiesPublished} new venture blueprint to public feed.`);
+        setLog(
+          `[SUCCESS] ${new Date().toLocaleTimeString()} - Completed in ${data.executionTimeMs}ms. Published ${data.newOpportunitiesPublished} new venture blueprint to public feed.`,
+        );
       } else {
         setLog(`[ERROR] ${data.error || "Execution failed"}`);
       }
     } catch {
-      setLog(`[SUCCESS] ${new Date().toLocaleTimeString()} - Pipeline executed successfully and synced with production feed.`);
+      setLog(
+        `[SUCCESS] ${new Date().toLocaleTimeString()} - Pipeline executed successfully and synced with production feed.`,
+      );
     } finally {
       setIsRunning(false);
     }
@@ -39,7 +43,8 @@ export function AdminPipelineTrigger() {
           </div>
           <h2 className="text-lg font-bold text-white">Agnes AI Discovery Pipeline Execution</h2>
           <p className="text-xs text-zinc-400">
-            Triggers on-demand market signal ingestion from Hacker News, Reddit, GitHub, and Product Hunt.
+            Triggers on-demand market signal ingestion from Hacker News, Reddit, GitHub, and Product
+            Hunt.
           </p>
         </div>
 
