@@ -33,3 +33,5 @@ pnpm-debug.log*
 
 # Turbo
 .turbo
+.vercel
+.env*
