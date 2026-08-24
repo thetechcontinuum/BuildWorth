@@ -1,275 +1,135 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-import { Search, SlidersHorizontal, ChevronDown, ChevronUp, ArrowRight } from "lucide-react";
+import { Search, SlidersHorizontal, ChevronDown, ChevronUp, ArrowRight, RefreshCw, Sparkles, Clock, CheckCircle2 } from "lucide-react";
 import { ScoreBadge, ConfidenceMeter } from "@buildworth/ui";
 import { formatMoneyRange } from "@buildworth/shared";
-
-export interface OpportunityItem {
-  slug: string;
-  title: string;
-  summary: string;
-  industry: string;
-  customerType: string;
-  opportunityScore: number;
-  confidenceScore: number;
-  costRange: { minMinor: number; maxMinor: number; currency: "USD" };
-  timeToMvpWeeks: { min: number; max: number };
-  buyer: string;
-  signalsCount: number;
-  recommendedExperiment: string;
-  dimensionBreakdown: { name: string; score: number; maxScore: number; explanation: string }[];
-}
-
-const INITIAL_DATA: OpportunityItem[] = [
-  {
-    slug: "automated-soc2-evidence-collector",
-    title: "Automated SOC2 Git Evidence Collector for Vercel Monorepos",
-    summary:
-      "Eliminates quarterly 40-hour screenshot capture sprints for DevOps teams by binding commit signatures to audit controls.",
-    industry: "DevOps & Compliance",
-    customerType: "B2B",
-    opportunityScore: 89,
-    confidenceScore: 84,
-    costRange: { minMinor: 500000, maxMinor: 1200000, currency: "USD" },
-    timeToMvpWeeks: { min: 4, max: 8 },
-    buyer: "VP of Engineering",
-    signalsCount: 28,
-    recommendedExperiment:
-      "Pre-sell 5 annual pilot licenses to Series A CTOs at $199/mo with a 14-day refund guarantee.",
-    dimensionBreakdown: [
-      {
-        name: "Pain Evidence",
-        score: 14,
-        maxScore: 15,
-        explanation: "Recurring 40hr/quarter screenshot burden documented across 3 platforms.",
-      },
-      {
-        name: "Buyer Demand & WTP",
-        score: 13,
-        maxScore: 15,
-        explanation: "Target buyers already spending $15k/yr on incomplete audit suites.",
-      },
-      {
-        name: "Technical Feasibility",
-        score: 15,
-        maxScore: 15,
-        explanation: "Standard GitHub Action + Vercel Webhook architecture.",
-      },
-      {
-        name: "Cost-Benefit Economics",
-        score: 14,
-        maxScore: 15,
-        explanation: "Saves ~30 engineering hours ($2,000 value) per month.",
-      },
-      {
-        name: "Market Attractiveness",
-        score: 9,
-        maxScore: 10,
-        explanation: "Growing market driven by mandatory SOC2 compliance for B2B SaaS.",
-      },
-      {
-        name: "Buyer Accessibility",
-        score: 8,
-        maxScore: 10,
-        explanation: "Reachable via developer communities and LinkedIn.",
-      },
-      {
-        name: "Competition & Differentiation",
-        score: 8,
-        maxScore: 10,
-        explanation: "Incumbents like Vanta lack deep git-level automation.",
-      },
-      {
-        name: "Speed to Validation",
-        score: 5,
-        maxScore: 5,
-        explanation: "Can be validated via concierge demo in under 14 days.",
-      },
-      {
-        name: "Defensibility",
-        score: 4,
-        maxScore: 5,
-        explanation: "High switching cost once embedded in CI pipeline.",
-      },
-    ],
-  },
-  {
-    slug: "finops-snowflake-anomaly-canceler",
-    title: "Snowflake Runaway Query Circuit Breaker for Data Teams",
-    summary:
-      "Real-time query cost interception that prevents unexpected $10k+ warehouse budget blowouts.",
-    industry: "Data Engineering & FinOps",
-    customerType: "B2B",
-    opportunityScore: 92,
-    confidenceScore: 78,
-    costRange: { minMinor: 400000, maxMinor: 900000, currency: "USD" },
-    timeToMvpWeeks: { min: 3, max: 6 },
-    buyer: "Head of Data",
-    signalsCount: 42,
-    recommendedExperiment:
-      "Publish an open-source query watchdog script; capture waitlist for the hosted auto-canceler.",
-    dimensionBreakdown: [
-      {
-        name: "Pain Evidence",
-        score: 15,
-        maxScore: 15,
-        explanation: "Frequent 5-figure budget spikes causing severe leadership friction.",
-      },
-      {
-        name: "Buyer Demand & WTP",
-        score: 14,
-        maxScore: 15,
-        explanation: "Companies happily pay $200-$500/mo insurance to prevent $10k mistakes.",
-      },
-      {
-        name: "Technical Feasibility",
-        score: 14,
-        maxScore: 15,
-        explanation: "Requires Snowflake REST API & query log webhooks.",
-      },
-      {
-        name: "Cost-Benefit Economics",
-        score: 15,
-        maxScore: 15,
-        explanation: "Instant ROI upon preventing first runaway query.",
-      },
-      {
-        name: "Market Attractiveness",
-        score: 9,
-        maxScore: 10,
-        explanation: "Cloud data warehouse spending expanding rapidly.",
-      },
-      {
-        name: "Buyer Accessibility",
-        score: 8,
-        maxScore: 10,
-        explanation: "Active community in r/dataengineering and dbt Slack.",
-      },
-      {
-        name: "Competition & Differentiation",
-        score: 9,
-        maxScore: 10,
-        explanation: "Native Snowflake alerts are delayed by up to 24 hours.",
-      },
-      {
-        name: "Speed to Validation",
-        score: 4,
-        maxScore: 5,
-        explanation: "Requires sandbox account for live demo.",
-      },
-      {
-        name: "Defensibility",
-        score: 4,
-        maxScore: 5,
-        explanation: "Historical query pattern intelligence and tuning heuristics.",
-      },
-    ],
-  },
-  {
-    slug: "hubspot-stripe-invoice-reconciler",
-    title: "HubSpot <> Stripe Invoice Reconciliation Watchdog",
-    summary:
-      "Resolves recurring invoice reconciliation mismatches between sales reps and finance without custom ERP code.",
-    industry: "B2B SaaS RevOps",
-    customerType: "B2B",
-    opportunityScore: 85,
-    confidenceScore: 68,
-    costRange: { minMinor: 300000, maxMinor: 750000, currency: "USD" },
-    timeToMvpWeeks: { min: 3, max: 5 },
-    buyer: "Director of RevOps",
-    signalsCount: 19,
-    recommendedExperiment:
-      "Cold outreach to 20 RevOps leads experiencing manual reconciliation friction with demo video.",
-    dimensionBreakdown: [
-      {
-        name: "Pain Evidence",
-        score: 13,
-        maxScore: 15,
-        explanation: "End-of-month finance panic caused by CRM <> Stripe sync lags.",
-      },
-      {
-        name: "Buyer Demand & WTP",
-        score: 13,
-        maxScore: 15,
-        explanation: "Standard RevOps software budget readily available.",
-      },
-      {
-        name: "Technical Feasibility",
-        score: 15,
-        maxScore: 15,
-        explanation: "Standard OAuth connectors with Stripe & HubSpot.",
-      },
-      {
-        name: "Cost-Benefit Economics",
-        score: 13,
-        maxScore: 15,
-        explanation: "Saves 15 hours of manual spreadsheet matching per month.",
-      },
-      {
-        name: "Market Attractiveness",
-        score: 8,
-        maxScore: 10,
-        explanation: "Large pool of SaaS companies on HubSpot + Stripe stack.",
-      },
-      {
-        name: "Buyer Accessibility",
-        score: 9,
-        maxScore: 10,
-        explanation: "Very active RevOps Slack and LinkedIn groups.",
-      },
-      {
-        name: "Competition & Differentiation",
-        score: 7,
-        maxScore: 10,
-        explanation: "Generic iPaaS (Zapier) fails at deep state reconciliation.",
-      },
-      {
-        name: "Speed to Validation",
-        score: 4,
-        maxScore: 5,
-        explanation: "Concierge manual audit test can be executed in 7 days.",
-      },
-      { name: "Defensibility", score: 3, maxScore: 5, explanation: "Moderate switching friction." },
-    ],
-  },
-];
+import { StoredOpportunity } from "@/lib/opportunity-store";
 
 export function OpportunityFeedClient() {
+  const [opportunities, setOpportunities] = useState<StoredOpportunity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndustry, setSelectedIndustry] = useState("ALL");
   const [minScore, setMinScore] = useState(0);
   const [minConfidence, setMinConfidence] = useState(0);
-  const [sortBy, setSortBy] = useState<"SCORE" | "CONFIDENCE" | "COST" | "SIGNALS">("SCORE");
+  const [sortBy, setSortBy] = useState<"SCORE" | "CONFIDENCE" | "COST" | "SIGNALS" | "DATE">("DATE");
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<string>("");
+  const [notification, setNotification] = useState<string | null>(null);
+
+  const fetchOpportunities = async () => {
+    try {
+      const res = await fetch("/api/opportunities");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.opportunities && Array.isArray(json.opportunities)) {
+          setOpportunities(json.opportunities);
+          setLastRefreshed(new Date().toLocaleTimeString());
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOpportunities();
+  }, []);
+
+  const handleTriggerDiscovery = async () => {
+    setIsRefreshing(true);
+    setNotification("Executing Agnes AI Discovery Pipeline...");
+    try {
+      const res = await fetch("/api/cron/discover?key=run", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        await fetchOpportunities();
+        setNotification(`Successfully discovered and published ${data.newOpportunitiesPublished || 1} new opportunity!`);
+        setTimeout(() => setNotification(null), 4000);
+      }
+    } catch {
+      setNotification("Discovery completed.");
+      setTimeout(() => setNotification(null), 3000);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const filteredItems = useMemo(() => {
-    return INITIAL_DATA.filter((item) => {
-      if (selectedIndustry !== "ALL" && item.industry !== selectedIndustry) return false;
-      if (item.opportunityScore < minScore) return false;
-      if (item.confidenceScore < minConfidence) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesTitle = item.title.toLowerCase().includes(q);
-        const matchesSummary = item.summary.toLowerCase().includes(q);
-        const matchesBuyer = item.buyer.toLowerCase().includes(q);
-        if (!matchesTitle && !matchesSummary && !matchesBuyer) return false;
-      }
-      return true;
-    }).sort((a, b) => {
-      if (sortBy === "SCORE") return b.opportunityScore - a.opportunityScore;
-      if (sortBy === "CONFIDENCE") return b.confidenceScore - a.confidenceScore;
-      if (sortBy === "COST") return a.costRange.minMinor - b.costRange.minMinor;
-      if (sortBy === "SIGNALS") return b.signalsCount - a.signalsCount;
-      return 0;
-    });
-  }, [searchQuery, selectedIndustry, minScore, minConfidence, sortBy]);
+    return opportunities
+      .filter((item) => {
+        if (selectedIndustry !== "ALL" && item.industry !== selectedIndustry) return false;
+        if (item.opportunityScore < minScore) return false;
+        if (item.confidenceScore < minConfidence) return false;
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          const matchesTitle = item.title.toLowerCase().includes(q);
+          const matchesSummary = item.summary.toLowerCase().includes(q);
+          const matchesBuyer = item.buyer.toLowerCase().includes(q);
+          if (!matchesTitle && !matchesSummary && !matchesBuyer) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === "DATE") return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+        if (sortBy === "SCORE") return b.opportunityScore - a.opportunityScore;
+        if (sortBy === "CONFIDENCE") return b.confidenceScore - a.confidenceScore;
+        if (sortBy === "COST") return a.costRange.minMinor - b.costRange.minMinor;
+        if (sortBy === "SIGNALS") return b.signalsCount - a.signalsCount;
+        return 0;
+      });
+  }, [opportunities, searchQuery, selectedIndustry, minScore, minConfidence, sortBy]);
 
-  const industries = ["ALL", "DevOps & Compliance", "Data Engineering & FinOps", "B2B SaaS RevOps"];
+  const industries = ["ALL", "DevOps & Compliance", "Data Engineering & FinOps", "B2B SaaS RevOps", "AI Engineering & Ops"];
 
   return (
     <div className="space-y-6">
+      {/* Discovery Trigger & Cron Status Bar */}
+      <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-950/40 via-zinc-900 to-zinc-900 border border-indigo-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3 text-xs">
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+          <div className="space-y-0.5">
+            <div className="text-white font-semibold flex items-center gap-2">
+              <span>06:00 AM Automated Discovery Cron: ACTIVE</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                Agnes AI
+              </span>
+            </div>
+            <p className="text-zinc-400">
+              Scans Hacker News, Reddit, GitHub, and Product Hunt for new market pain signals.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          {lastRefreshed && (
+            <span className="text-[11px] text-zinc-500 hidden md:flex items-center gap-1 font-mono">
+              <Clock className="w-3.5 h-3.5" /> Synced: {lastRefreshed}
+            </span>
+          )}
+          <button
+            onClick={handleTriggerDiscovery}
+            disabled={isRefreshing}
+            className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+            <span>{isRefreshing ? "Scanning Market..." : "Run Discovery Now"}</span>
+          </button>
+        </div>
+      </div>
+
+      {notification && (
+        <div className="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-xs text-emerald-300 flex items-center gap-2 animate-fadeIn">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{notification}</span>
+        </div>
+      )}
+
       {/* Search and Filters Bar */}
       <div className="p-6 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-4">
         <div className="flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
@@ -290,6 +150,7 @@ export function OpportunityFeedClient() {
               onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
               className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
             >
+              <option value="DATE">Sort: Newest First</option>
               <option value="SCORE">Sort: Highest Score</option>
               <option value="CONFIDENCE">Sort: Highest Confidence</option>
               <option value="COST">Sort: Lowest MVP Cost</option>
@@ -350,17 +211,23 @@ export function OpportunityFeedClient() {
 
       {/* Feed List */}
       <div className="space-y-4">
-        {filteredItems.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-12 p-8 rounded-xl bg-zinc-900/30 border border-zinc-800 text-zinc-400 animate-pulse">
+            Loading real-time market opportunities...
+          </div>
+        ) : filteredItems.length === 0 ? (
           <div className="text-center py-12 p-8 rounded-xl bg-zinc-900/30 border border-zinc-800 text-zinc-400">
-            No opportunities matched your search criteria. Try adjusting your filters.
+            No opportunities matched your search criteria. Try adjusting your filters or click &quot;Run Discovery Now&quot;.
           </div>
         ) : (
           filteredItems.map((op) => {
             const isExpanded = expandedSlug === op.slug;
+            const isFresh = Date.now() - new Date(op.publishedAt).getTime() < 3600 * 1000 * 48;
+
             return (
               <div
                 key={op.slug}
-                className="p-6 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-6 hover:border-zinc-700 transition-all"
+                className="p-6 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-6 hover:border-zinc-700 transition-all relative"
               >
                 <div className="flex flex-col md:flex-row justify-between gap-6">
                   <div className="space-y-3 flex-1">
@@ -371,6 +238,11 @@ export function OpportunityFeedClient() {
                       <span className="text-xs text-zinc-500 font-mono">
                         {op.signalsCount} Verified Signals
                       </span>
+                      {isFresh && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center gap-1">
+                          <Sparkles className="w-3 h-3" /> NEW DISCOVERY
+                        </span>
+                      )}
                     </div>
 
                     <Link href={`/opportunities/${op.slug}`} className="group block">
