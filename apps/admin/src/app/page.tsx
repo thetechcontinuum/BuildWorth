@@ -1,5 +1,6 @@
 import React from "react";
 import { Activity, Database, ShieldAlert, DollarSign } from "lucide-react";
+import { AdminPipelineTrigger } from "@/components/AdminPipelineTrigger";
 
 export default function AdminHomePage() {
   return (
@@ -10,6 +11,9 @@ export default function AdminHomePage() {
           System ingestion metrics, review queue status, and pipeline health.
         </p>
       </div>
+
+      {/* Admin Manual Pipeline Control */}
+      <AdminPipelineTrigger />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-5 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
@@ -38,11 +42,11 @@ export default function AdminHomePage() {
         </div>
         <div className="p-5 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
           <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
-            <span>Auto-Publish Kill Switch</span>
-            <ShieldAlert className="w-4 h-4 text-rose-400" />
+            <span>Daily 06:00 AM Cron</span>
+            <ShieldAlert className="w-4 h-4 text-emerald-400" />
           </div>
-          <div className="text-2xl font-bold text-rose-400 font-mono">ENGAGED</div>
-          <span className="text-xs text-zinc-400">Protected mode active</span>
+          <div className="text-2xl font-bold text-emerald-400 font-mono">ENABLED</div>
+          <span className="text-xs text-zinc-400">Runs daily at 06:00 AM</span>
         </div>
       </div>
     </div>
