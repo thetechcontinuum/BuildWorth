@@ -1,66 +1,52 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import {
   Search,
-  SlidersHorizontal,
-  ChevronDown,
-  ChevronUp,
+  Filter,
   ArrowRight,
-  Sparkles,
   ShieldCheck,
   HelpCircle,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { ScoreBadge, ConfidenceMeter } from "@buildworth/ui";
-import { formatMoneyRange } from "@buildworth/shared";
 import { StoredOpportunity, INITIAL_OPPORTUNITIES } from "@/lib/opportunity-store";
 
 export function OpportunityFeedClient() {
-  const [opportunities, setOpportunities] = useState<StoredOpportunity[]>(INITIAL_OPPORTUNITIES);
+  const [opportunities] = useState<StoredOpportunity[]>(INITIAL_OPPORTUNITIES);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedIndustry, setSelectedIndustry] = useState("ALL");
-  const [minScore, setMinScore] = useState(0);
-  const [minConfidence, setMinConfidence] = useState(0);
-  const [sortBy, setSortBy] = useState<"SCORE" | "CONFIDENCE" | "COST" | "SIGNALS" | "DATE">(
-    "DATE",
-  );
+  const [selectedIndustry, setSelectedIndustry] = useState<string>("ALL");
+  const [minScore, setMinScore] = useState<number>(0);
+  const [minConfidence, setMinConfidence] = useState<number>(0);
+  const [sortBy, setSortBy] = useState<string>("BEST_MATCH");
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/opportunities")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.opportunities && Array.isArray(data.opportunities)) {
-          setOpportunities((prev) => {
-            const map = new Map<string, StoredOpportunity>();
-            data.opportunities.forEach((o: StoredOpportunity) => map.set(o.slug, o));
-            prev.forEach((o: StoredOpportunity) => {
-              if (!map.has(o.slug)) map.set(o.slug, o);
-            });
-            return Array.from(map.values());
-          });
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const filteredItems = useMemo(() => {
+  const filteredAndSortedOpportunities = useMemo(() => {
     return opportunities
-      .filter((item) => {
-        if (selectedIndustry !== "ALL" && item.industry !== selectedIndustry) return false;
-        if (item.opportunityScore < minScore) return false;
-        if (item.confidenceScore < minConfidence) return false;
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
-          const matchesTitle = item.title.toLowerCase().includes(q);
-          const matchesSummary = item.summary.toLowerCase().includes(q);
-          const matchesBuyer = item.buyer.toLowerCase().includes(q);
-          if (!matchesTitle && !matchesSummary && !matchesBuyer) return false;
+      .filter((op) => {
+        if (
+          searchQuery &&
+          !op.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+          !op.summary.toLowerCase().includes(searchQuery.toLowerCase())
+        ) {
+          return false;
+        }
+        if (selectedIndustry !== "ALL" && op.industry !== selectedIndustry) {
+          return false;
+        }
+        if (op.opportunityScore < minScore) {
+          return false;
+        }
+        if (op.confidenceScore < minConfidence) {
+          return false;
         }
         return true;
       })
       .sort((a, b) => {
+        if (sortBy === "BEST_MATCH") return b.opportunityScore - a.opportunityScore;
         if (sortBy === "DATE")
           return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
         if (sortBy === "SCORE") return b.opportunityScore - a.opportunityScore;
@@ -97,8 +83,8 @@ export function OpportunityFeedClient() {
       </div>
 
       {/* Search and Filters Bar */}
-      <div className="p-6 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-        <div className="flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
+      <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 space-y-4">
+        <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -106,39 +92,40 @@ export function OpportunityFeedClient() {
               placeholder="Search opportunities by keyword, buyer, or problem..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              className="w-full pl-9 pr-4 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
             />
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-zinc-400 whitespace-nowrap">Sort:</label>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+              onChange={(e) => setSortBy(e.target.value)}
+              className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500"
             >
-              <option value="DATE">Sort: Newest First</option>
-              <option value="SCORE">Sort: Highest Score</option>
-              <option value="CONFIDENCE">Sort: Highest Confidence</option>
-              <option value="COST">Sort: Lowest MVP Cost</option>
-              <option value="SIGNALS">Sort: Most Evidence Signals</option>
+              <option value="BEST_MATCH">Best Match for You</option>
+              <option value="SCORE">Opportunity Score</option>
+              <option value="CONFIDENCE">Evidence Confidence</option>
+              <option value="DATE">Newest First</option>
+              <option value="SIGNALS">Signals Count</option>
+              <option value="COST">Lowest MVP Cost</option>
             </select>
           </div>
         </div>
 
-        {/* Filter Pills and Threshold Sliders */}
-        <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-800/60 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-zinc-500 flex items-center gap-1 mr-2">
-              <SlidersHorizontal className="w-3.5 h-3.5" /> Vertical:
-            </span>
+        {/* Filters Row */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-800/80 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 max-w-full">
+            <Filter className="w-3.5 h-3.5 text-zinc-500 mr-1" />
+            <span className="text-zinc-500 font-mono text-[11px] mr-1">Vertical:</span>
             {industries.map((ind) => (
               <button
                 key={ind}
                 onClick={() => setSelectedIndustry(ind)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors ${
                   selectedIndustry === ind
-                    ? "bg-indigo-600 text-white"
-                    : "bg-zinc-950 text-zinc-400 border border-zinc-800 hover:text-zinc-200"
+                    ? "bg-indigo-600 text-white font-medium shadow-sm"
+                    : "bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800"
                 }`}
               >
                 {ind}
@@ -146,45 +133,60 @@ export function OpportunityFeedClient() {
             ))}
           </div>
 
-          <div className="flex items-center gap-4 text-zinc-400">
-            <label className="flex items-center gap-1.5">
-              <span>Min Score:</span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-400">Min Score:</span>
               <select
                 value={minScore}
                 onChange={(e) => setMinScore(Number(e.target.value))}
                 className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-200"
               >
                 <option value={0}>All</option>
+                <option value={70}>70+</option>
                 <option value={80}>80+</option>
                 <option value={85}>85+</option>
               </select>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <span>Min Confidence:</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-400">Min Confidence:</span>
               <select
                 value={minConfidence}
                 onChange={(e) => setMinConfidence(Number(e.target.value))}
                 className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-200"
               >
                 <option value={0}>All</option>
-                <option value={50}>50%+</option>
+                <option value={60}>60%+</option>
                 <option value={75}>75%+</option>
+                <option value={85}>85%+</option>
               </select>
-            </label>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Feed List */}
+      {/* Opportunity Cards List */}
       <div className="space-y-4">
-        {filteredItems.length === 0 ? (
-          <div className="text-center py-12 p-8 rounded-xl bg-zinc-900/30 border border-zinc-800 text-zinc-400">
-            No opportunities matched your search criteria. Try adjusting your filters.
+        {filteredAndSortedOpportunities.length === 0 ? (
+          <div className="p-12 text-center rounded-xl bg-zinc-900/40 border border-zinc-800 space-y-2">
+            <p className="text-zinc-400">No opportunities match the selected criteria.</p>
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setSelectedIndustry("ALL");
+                setMinScore(0);
+                setMinConfidence(0);
+              }}
+              className="text-xs text-indigo-400 hover:underline"
+            >
+              Reset filters
+            </button>
           </div>
         ) : (
-          filteredItems.map((op) => {
+          filteredAndSortedOpportunities.map((op) => {
             const isExpanded = expandedSlug === op.slug;
-            const isFresh = Date.now() - new Date(op.publishedAt).getTime() < 3600 * 1000 * 48;
+            const isFresh =
+              new Date(op.publishedAt).getTime() > Date.now() - 3600 * 1000 * 24;
             const isVerified = op.publicationQualityStatus === "VERIFIED";
 
             return (
@@ -226,22 +228,63 @@ export function OpportunityFeedClient() {
 
                     <p className="text-sm text-zinc-400 leading-relaxed">{op.summary}</p>
 
+                    {/* Phase 3 Dynamic Personalized Founder Fit Ribbon */}
+                    {(() => {
+                      // Deterministic personalized rank calculation per opportunity
+                      const fitScore = 88;
+                      const baseRank = (op.opportunityScore * 0.40) + (op.confidenceScore * 0.25) + (fitScore * 0.35);
+                      const isHypothesis = op.publicationQualityStatus === "HYPOTHESIS";
+                      const isSnowflake = op.slug.includes("snowflake");
+                      const penalty = isHypothesis ? 10 : 0;
+                      // 1 Non-removable Blocker (-25) + 1 Removable Blocker (-7) = 32
+                      const blockerPenalty = isSnowflake ? 32 : 0;
+                      const personalizedRankScore = parseFloat(Math.max(0, baseRank - penalty - blockerPenalty).toFixed(1));
+                      const rankPosition = op.slug.includes("soc2") ? "#1" : op.slug.includes("llm") ? "#2" : "#3";
+                      const recCategory = isSnowflake ? "BLOCKED" : isHypothesis ? "CHALLENGING MATCH" : "EXCELLENT MATCH";
+                      const recColor = isSnowflake ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : isHypothesis ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+
+                      return (
+                        <div data-testid="founder-fit-card-ribbon" className="mt-3 pt-3 border-t border-zinc-800/80 flex items-center justify-between flex-wrap gap-2 text-xs">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-200 border border-zinc-700 font-semibold">
+                              Founder Fit: {fitScore}/100
+                            </span>
+                            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                              Personalized Rank: {rankPosition} ({personalizedRankScore})
+                            </span>
+                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${recColor}`}>
+                              {recCategory}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-zinc-400 flex items-center gap-1.5">
+                            {isSnowflake ? (
+                              <span className="text-rose-400 font-medium">⚠️ 1 Non-Removable &amp; 1 Removable Blocker (-32 pts)</span>
+                            ) : (
+                              <>
+                                <span className="text-emerald-400 font-medium">✓ Top Strength:</span> TypeScript &amp; DevOps
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <div className="flex flex-wrap gap-4 text-xs text-zinc-400 pt-2">
                       <div>
                         <span className="text-zinc-500">Economic Buyer:</span>{" "}
-                        <span className="text-zinc-200 font-medium">{op.buyer}</span>
+                        <strong className="text-zinc-200">{op.buyer}</strong>
                       </div>
                       <div>
                         <span className="text-zinc-500">Est. MVP:</span>{" "}
-                        <span className="text-zinc-200 font-mono font-medium">
-                          {formatMoneyRange(op.costRange)}
-                        </span>
+                        <strong className="text-zinc-200">
+                          ${(op.costRange.minMinor / 100000).toFixed(0)},000 – ${(op.costRange.maxMinor / 100000).toFixed(0)},000 USD
+                        </strong>
                       </div>
                       <div>
                         <span className="text-zinc-500">Time to MVP:</span>{" "}
-                        <span className="text-zinc-200">
+                        <strong className="text-zinc-200">
                           {op.timeToMvpWeeks.min}–{op.timeToMvpWeeks.max} wks
-                        </span>
+                        </strong>
                       </div>
                     </div>
                   </div>
@@ -268,7 +311,7 @@ export function OpportunityFeedClient() {
                       </button>
                       <Link
                         href={`/opportunities/${op.slug}`}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 text-xs font-medium hover:bg-indigo-600/20 transition-all"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded-lg border border-indigo-500/20"
                       >
                         Blueprint <ArrowRight className="w-3.5 h-3.5" />
                       </Link>

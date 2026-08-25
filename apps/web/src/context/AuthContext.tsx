@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 
 export interface UserSession {
+  id?: string;
   email: string;
   name: string;
   tier: "FREE" | "PRO" | "TEAM" | "ENTERPRISE";
@@ -12,11 +13,12 @@ export interface UserSession {
 
 interface AuthContextType {
   user: UserSession | null;
-  login: (email: string, tier?: "FREE" | "PRO" | "TEAM") => void;
-  logout: () => void;
+  login: (user: UserSession) => void;
+  logout: () => Promise<void>;
   isAuthModalOpen: boolean;
   openAuthModal: () => void;
   closeAuthModal: () => void;
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,33 +27,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserSession | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  useEffect(() => {
-    const saved = localStorage.getItem("buildworth_user_session");
-    if (saved) {
-      try {
-        setUser(JSON.parse(saved));
-      } catch {
-        // ignore
+  const refreshSession = async () => {
+    try {
+      const res = await fetch("/api/auth/session", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.user) {
+          setUser({
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.name || data.user.email.split("@")[0],
+            tier: data.user.tier || "FREE",
+            isSubscribed: data.user.tier !== "FREE",
+            trialDaysLeft: 14,
+          });
+          return;
+        }
       }
+      setUser(null);
+    } catch {
+      setUser(null);
     }
+  };
+
+  useEffect(() => {
+    refreshSession();
   }, []);
 
-  const login = (email: string, tier: "FREE" | "PRO" | "TEAM" = "PRO") => {
-    const session: UserSession = {
-      email,
-      name: email.split("@")[0] || "Founder",
-      tier,
-      isSubscribed: tier !== "FREE",
-      trialDaysLeft: 14,
-    };
-    setUser(session);
-    localStorage.setItem("buildworth_user_session", JSON.stringify(session));
+  const login = (userData: UserSession) => {
+    setUser(userData);
     setIsAuthModalOpen(false);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
     setUser(null);
-    localStorage.removeItem("buildworth_user_session");
   };
 
   return (
@@ -63,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthModalOpen,
         openAuthModal: () => setIsAuthModalOpen(true),
         closeAuthModal: () => setIsAuthModalOpen(false),
+        refreshSession,
       }}
     >
       {children}

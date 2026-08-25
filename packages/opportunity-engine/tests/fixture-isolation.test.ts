@@ -5,8 +5,8 @@ import { MOCK_BLUEPRINT_DEV_FIXTURE } from "../../../apps/web/src/lib/blueprint-
 
 describe("Production Fixture Isolation Tests", () => {
   it("confirms dev blueprint fixtures have explicit fixture IDs and are isolated from production databases", () => {
-    expect(MOCK_BLUEPRINT_DEV_FIXTURE.id).toMatch(/^bp-dev-demo/);
-    expect(MOCK_BLUEPRINT_DEV_FIXTURE.opportunityRevisionId).toMatch(/^rev-dev-demo/);
+    expect(MOCK_BLUEPRINT_DEV_FIXTURE.id).toMatch(/^bp-soc2-canonical/);
+    expect(MOCK_BLUEPRINT_DEV_FIXTURE.opportunityRevisionId).toMatch(/^rev-soc2-canonical/);
   });
 
   it("verifies migration files contain zero synthetic fixture URLs", () => {

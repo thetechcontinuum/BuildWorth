@@ -4,3 +4,6 @@ export * from "./opportunity-score.js";
 export * from "./subscores.js";
 export * from "./economics/calculator.js";
 export * from "./decision-engine.js";
+export * from "./founder-fit/taxonomy-data.js";
+export * from "./founder-fit/calculator.js";
+export * from "./founder-fit/canonical-hash.js";

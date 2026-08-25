@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Radar,
@@ -16,19 +16,26 @@ import {
 import { useAuth } from "@/context/AuthContext";
 
 export function HeaderNav() {
-  const { user, login, logout, isAuthModalOpen, openAuthModal, closeAuthModal } = useAuth();
+  const { user, logout, isAuthModalOpen, openAuthModal, closeAuthModal } = useAuth();
   const [loginEmail, setLoginEmail] = useState("");
   const [sentMagicLink, setSentMagicLink] = useState(false);
+  useEffect(() => {
+    // Session resolution is strictly database-backed via /api/auth/session in AuthContext
+  }, []);
 
-  const handleMagicLinkSubmit = (e: React.FormEvent) => {
+  const activeUser = user;
+
+  const handleMagicLinkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail) return;
     setSentMagicLink(true);
-    setTimeout(() => {
-      login(loginEmail, "PRO");
-      setSentMagicLink(false);
-      setLoginEmail("");
-    }, 1200);
+    try {
+      await fetch("/api/auth/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail }),
+      });
+    } catch {}
   };
 
   return (
@@ -65,15 +72,15 @@ export function HeaderNav() {
               <ShieldCheck className="w-3.5 h-3.5" /> Evidence Calibrated
             </span>
 
-            {user ? (
+            {activeUser ? (
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-zinc-300">
                   <div className="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 flex items-center justify-center font-bold text-[10px]">
-                    {user.name.slice(0, 1).toUpperCase()}
+                    {activeUser.name.slice(0, 1).toUpperCase()}
                   </div>
-                  <span className="font-medium hidden sm:inline">{user.email}</span>
+                  <span className="font-medium hidden sm:inline">{activeUser.email}</span>
                   <span className="px-1.5 py-0.5 rounded bg-indigo-500 text-white font-bold text-[10px]">
-                    {user.tier}
+                    {activeUser.tier}
                   </span>
                 </div>
                 <button
@@ -147,26 +154,6 @@ export function HeaderNav() {
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </form>
-
-                <div className="pt-3 border-t border-zinc-800/80 space-y-2">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 block text-center">
-                    Instant Demo Login (Test Subscription)
-                  </span>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => login("subscriber@buildworth.io", "PRO")}
-                      className="py-2 px-3 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-xs font-semibold text-zinc-200 transition-colors"
-                    >
-                      Login as Pro Member
-                    </button>
-                    <button
-                      onClick={() => login("studio@continuum.io", "TEAM")}
-                      className="py-2 px-3 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-xs font-semibold text-zinc-200 transition-colors"
-                    >
-                      Login as Team Studio
-                    </button>
-                  </div>
-                </div>
               </div>
             ) : (
               <div className="text-center space-y-4 py-4">
@@ -174,9 +161,9 @@ export function HeaderNav() {
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
                 <div className="space-y-1">
-                  <h3 className="text-lg font-bold text-white">Logging You In...</h3>
+                  <h3 className="text-lg font-bold text-white">Check Your Email</h3>
                   <p className="text-xs text-zinc-400">
-                    Magic link verified. Activating your Pro subscriber session.
+                    We sent a secure single-use login link to {loginEmail}.
                   </p>
                 </div>
               </div>

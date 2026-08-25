@@ -157,14 +157,19 @@ enum Frequency {
 }
 
 model User {
-  id        String           @id @default(uuid())
-  email     String           @unique
-  name      String?
-  role      Role             @default(USER)
-  tier      SubscriptionTier @default(FREE)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id            String           @id @default(uuid())
+  email         String           @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  role          Role             @default(USER)
+  tier          SubscriptionTier @default(FREE)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
+  accounts           Account[]
+  sessions           Session[]
+  founderProfile     FounderProfile?
   savedOpportunities SavedOpportunity[]
   auditLogs          AuditLog[]
   scoreOverrides     ScoreOverride[]
@@ -405,8 +410,9 @@ model OpportunityRevision {
   reasonForChange String
   createdAt       DateTime    @default(now())
 
-  evidenceLinks EvidenceLink[]
-  blueprint     OpportunityBlueprint?
+  evidenceLinks        EvidenceLink[]
+  blueprint            OpportunityBlueprint?
+  FounderFitEvaluation FounderFitEvaluation[]
 
   @@unique([opportunityId, revisionNumber])
   @@map("opportunity_revisions")
@@ -748,6 +754,8 @@ model OpportunityBlueprint {
 
   customerSegments      BlueprintCustomerSegment[]
   mvpFeatures           BlueprintMvpFeature[]
+  founderRequirements   OpportunityFounderRequirements?
+  founderFitEvaluations FounderFitEvaluation[]
   competitors           BlueprintCompetitor[]
   financialScenarios    FinancialScenario[]
   costLineItems         CostLineItem[]
@@ -1103,4 +1111,420 @@ model DecisionEvaluation {
   evaluatedAt              DateTime                 @default(now())
 
   @@map("decision_evaluations")
+}
+
+// ==========================================
+// PHASE 3: AUTHENTICATION & FOUNDER FIT
+// ==========================================
+
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ------------------------------------------
+// Relational Skill Taxonomy
+// ------------------------------------------
+
+model SkillTaxonomyVersion {
+  id          String   @id @default(uuid())
+  version     String   @unique // e.g. "1.0.0"
+  description String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  skills SkillDefinition[]
+
+  @@map("skill_taxonomy_versions")
+}
+
+model SkillDefinition {
+  id          String               @id @default(uuid())
+  taxonomyId  String
+  taxonomy    SkillTaxonomyVersion @relation(fields: [taxonomyId], references: [id], onDelete: Restrict)
+  key         String               @unique // e.g. "TYPESCRIPT", "B2B_SALES"
+  displayName String
+  category    String // ENGINEERING, PRODUCT, SALES, MARKETING, DESIGN, OPERATIONS, COMPLIANCE
+  description String
+  isActive    Boolean              @default(true)
+  parentKey   String?
+  createdAt   DateTime             @default(now())
+
+  aliases       SkillAlias[]
+  founderSkills FounderSkill[]
+  requiredBy    OpportunityRequiredSkill[]
+
+  @@map("skill_definitions")
+}
+
+model SkillAlias {
+  id        String          @id @default(uuid())
+  skillId   String
+  skill     SkillDefinition @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  alias     String          @unique // e.g. "ts", "react.js"
+  createdAt DateTime        @default(now())
+
+  @@map("skill_aliases")
+}
+
+// ------------------------------------------
+// Versioned Founder Profile
+// ------------------------------------------
+
+enum ProficiencyLevel {
+  NONE
+  BASIC
+  WORKING
+  ADVANCED
+  EXPERT
+}
+
+enum BudgetBand {
+  UNDER_1K_USD
+  USD_1K_TO_5K
+  USD_5K_TO_20K
+  USD_20K_TO_50K
+  USD_50K_PLUS
+}
+
+enum CapacityBand {
+  UNDER_10_HOURS
+  HOURS_10_TO_20
+  HOURS_21_TO_35
+  HOURS_36_TO_40
+  OVER_40_HOURS
+}
+
+enum TeamSizeBand {
+  SOLO_FOUNDER
+  FOUNDER_PLUS_CONTRACTORS
+  SMALL_TEAM_2_TO_3
+  CORE_TEAM_4_PLUS
+}
+
+enum RiskToleranceLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum FundingPreference {
+  BOOTSTRAP_ONLY
+  BOOTSTRAP_FIRST
+  OPEN_TO_FUNDING
+  VENTURE_SCALE
+}
+
+enum FitRecommendationCategory {
+  EXCELLENT_MATCH
+  STRONG_MATCH
+  POSSIBLE_MATCH
+  CHALLENGING_MATCH
+  POOR_MATCH
+  INSUFFICIENT_PROFILE_DATA
+}
+
+enum HardBlockerCode {
+  BUDGET_BELOW_MINIMUM
+  REQUIRED_SKILL_MISSING
+  CAPACITY_INSUFFICIENT
+  TEAM_SIZE_INSUFFICIENT
+  REGULATORY_RISK_REJECTED
+  TARGET_GEOGRAPHY_INACCESSIBLE
+  SALES_COMPLEXITY_REJECTED
+  REQUIRED_DATA_ACCESS_MISSING
+  FUNDING_MODEL_INCOMPATIBLE
+  SUPPORT_BURDEN_INCOMPATIBLE
+}
+
+model FounderProfile {
+  id                       String   @id @default(uuid())
+  userId                   String   @unique
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentProfileRevisionId String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  revisions FounderProfileRevision[]
+
+  @@map("founder_profiles")
+}
+
+model FounderProfileRevision {
+  id             String         @id @default(uuid())
+  profileId      String
+  profile        FounderProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  revisionNumber Int
+  schemaVersion  String         @default("1.0.0")
+  inputHash      String
+  createdAt      DateTime       @default(now())
+
+  skills             FounderSkill[]
+  domainExpertise    FounderDomainExpertise[]
+  distributionAssets FounderDistributionAsset[]
+  preference         FounderPreference?
+  constraint         FounderConstraint?
+  fitEvaluations     FounderFitEvaluation[]
+
+  @@unique([profileId, revisionNumber])
+  @@map("founder_profile_revisions")
+}
+
+model FounderSkill {
+  id                String                 @id @default(uuid())
+  profileRevisionId String
+  profileRevision   FounderProfileRevision @relation(fields: [profileRevisionId], references: [id], onDelete: Cascade)
+  skillKey          String
+  skillDefinition   SkillDefinition        @relation(fields: [skillKey], references: [key], onDelete: Restrict)
+  proficiency       ProficiencyLevel
+  isPrimary         Boolean                @default(false)
+  createdAt         DateTime               @default(now())
+
+  @@unique([profileRevisionId, skillKey])
+  @@map("founder_skills")
+}
+
+model FounderDomainExpertise {
+  id                  String                 @id @default(uuid())
+  profileRevisionId   String
+  profileRevision     FounderProfileRevision @relation(fields: [profileRevisionId], references: [id], onDelete: Cascade)
+  industryOrDomain    String
+  yearsExperienceBand String
+  workflowContext     String?
+  createdAt           DateTime               @default(now())
+
+  @@map("founder_domain_expertise")
+}
+
+model FounderDistributionAsset {
+  id                String                 @id @default(uuid())
+  profileRevisionId String
+  profileRevision   FounderProfileRevision @relation(fields: [profileRevisionId], references: [id], onDelete: Cascade)
+  assetType         String
+  audienceSizeBand  String?
+  description       String
+  createdAt         DateTime               @default(now())
+
+  @@map("founder_distribution_assets")
+}
+
+model FounderPreference {
+  id                      String                 @id @default(uuid())
+  profileRevisionId       String                 @unique
+  profileRevision         FounderProfileRevision @relation(fields: [profileRevisionId], references: [id], onDelete: Cascade)
+  preferredIndustries     String[]               @default([])
+  excludedIndustries      String[]               @default([])
+  preferredBusinessModels String[]               @default([])
+  targetGeographies       String[]               @default([])
+  preferredBuyerRoles     String[]               @default([])
+  preferredSalesMotion    String?
+  createdAt               DateTime               @default(now())
+
+  @@map("founder_preferences")
+}
+
+model FounderConstraint {
+  id                         String                 @id @default(uuid())
+  profileRevisionId          String                 @unique
+  profileRevision            FounderProfileRevision @relation(fields: [profileRevisionId], references: [id], onDelete: Cascade)
+  mvpBudgetBand              BudgetBand             @default(UNDER_1K_USD)
+  budgetCurrency             String                 @default("USD")
+  availableHoursPerWeekBand  CapacityBand           @default(HOURS_10_TO_20)
+  teamSizeBand               TeamSizeBand           @default(SOLO_FOUNDER)
+  maxTimeToMvpWeeks          Int?
+  technicalRiskTolerance     RiskToleranceLevel     @default(MEDIUM)
+  regulatoryRiskTolerance    RiskToleranceLevel     @default(LOW)
+  salesComplexityTolerance   RiskToleranceLevel     @default(LOW)
+  operationalBurdenTolerance RiskToleranceLevel     @default(MEDIUM)
+  fundingPreference          FundingPreference      @default(BOOTSTRAP_ONLY)
+  createdAt                  DateTime               @default(now())
+
+  @@map("founder_constraints")
+}
+
+// ------------------------------------------
+// Revision-Owned Opportunity Requirements
+// ------------------------------------------
+
+model OpportunityFounderRequirements {
+  id          String               @id @default(uuid())
+  blueprintId String               @unique
+  blueprint   OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+
+  schemaVersion                String             @default("1.0.0")
+  minimumBudgetBand            BudgetBand         @default(UNDER_1K_USD)
+  minimumCapacityBand          CapacityBand       @default(HOURS_10_TO_20)
+  minimumTeamSizeBand          TeamSizeBand       @default(SOLO_FOUNDER)
+  maxExpectedDeliveryWeeks     Int                @default(4)
+  requiredTechnicalRiskLevel   RiskToleranceLevel @default(MEDIUM)
+  requiredRegulatoryRiskLevel  RiskToleranceLevel @default(LOW)
+  requiredSalesComplexityLevel RiskToleranceLevel @default(LOW)
+  targetBuyerRoles             String[]           @default([])
+  targetIndustries             String[]           @default([])
+  targetGeographies            String[]           @default([])
+  createdAt                    DateTime           @default(now())
+
+  requiredSkills        OpportunityRequiredSkill[]
+  founderFitEvaluations FounderFitEvaluation[]
+
+  @@map("opportunity_founder_requirements")
+}
+
+model OpportunityRequiredSkill {
+  id                   String                         @id @default(uuid())
+  requirementsId       String
+  requirements         OpportunityFounderRequirements @relation(fields: [requirementsId], references: [id], onDelete: Cascade)
+  skillKey             String
+  skillDefinition      SkillDefinition                @relation(fields: [skillKey], references: [key], onDelete: Restrict)
+  minimumProficiency   ProficiencyLevel               @default(BASIC)
+  preferredProficiency ProficiencyLevel               @default(WORKING)
+  importance           Int                            @default(3) // 1-5
+  isOutsourceable      Boolean                        @default(true)
+  createdAt            DateTime                       @default(now())
+
+  @@unique([requirementsId, skillKey])
+  @@map("opportunity_required_skills")
+}
+
+// ------------------------------------------
+// Deterministic Founder Fit Evaluations
+// ------------------------------------------
+
+model FounderFitEvaluation {
+  id                    String                         @id @default(uuid())
+  userId                String
+  profileRevisionId     String
+  profileRevision       FounderProfileRevision         @relation(fields: [profileRevisionId], references: [id], onDelete: Restrict)
+  opportunityRevisionId String
+  opportunityRevision   OpportunityRevision            @relation(fields: [opportunityRevisionId], references: [id], onDelete: Restrict)
+  blueprintId           String
+  blueprint             OpportunityBlueprint           @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  requirementsId        String
+  requirements          OpportunityFounderRequirements @relation(fields: [requirementsId], references: [id], onDelete: Restrict)
+
+  founderFitScore        Int // 0-100
+  fitConfidence          Int // 0-100
+  recommendationCategory FitRecommendationCategory
+  personalizedRank       Float
+  baseRank               Float
+  totalPenaltyPoints     Int                       @default(0)
+  rubricVersion          String                    @default("1.0.0")
+  rankingVersion         String                    @default("1.0.0")
+  taxonomyVersion        String                    @default("1.0.0")
+  inputHash              String
+  calculatedAt           DateTime                  @default(now())
+
+  dimensions FounderFitDimension[]
+  blockers   FounderFitBlocker[]
+  strengths  FounderFitStrength[]
+  gaps       FounderFitGap[]
+
+  @@unique([profileRevisionId, opportunityRevisionId, rubricVersion, rankingVersion])
+  @@map("founder_fit_evaluations")
+}
+
+model FounderFitDimension {
+  id                  String               @id @default(uuid())
+  evaluationId        String
+  evaluation          FounderFitEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  dimensionName       String
+  score               Int
+  maxScore            Int
+  status              String
+  explanation         String
+  matchedRequirements String[]             @default([])
+  missingRequirements String[]             @default([])
+  createdAt           DateTime             @default(now())
+
+  @@map("founder_fit_dimensions")
+}
+
+model FounderFitBlocker {
+  id                  String               @id @default(uuid())
+  evaluationId        String
+  evaluation          FounderFitEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  blockerCode         HardBlockerCode
+  severity            String
+  explanation         String
+  sourceRequirement   String
+  profileConstraint   String
+  isRemovable         Boolean              @default(false)
+  suggestedMitigation String?
+  createdAt           DateTime             @default(now())
+
+  @@map("founder_fit_blockers")
+}
+
+model FounderFitStrength {
+  id           String               @id @default(uuid())
+  evaluationId String
+  evaluation   FounderFitEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  title        String
+  description  String
+  category     String
+  createdAt    DateTime             @default(now())
+
+  @@map("founder_fit_strengths")
+}
+
+model FounderFitGap {
+  id                   String               @id @default(uuid())
+  evaluationId         String
+  evaluation           FounderFitEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  title                String
+  description          String
+  severity             String
+  mitigationSuggestion String
+  createdAt            DateTime             @default(now())
+
+  @@map("founder_fit_gaps")
+}
+
+model RateLimitBucket {
+  id        String   @id @default(uuid())
+  key       String   @unique // Hashed IP, email, or user identifier
+  points    Int      @default(0)
+  expireAt  DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expireAt])
+  @@map("rate_limit_buckets")
 }

@@ -3,3 +3,7 @@ export * from "./seed.js";
 export * from "./audit.js";
 export * from "./audit-script.js";
 export * from "./blueprint-repository.js";
+export * from "./auth-session.js";
+export * from "./auth-identity.js";
+export * from "./rate-limiter.js";
+export * from "./email-delivery.js";
