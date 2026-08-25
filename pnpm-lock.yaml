@@ -271,6 +271,25 @@ importers:
         specifier: ^5.5.2
         version: 5.9.3
 
+  packages/entitlements:
+    dependencies:
+      '@buildworth/database':
+        specifier: workspace:*
+        version: link:../database
+      '@buildworth/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.9
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.2
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@edge-runtime/vm@3.2.0)(@types/node@20.19.43)
+
   packages/observability:
     dependencies:
       '@buildworth/config':
