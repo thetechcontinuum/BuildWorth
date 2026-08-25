@@ -14,7 +14,9 @@
     "lint": "tsc --noEmit",
     "audit:evidence": "node dist/audit-script.js",
     "migrate:deploy": "prisma migrate deploy",
-    "migrate:status": "prisma migrate status"
+    "migrate:status": "prisma migrate status",
+    "audit:projections": "node scripts/audit-projections.js",
+    "test:migration:phase2": "node scripts/test-populated-upgrade.js"
   },
   "dependencies": {
     "@buildworth/shared": "workspace:*",

@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:run": "vitest run",
     "lint": "tsc --noEmit",
-    "pipeline:run": "node dist/cli.js"
+    "pipeline:run": "node dist/cli.js",
+    "test:concurrency": "node src/test-concurrency-runner.js"
   },
   "dependencies": {
     "@buildworth/ai": "workspace:*",

@@ -1,0 +1,1 @@
+{"version":3,"file":"confidence-score.d.ts","sourceRoot":"","sources":["confidence-score.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,eAAe,EAAE,qBAAqB,EAAiC,MAAM,YAAY,CAAC;AAEnG,eAAO,MAAM,yBAAyB,UAAU,CAAC;AA0BjD,MAAM,WAAW,mCAAmC;IAClD,KAAK,EAAE,MAAM,CAAC;IACd,WAAW,EAAE,qBAAqB,CAAC;CACpC;AAED;;;;;;;;;;;;;;GAcG;AACH,wBAAgB,2BAA2B,CACzC,KAAK,EAAE,eAAe,GACrB,mCAAmC,CAsNrC"}

@@ -8,3 +8,4 @@ export * from "./synthesizer.js";
 export * from "./evaluation/benchmark.js";
 export * from "./dossier.js";
 export * from "./pipeline.js";
+export * from "./revision/revision-service.js";

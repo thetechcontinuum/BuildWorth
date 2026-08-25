@@ -362,6 +362,11 @@ model Opportunity {
   publicationQualityStatus PublicationQualityStatus @default(HYPOTHESIS)
   isDemoFixture            Boolean                  @default(false)
   currentRevisionId        String?                  @unique
+  decisionRecommendation   DecisionRecommendation   @default(UNASSESSED)
+  decisionReasonCodes      String[]                 @default([])
+  primaryAdvantage         String?
+  riskiestAssumption       String?
+  cheapestExperiment       String?
 
   // Minor units (cents)
   estimatedMvpCostMinCents       Int
@@ -401,6 +406,7 @@ model OpportunityRevision {
   createdAt       DateTime    @default(now())
 
   evidenceLinks EvidenceLink[]
+  blueprint     OpportunityBlueprint?
 
   @@unique([opportunityId, revisionNumber])
   @@map("opportunity_revisions")
@@ -429,6 +435,14 @@ model EvidenceLink {
   explanation      String?
   relevanceScore   Float            @default(1.0)
   createdAt        DateTime         @default(now())
+
+  segmentLinks    CustomerSegmentEvidenceLink[]
+  competitorLinks CompetitorEvidenceLink[]
+  costLinks       CostEvidenceLink[]
+  benefitLinks    BenefitEvidenceLink[]
+  riskLinks       RiskEvidenceLink[]
+  assumptionLinks AssumptionEvidenceLink[]
+  experimentLinks ExperimentEvidenceLink[]
 
   @@unique([opportunityRevisionId, normalizedSignalId, claimIdentifier, relationshipType])
   @@index([opportunityRevisionId])
@@ -549,4 +563,544 @@ model KillSwitch {
   updatedAt DateTime @updatedAt
 
   @@map("kill_switches")
+}
+
+enum DecisionRecommendation {
+  BUILD_CANDIDATE
+  VALIDATE_FIRST
+  WATCH
+  WEAK_OPPORTUNITY
+  REJECT
+  UNASSESSED
+}
+
+enum RiskCategory {
+  MARKET
+  BUYER
+  COMPETITION
+  TECHNICAL
+  DATA
+  SECURITY
+  PRIVACY
+  REGULATORY
+  FINANCIAL
+  DISTRIBUTION
+  OPERATIONS
+  DEPENDENCY
+}
+
+enum RiskSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskStatus {
+  IDENTIFIED
+  MITIGATING
+  RESOLVED
+  ACCEPTED
+}
+
+enum AssumptionCategory {
+  PROBLEM
+  BUYER
+  WILLINGNESS_TO_PAY
+  SOLUTION
+  FEASIBILITY
+  DISTRIBUTION
+  COST
+  REGULATORY
+}
+
+enum AssumptionStatus {
+  UNTESTED
+  TESTING
+  SUPPORTED
+  CONTRADICTED
+  INVALIDATED
+}
+
+enum ExperimentType {
+  CUSTOMER_INTERVIEW
+  LANDING_PAGE
+  WAITLIST
+  PREORDER
+  PAID_PILOT
+  CONCIERGE_MVP
+  PROTOTYPE_TEST
+  PRICING_TEST
+  CHANNEL_TEST
+  TECHNICAL_SPIKE
+}
+
+enum ExperimentStatus {
+  PLANNED
+  RUNNING
+  PASSED
+  FAILED
+  ABANDONED
+}
+
+enum SalesMotion {
+  SELF_SERVICE
+  PRODUCT_LED
+  FOUNDER_LED
+  SALES_ASSISTED
+  ENTERPRISE_SALES
+  PARTNER_LED
+}
+
+enum MvpCategory {
+  MUST_HAVE
+  SHOULD_HAVE
+  LATER
+  OUT_OF_SCOPE
+}
+
+enum ScenarioType {
+  CONSERVATIVE
+  BASE
+  UPSIDE
+}
+
+enum CostType {
+  ONE_TIME_BUILD
+  MONTHLY_OPERATING
+}
+
+enum CostCategory {
+  PRODUCT_DISCOVERY
+  UX_UI_DESIGN
+  FRONTEND_DEV
+  BACKEND_DEV
+  DATABASE_INFRA
+  INTEGRATIONS
+  AI_MODEL_WORK
+  TESTING_QA
+  SECURITY_COMPLIANCE
+  DEPLOYMENT_DEVOPS
+  CONTINGENCY
+  HOSTING
+  DATABASE
+  STORAGE
+  AI_APIS
+  THIRD_PARTY_APIS
+  EMAIL_NOTIFICATIONS
+  OBSERVABILITY
+  SUPPORT
+  MAINTENANCE
+  COMPLIANCE
+  OTHER_VARIABLE
+}
+
+enum BenefitCategory {
+  LABOR_TIME_SAVED
+  AVOIDED_LOSSES
+  AVOIDED_DOWNTIME
+  REDUCED_SOFTWARE_SPEND
+  INCREASED_REVENUE
+  REDUCED_RISK
+  FASTER_DELIVERY
+  COMPLIANCE_SAVINGS
+}
+
+enum ProvenanceType {
+  VERIFIED_EVIDENCE_BACKED
+  PARTIALLY_EVIDENCE_BACKED
+  ASSUMPTION
+  MODEL_ESTIMATE
+  LEGACY_UNCLASSIFIED
+  SYNTHETIC_FIXTURE
+  USER_PROVIDED
+}
+
+enum CalculationStatus {
+  CALCULATED
+  NOT_ENOUGH_DATA
+  NOT_APPLICABLE
+  INVALID_ASSUMPTION
+  NEGATIVE_UNIT_ECONOMICS
+}
+
+model OpportunityBlueprint {
+  id                    String              @id @default(uuid())
+  opportunityRevisionId String              @unique
+  opportunityRevision   OpportunityRevision @relation(fields: [opportunityRevisionId], references: [id], onDelete: Restrict)
+
+  schemaVersion       String   @default("1.0.0")
+  generationStatus    String   @default("SYNTHESIZED")
+  generatedAt         DateTime @default(now())
+  generatedBy         String?
+  modelProvider       String?
+  modelName           String?
+  promptVersion       String?
+  calculationVersion  String   @default("1.0.0")
+  decisionRuleVersion String   @default("1.0.0")
+  inputHash           String
+  createdAt           DateTime @default(now())
+
+  architectureSummary String?
+  gtmNarrative        Json?
+  first20Plan         Json?
+  reachableMarket     Json?
+
+  customerSegments      BlueprintCustomerSegment[]
+  mvpFeatures           BlueprintMvpFeature[]
+  competitors           BlueprintCompetitor[]
+  financialScenarios    FinancialScenario[]
+  costLineItems         CostLineItem[]
+  benefitDrivers        BenefitDriver[]
+  risks                 BlueprintRisk[]
+  assumptions           BlueprintAssumption[]
+  validationExperiments ValidationExperiment[]
+  decisionEvaluation    DecisionEvaluation?
+
+  @@map("opportunity_blueprints")
+}
+
+model BlueprintCustomerSegment {
+  id                    String               @id @default(uuid())
+  blueprintId           String
+  blueprint             OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  segmentName           String
+  industry              String
+  companySizeRange      String
+  geography             String
+  businessModel         String
+  endUserRole           String
+  economicBuyerRole     String
+  technicalApproverRole String?
+  procurementComplexity String
+  budgetCategory        String
+  spendingBehavior      String
+  buyingTrigger         String
+  primaryObjection      String
+  acquisitionChannels   String[]             @default([])
+  salesCycleMinDays     Int
+  salesCycleMaxDays     Int
+  salesMotion           SalesMotion
+  confidenceScore       Int
+  provenanceType        ProvenanceType
+  createdAt             DateTime             @default(now())
+
+  evidenceLinks CustomerSegmentEvidenceLink[]
+
+  @@map("blueprint_customer_segments")
+}
+
+model CustomerSegmentEvidenceLink {
+  id                String                   @id @default(uuid())
+  customerSegmentId String
+  customerSegment   BlueprintCustomerSegment @relation(fields: [customerSegmentId], references: [id], onDelete: Cascade)
+  evidenceLinkId    String
+  evidenceLink      EvidenceLink             @relation(fields: [evidenceLinkId], references: [id], onDelete: Restrict)
+
+  @@unique([customerSegmentId, evidenceLinkId])
+  @@map("customer_segment_evidence_links")
+}
+
+model BlueprintMvpFeature {
+  id                   String               @id @default(uuid())
+  blueprintId          String
+  blueprint            OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  featureName          String
+  description          String
+  category             MvpCategory
+  userJourneyStep      String?
+  requiredIntegrations String[]             @default([])
+  requiredData         String[]             @default([])
+  dependencies         String[]             @default([])
+  acceptanceCriteria   String[]             @default([])
+  orderIndex           Int                  @default(0)
+  createdAt            DateTime             @default(now())
+
+  @@map("blueprint_mvp_features")
+}
+
+model BlueprintCompetitor {
+  id                        String               @id @default(uuid())
+  blueprintId               String
+  blueprint                 OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  name                      String
+  competitorType            String
+  knownPricing              String?
+  strengths                 String[]             @default([])
+  recurringComplaints       String[]             @default([])
+  differentiationHypothesis String
+  switchingCosts            String
+  provenanceType            ProvenanceType
+  createdAt                 DateTime             @default(now())
+
+  evidenceLinks CompetitorEvidenceLink[]
+
+  @@map("blueprint_competitors")
+}
+
+model CompetitorEvidenceLink {
+  id             String              @id @default(uuid())
+  competitorId   String
+  competitor     BlueprintCompetitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  evidenceLinkId String
+  evidenceLink   EvidenceLink        @relation(fields: [evidenceLinkId], references: [id], onDelete: Restrict)
+
+  @@unique([competitorId, evidenceLinkId])
+  @@map("competitor_evidence_links")
+}
+
+model FinancialScenario {
+  id           String               @id @default(uuid())
+  blueprintId  String
+  blueprint    OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  scenarioType ScenarioType
+  currency     String               @default("USD")
+
+  activeCustomers              Int
+  monthlyPriceCents            Int
+  onboardingPriceCents         Int @default(0)
+  variableCostPerCustomerCents Int
+  monthlyFixedCostCents        Int
+  customerAcquisitionCostCents Int
+  deliveryTimeWeeks            Int
+
+  grossMarginPercent             Float?
+  grossMarginStatus              CalculationStatus @default(CALCULATED)
+  grossMarginReason              String?
+  monthlyContributionMarginCents Int?
+  monthlyOperatingProfitCents    Int?
+  breakEvenCustomers             Int?
+  breakEvenStatus                CalculationStatus @default(CALCULATED)
+  breakEvenReason                String?
+  customerAnnualCostCents        Int?
+  customerAnnualBenefitCents     Int?
+  customerNetAnnualBenefitCents  Int?
+  customerRoiPercent             Float?
+  customerRoiStatus              CalculationStatus @default(CALCULATED)
+  customerRoiReason              String?
+  customerPaybackMonths          Float?
+  customerPaybackStatus          CalculationStatus @default(CALCULATED)
+  customerPaybackReason          String?
+  providerCacPaybackMonths       Float?
+  providerCacPaybackStatus       CalculationStatus @default(CALCULATED)
+  providerCacPaybackReason       String?
+
+  provenanceType ProvenanceType
+  assumptions    String[]       @default([])
+  inputHash      String
+  calculatedAt   DateTime       @default(now())
+
+  @@unique([blueprintId, scenarioType])
+  @@map("financial_scenarios")
+}
+
+model CostLineItem {
+  id               String               @id @default(uuid())
+  blueprintId      String
+  blueprint        OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  costType         CostType
+  category         CostCategory
+  title            String
+  description      String?
+  scenarioType     ScenarioType         @default(BASE)
+  amountMinorCents Int
+  currency         String               @default("USD")
+  estimateMethod   String
+  provenanceType   ProvenanceType
+  confidenceScore  Int
+  createdAt        DateTime             @default(now())
+
+  evidenceLinks CostEvidenceLink[]
+  assumptions   CostAssumptionLink[]
+
+  @@map("cost_line_items")
+}
+
+model CostEvidenceLink {
+  id             String       @id @default(uuid())
+  costLineItemId String
+  costLineItem   CostLineItem @relation(fields: [costLineItemId], references: [id], onDelete: Cascade)
+  evidenceLinkId String
+  evidenceLink   EvidenceLink @relation(fields: [evidenceLinkId], references: [id], onDelete: Restrict)
+
+  @@unique([costLineItemId, evidenceLinkId])
+  @@map("cost_evidence_links")
+}
+
+model CostAssumptionLink {
+  id             String              @id @default(uuid())
+  costLineItemId String
+  costLineItem   CostLineItem        @relation(fields: [costLineItemId], references: [id], onDelete: Cascade)
+  assumptionId   String
+  assumption     BlueprintAssumption @relation(fields: [assumptionId], references: [id], onDelete: Restrict)
+
+  @@unique([costLineItemId, assumptionId])
+  @@map("cost_assumption_links")
+}
+
+model BenefitDriver {
+  id                     String               @id @default(uuid())
+  blueprintId            String
+  blueprint              OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  category               BenefitCategory
+  title                  String
+  affectedRole           String
+  unitQuantity           Float
+  unitValueCents         Int
+  frequencyPeriod        String
+  annualValueCents       Int
+  calculationDescription String
+  provenanceType         ProvenanceType
+  confidenceScore        Int
+  createdAt              DateTime             @default(now())
+
+  evidenceLinks BenefitEvidenceLink[]
+  assumptions   BenefitAssumptionLink[]
+
+  @@map("benefit_drivers")
+}
+
+model BenefitEvidenceLink {
+  id              String        @id @default(uuid())
+  benefitDriverId String
+  benefitDriver   BenefitDriver @relation(fields: [benefitDriverId], references: [id], onDelete: Cascade)
+  evidenceLinkId  String
+  evidenceLink    EvidenceLink  @relation(fields: [evidenceLinkId], references: [id], onDelete: Restrict)
+
+  @@unique([benefitDriverId, evidenceLinkId])
+  @@map("benefit_evidence_links")
+}
+
+model BenefitAssumptionLink {
+  id              String              @id @default(uuid())
+  benefitDriverId String
+  benefitDriver   BenefitDriver       @relation(fields: [benefitDriverId], references: [id], onDelete: Cascade)
+  assumptionId    String
+  assumption      BlueprintAssumption @relation(fields: [assumptionId], references: [id], onDelete: Restrict)
+
+  @@unique([benefitDriverId, assumptionId])
+  @@map("benefit_assumption_links")
+}
+
+model BlueprintRisk {
+  id                    String               @id @default(uuid())
+  blueprintId           String
+  blueprint             OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  category              RiskCategory
+  description           String
+  probabilityScore      Int
+  impactScore           Int
+  severity              RiskSeverity
+  mitigationStrategy    String
+  earlyWarningIndicator String?
+  status                RiskStatus           @default(IDENTIFIED)
+  provenanceType        ProvenanceType
+  createdAt             DateTime             @default(now())
+
+  evidenceLinks RiskEvidenceLink[]
+
+  @@map("blueprint_risks")
+}
+
+model RiskEvidenceLink {
+  id             String        @id @default(uuid())
+  riskId         String
+  risk           BlueprintRisk @relation(fields: [riskId], references: [id], onDelete: Cascade)
+  evidenceLinkId String
+  evidenceLink   EvidenceLink  @relation(fields: [evidenceLinkId], references: [id], onDelete: Restrict)
+
+  @@unique([riskId, evidenceLinkId])
+  @@map("risk_evidence_links")
+}
+
+model BlueprintAssumption {
+  id               String               @id @default(uuid())
+  blueprintId      String
+  blueprint        OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  statement        String
+  category         AssumptionCategory
+  importanceScore  Int
+  uncertaintyScore Int
+  testMethod       String
+  successThreshold String
+  failureThreshold String
+  status           AssumptionStatus     @default(UNTESTED)
+  provenanceType   ProvenanceType       @default(ASSUMPTION)
+  createdAt        DateTime             @default(now())
+
+  evidenceLinks AssumptionEvidenceLink[]
+  costLinks     CostAssumptionLink[]
+  benefitLinks  BenefitAssumptionLink[]
+
+  @@map("blueprint_assumptions")
+}
+
+model AssumptionEvidenceLink {
+  id             String              @id @default(uuid())
+  assumptionId   String
+  assumption     BlueprintAssumption @relation(fields: [assumptionId], references: [id], onDelete: Cascade)
+  evidenceLinkId String
+  evidenceLink   EvidenceLink        @relation(fields: [evidenceLinkId], references: [id], onDelete: Restrict)
+
+  @@unique([assumptionId, evidenceLinkId])
+  @@map("assumption_evidence_links")
+}
+
+model ValidationExperiment {
+  id                    String               @id @default(uuid())
+  blueprintId           String
+  blueprint             OpportunityBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  hypothesis            String
+  experimentType        ExperimentType
+  targetParticipant     String
+  sampleSize            Int
+  estimatedCostCents    Int
+  estimatedDurationDays Int
+  acquisitionChannel    String
+  procedureSummary      String
+  successMetric         String
+  successThreshold      String
+  failureThreshold      String
+  killCriterion         String
+  nextActionOnSuccess   String
+  nextActionOnFailure   String
+  status                ExperimentStatus     @default(PLANNED)
+  orderPriority         Int                  @default(0)
+  createdAt             DateTime             @default(now())
+
+  evidenceGenerated ExperimentEvidenceLink[]
+
+  @@map("validation_experiments")
+}
+
+model ExperimentEvidenceLink {
+  id             String               @id @default(uuid())
+  experimentId   String
+  experiment     ValidationExperiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  evidenceLinkId String
+  evidenceLink   EvidenceLink         @relation(fields: [evidenceLinkId], references: [id], onDelete: Restrict)
+
+  @@unique([experimentId, evidenceLinkId])
+  @@map("experiment_evidence_links")
+}
+
+model DecisionEvaluation {
+  id                       String                   @id @default(uuid())
+  blueprintId              String                   @unique
+  blueprint                OpportunityBlueprint     @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  recommendation           DecisionRecommendation   @default(UNASSESSED)
+  reasonCodes              String[]                 @default([])
+  blockingConditions       String[]                 @default([])
+  opportunityScoreUsed     Int
+  evidenceConfidenceUsed   Int
+  publicationStatusUsed    PublicationQualityStatus
+  economicsStatus          String
+  feasibilityStatus        String
+  criticalRiskIds          String[]                 @default([])
+  invalidatedAssumptionIds String[]                 @default([])
+  decisionRuleVersion      String                   @default("1.0.0")
+  inputHash                String
+  evaluatedAt              DateTime                 @default(now())
+
+  @@map("decision_evaluations")
 }

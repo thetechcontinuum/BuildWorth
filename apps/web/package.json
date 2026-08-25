@@ -5,10 +5,11 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "pnpm --filter @buildworth/shared --filter @buildworth/config --filter @buildworth/validation --filter @buildworth/observability --filter @buildworth/database --filter @buildworth/scoring --filter @buildworth/ui --filter @buildworth/ai --filter @buildworth/source-connectors --filter @buildworth/opportunity-engine run build && next build",
-    "start": "next start -p 3000",
+    "start": "next start -p 3009",
     "lint": "tsc --noEmit",
     "type-check": "tsc --noEmit",
-    "db:generate": "pnpm --filter @buildworth/database run db:generate"
+    "db:generate": "pnpm --filter @buildworth/database run db:generate",
+    "test:fixture-isolation": "node scripts/test-fixture-isolation.js"
   },
   "dependencies": {
     "@buildworth/config": "workspace:*",
