@@ -8,7 +8,9 @@ export type BillingSubscriptionStatusType =
   | "PAST_DUE"
   | "CANCELED"
   | "UNPAID"
-  | "PAUSED";
+  | "PAUSED"
+  | "UNKNOWN";
+
 
 export type EntitlementKey =
   | "EVIDENCE_LINEAGE_UNRESTRICTED"

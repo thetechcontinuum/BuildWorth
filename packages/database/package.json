@@ -19,8 +19,11 @@
     "audit:projections": "node scripts/audit-projections.js",
     "catalog:entitlements": "node scripts/reconcile-catalog.js",
     "audit:entitlements": "node scripts/audit-entitlements.js",
+    "audit:billing": "node scripts/audit-billing.js",
     "test:phase4a": "node scripts/test-phase4a-entitlements.js",
     "test:migration:phase4a": "node scripts/test-zero-rehearsal.js",
+    "test:phase4b": "node scripts/test-phase4b-e2e-billing.js",
+    "test:migration:phase4b": "node scripts/test-zero-rehearsal.js",
     "test:migration:phase2": "node scripts/test-populated-upgrade.js",
     "test:phase3": "node scripts/test-phase3-auth-isolation.js",
     "test:migration:phase3": "node scripts/test-phase3-populated-upgrade.js"

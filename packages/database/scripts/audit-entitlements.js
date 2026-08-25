@@ -4,12 +4,7 @@ const { resolveUserEntitlements, checkEntitlement, CANONICAL_PLANS } = require("
 
 async function auditEntitlements() {
   const isReportOnly = process.argv.includes("--report-only");
-  const dbUrl = process.env.DATABASE_URL;
-
-  if (!dbUrl) {
-    console.error("Fatal Error: DATABASE_URL environment variable is required.");
-    process.exit(2);
-  }
+  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
 
   let prisma;
   try {

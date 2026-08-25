@@ -177,6 +177,7 @@ model User {
   // Phase 4A Billing & Entitlements
   billingCustomer      BillingCustomer?
   billingSubscriptions BillingSubscription[]
+  checkoutAttempts     BillingCheckoutAttempt[]
   entitlementGrants    EntitlementGrant[]
   usageLedgers         UsageLedger[]
 
@@ -1548,6 +1549,7 @@ enum BillingSubscriptionStatus {
   CANCELED
   UNPAID
   PAUSED
+  UNKNOWN
 }
 
 enum EntitlementType {
@@ -1633,23 +1635,24 @@ model BillingCustomer {
 }
 
 model BillingSubscription {
-  id                   String                    @id @default(uuid())
-  userId               String
-  user                 User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  billingCustomerId    String
-  billingCustomer      BillingCustomer           @relation(fields: [billingCustomerId], references: [id], onDelete: Restrict)
-  planPriceId          String
-  planPrice            PlanPrice                 @relation(fields: [planPriceId], references: [id], onDelete: Restrict)
-  stripeSubscriptionId String?                   @unique
-  status               BillingSubscriptionStatus
-  currentPeriodStart   DateTime
-  currentPeriodEnd     DateTime
-  cancelAtPeriodEnd    Boolean                   @default(false)
-  canceledAt           DateTime?
-  trialStart           DateTime?
-  trialEnd             DateTime?
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
+  id                           String                    @id @default(uuid())
+  userId                       String
+  user                         User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  billingCustomerId            String
+  billingCustomer              BillingCustomer           @relation(fields: [billingCustomerId], references: [id], onDelete: Restrict)
+  planPriceId                  String
+  planPrice                    PlanPrice                 @relation(fields: [planPriceId], references: [id], onDelete: Restrict)
+  stripeSubscriptionId         String?                   @unique
+  status                       BillingSubscriptionStatus
+  currentPeriodStart           DateTime
+  currentPeriodEnd             DateTime
+  cancelAtPeriodEnd            Boolean                   @default(false)
+  canceledAt                   DateTime?
+  trialStart                   DateTime?
+  trialEnd                     DateTime?
+  latestProviderEventTimestamp DateTime?
+  createdAt                    DateTime                  @default(now())
+  updatedAt                    DateTime                  @updatedAt
 
   entitlementGrants EntitlementGrant[]
 
@@ -1662,13 +1665,35 @@ model BillingWebhookEvent {
   eventId          String    @unique // Stripe Event ID
   eventType        String // e.g. customer.subscription.updated
   idempotencyKey   String?   @unique
+  payloadHash      String? // SHA-256 hash of raw payload
   payload          Json
   processedAt      DateTime?
   processingStatus String    @default("PENDING") // PENDING, PROCESSED, FAILED, IGNORED
   errorMessage     String?
+  attemptCount     Int       @default(0)
   createdAt        DateTime  @default(now())
 
   @@map("billing_webhook_events")
+}
+
+model BillingCheckoutAttempt {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestId         String    @unique
+  selectedPlanCode  String // "PRO"
+  billingInterval   String // "MONTHLY" | "ANNUAL"
+  planPriceId       String
+  stripePriceId     String
+  checkoutSessionId String?   @unique
+  idempotencyKey    String    @unique
+  status            String    @default("PENDING") // PENDING, COMPLETED, EXPIRED, FAILED
+  completedAt       DateTime?
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+
+  @@index([userId, status])
+  @@map("billing_checkout_attempts")
 }
 
 model EntitlementGrant {

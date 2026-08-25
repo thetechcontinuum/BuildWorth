@@ -36,14 +36,17 @@ async function reconcileCatalog() {
       console.log(`Plan [${code}]: isActive=${plan.isActive}, sortOrder=${plan.sortOrder}`);
 
       // 2. Reconcile Plan Prices (USD Minor units: cents)
+      const envMonthlyStripeId = process.env.STRIPE_PRO_MONTHLY_PRICE_ID || "price_test_pro_monthly";
+      const envAnnualStripeId = process.env.STRIPE_PRO_YEARLY_PRICE_ID || "price_test_pro_annual";
+
       // Monthly Price
       if (cfg.monthlyPriceCents > 0 || code === "FREE") {
-        const monthlyStripeId = code === "PRO" ? "price_test_pro_monthly" : null;
+        const monthlyStripeId = code === "PRO" ? envMonthlyStripeId : null;
         const existingMonthly = await prisma.planPrice.findFirst({ where: { planId: plan.id, billingInterval: "MONTHLY" } });
         if (existingMonthly) {
           await prisma.planPrice.update({
             where: { id: existingMonthly.id },
-            data: { amountCents: cfg.monthlyPriceCents, currency: "USD", isActive: cfg.isActive },
+            data: { amountCents: cfg.monthlyPriceCents, currency: "USD", isActive: cfg.isActive, stripePriceId: monthlyStripeId },
           });
         } else {
           await prisma.planPrice.create({
@@ -62,12 +65,12 @@ async function reconcileCatalog() {
 
       // Annual Price
       if (cfg.annualPriceCents > 0) {
-        const annualStripeId = code === "PRO" ? "price_test_pro_annual" : null;
+        const annualStripeId = code === "PRO" ? envAnnualStripeId : null;
         const existingAnnual = await prisma.planPrice.findFirst({ where: { planId: plan.id, billingInterval: "ANNUAL" } });
         if (existingAnnual) {
           await prisma.planPrice.update({
             where: { id: existingAnnual.id },
-            data: { amountCents: cfg.annualPriceCents, currency: "USD", isActive: cfg.isActive },
+            data: { amountCents: cfg.annualPriceCents, currency: "USD", isActive: cfg.isActive, stripePriceId: annualStripeId },
           });
         } else {
           await prisma.planPrice.create({
@@ -83,6 +86,7 @@ async function reconcileCatalog() {
           });
         }
       }
+
 
       // 3. Reconcile Plan Entitlements Matrix
       for (const [entKey, entCfg] of Object.entries(cfg.entitlements)) {
