@@ -11,7 +11,9 @@ import { createOrUpdateFounderProfileTransaction } from "../../opportunity-engin
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public",
+      url:
+        process.env.DATABASE_URL ||
+        "postgresql://postgres:postgres@localhost:5440/postgres?schema=public",
     },
   },
 });
@@ -71,7 +73,10 @@ describe("Mandatory Phase 3 Comprehensive Verification & Security Gates", () => 
     expect(sessionUser?.email).toBe(userAEmail);
 
     // Forged session token fails
-    const forged = await resolveHashedServerSession(prisma, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    const forged = await resolveHashedServerSession(
+      prisma,
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    );
     expect(forged).toBeNull();
 
     // Revoking session invalidates access
@@ -125,7 +130,10 @@ describe("Mandatory Phase 3 Comprehensive Verification & Security Gates", () => 
     // User A creates profile revision #2 (sequential increment)
     const revA2 = await createOrUpdateFounderProfileTransaction(prisma, userA.id, {
       userId: userA.id,
-      skills: [{ skillKey: "TYPESCRIPT", proficiency: "EXPERT" }, { skillKey: "REACT", proficiency: "ADVANCED" }],
+      skills: [
+        { skillKey: "TYPESCRIPT", proficiency: "EXPERT" },
+        { skillKey: "REACT", proficiency: "ADVANCED" },
+      ],
       domainExpertise: [{ industryOrDomain: "DevOps", yearsExperienceBand: "3-5" }],
       distributionAssets: [],
       preferences: {

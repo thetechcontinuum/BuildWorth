@@ -13,13 +13,17 @@ export function First20CustomersPlan({ plan }: Props) {
   if (!plan) return null;
 
   return (
-    <section id="section-first-20" className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-lg">
+    <section
+      id="section-first-20"
+      className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-lg"
+    >
       <div className="border-b border-zinc-800 pb-4">
         <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
           <span>🚀</span> First 20 Customers Execution Plan
         </h2>
         <p className="text-xs text-zinc-400 mt-1">
-          Four concrete, progressive stages from initial pilot acquisition to repeatable acquisition motion.
+          Four concrete, progressive stages from initial pilot acquisition to repeatable acquisition
+          motion.
         </p>
       </div>
 

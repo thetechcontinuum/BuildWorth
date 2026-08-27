@@ -1,10 +1,22 @@
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
-const { resolveUserEntitlements, checkEntitlement, enforceAtomicUsage, CANONICAL_PLANS } = require("../../entitlements/dist/index.js");
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
+const {
+  resolveUserEntitlements,
+  checkEntitlement,
+  enforceAtomicUsage,
+  CANONICAL_PLANS,
+} = require("../../entitlements/dist/index.js");
 
 async function testPhase4aEntitlements() {
   console.log("=== BuildWorth Phase 4A Entitlements & Real PostgreSQL Concurrency Suite ===");
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
   const testEmail = "concurrency.test.user@buildworth.io";
@@ -128,16 +140,20 @@ async function testPhase4aEntitlements() {
         units: 1,
         resourceId: `race-opp-${idx}`,
         periodBucketKey: "2026-08-RACE",
-      })
+      }),
     );
 
     const results = await Promise.all(promises);
     const successCount = results.filter((r) => r.allowed).length;
     const rejectedCount = results.filter((r) => !r.allowed).length;
 
-    console.log(`  ✓ 10 simultaneous requests: ${successCount} succeeded, ${rejectedCount} rejected.`);
+    console.log(
+      `  ✓ 10 simultaneous requests: ${successCount} succeeded, ${rejectedCount} rejected.`,
+    );
     if (successCount !== 1) {
-      throw new Error(`Expected exactly 1 success among 10 competing requests, got ${successCount}`);
+      throw new Error(
+        `Expected exactly 1 success among 10 competing requests, got ${successCount}`,
+      );
     }
 
     const totalCommittedInRace = await prisma.usageLedger.aggregate({
@@ -145,9 +161,13 @@ async function testPhase4aEntitlements() {
       _sum: { unitsConsumed: true },
     });
     if (totalCommittedInRace._sum.unitsConsumed !== 5) {
-      throw new Error(`Committed usage exceeded limit! Found ${totalCommittedInRace._sum.unitsConsumed}`);
+      throw new Error(
+        `Committed usage exceeded limit! Found ${totalCommittedInRace._sum.unitsConsumed}`,
+      );
     }
-    console.log("  ✓ PostgreSQL advisory lock guaranteed total committed usage == 5 (0 over-allocation).");
+    console.log(
+      "  ✓ PostgreSQL advisory lock guaranteed total committed usage == 5 (0 over-allocation).",
+    );
 
     console.log("Test 4: Idempotency Key testing...");
     const idemKey = "idem_test_abc_123";
@@ -182,14 +202,22 @@ async function testPhase4aEntitlements() {
 
     console.log("Test 5: Different users running concurrently...");
     const [u1Res, u2Res] = await Promise.all([
-      enforceAtomicUsage(prisma, user1.id, "OPPORTUNITY_COMPARISON", { units: 1, periodBucketKey: "2026-08-PAR" }),
-      enforceAtomicUsage(prisma, user2.id, "OPPORTUNITY_COMPARISON", { units: 1, periodBucketKey: "2026-08-PAR" }),
+      enforceAtomicUsage(prisma, user1.id, "OPPORTUNITY_COMPARISON", {
+        units: 1,
+        periodBucketKey: "2026-08-PAR",
+      }),
+      enforceAtomicUsage(prisma, user2.id, "OPPORTUNITY_COMPARISON", {
+        units: 1,
+        periodBucketKey: "2026-08-PAR",
+      }),
     ]);
     if (!u1Res.allowed || !u2Res.allowed) throw new Error("Concurrent multi-user execution failed");
     console.log("  ✓ Different users execute concurrently without locking contention.");
 
     console.log("Test 6: Transaction rollback on error creates 0 usage rows...");
-    const rowsBefore = await prisma.usageLedger.count({ where: { userId: user1.id, periodBucketKey: "2026-08-FAIL" } });
+    const rowsBefore = await prisma.usageLedger.count({
+      where: { userId: user1.id, periodBucketKey: "2026-08-FAIL" },
+    });
     try {
       await prisma.$transaction(async (tx) => {
         await enforceAtomicUsage(tx, user1.id, "OPPORTUNITY_COMPARISON", {
@@ -199,15 +227,20 @@ async function testPhase4aEntitlements() {
         throw new Error("Simulated downstream business error");
       });
     } catch {}
-    const rowsAfter = await prisma.usageLedger.count({ where: { userId: user1.id, periodBucketKey: "2026-08-FAIL" } });
+    const rowsAfter = await prisma.usageLedger.count({
+      where: { userId: user1.id, periodBucketKey: "2026-08-FAIL" },
+    });
     if (rowsBefore !== rowsAfter) throw new Error("Rollback leaked usage ledger rows!");
     console.log("  ✓ Rollback verified: 0 usage rows created on failure.");
 
     console.log("Test 7: Negative, zero, and malformed units validation...");
     const neg = await enforceAtomicUsage(prisma, user1.id, "OPPORTUNITY_COMPARISON", { units: -5 });
     const zero = await enforceAtomicUsage(prisma, user1.id, "OPPORTUNITY_COMPARISON", { units: 0 });
-    const floatU = await enforceAtomicUsage(prisma, user1.id, "OPPORTUNITY_COMPARISON", { units: 1.5 });
-    if (neg.allowed || zero.allowed || floatU.allowed) throw new Error("Malformed unit requests allowed");
+    const floatU = await enforceAtomicUsage(prisma, user1.id, "OPPORTUNITY_COMPARISON", {
+      units: 1.5,
+    });
+    if (neg.allowed || zero.allowed || floatU.allowed)
+      throw new Error("Malformed unit requests allowed");
     console.log("  ✓ Negative, zero, and non-integer unit requests rejected.");
 
     console.log("\n=======================================================");

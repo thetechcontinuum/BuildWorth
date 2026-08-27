@@ -17,6 +17,21 @@ export const SCHEDULED_TASKS = [
     cron: "0 0 * * *",
     description: "Reset daily AI spend ledger allocations",
   },
+  {
+    name: "minutely_notification_outbox_dispatch",
+    cron: "* * * * *",
+    description: "Poll and process pending notification outbox items with atomic row leasing",
+  },
+  {
+    name: "morning_08am_radar_daily_digest",
+    cron: "0 8 * * *",
+    description: "Generate and queue daily Radar opportunity digest runs",
+  },
+  {
+    name: "monday_08am_radar_weekly_digest",
+    cron: "0 8 * * 1",
+    description: "Generate and queue weekly Radar opportunity digest runs for Free and Pro users",
+  },
 ];
 
 async function runScheduler() {

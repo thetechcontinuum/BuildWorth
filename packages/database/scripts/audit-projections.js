@@ -1,10 +1,19 @@
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 
 async function main() {
   const isReportOnly = process.argv.includes("--report-only");
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
-  
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.error("[FATAL] Missing required environment variable: DATABASE_URL");
+    process.exit(2);
+  }
+
   let prisma;
   try {
     prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
@@ -38,13 +47,16 @@ async function main() {
     let mismatchCount = 0;
 
     for (const opp of opportunities) {
-      const currentRev = opp.currentRevisionId 
-        ? opp.revisions.find(r => r.id === opp.currentRevisionId) || opp.revisions.sort((a,b) => b.revisionNumber - a.revisionNumber)[0]
-        : opp.revisions.sort((a,b) => b.revisionNumber - a.revisionNumber)[0];
+      const currentRev = opp.currentRevisionId
+        ? opp.revisions.find((r) => r.id === opp.currentRevisionId) ||
+          opp.revisions.sort((a, b) => b.revisionNumber - a.revisionNumber)[0]
+        : opp.revisions.sort((a, b) => b.revisionNumber - a.revisionNumber)[0];
       if (currentRev) revisionCount++;
 
       if (opp.currentRevisionId && currentRev && opp.currentRevisionId !== currentRev.id) {
-        console.error(`[DEFECT] Opportunity ${opp.slug} currentRevisionId mismatch: ${opp.currentRevisionId} !== ${currentRev.id}`);
+        console.error(
+          `[DEFECT] Opportunity ${opp.slug} currentRevisionId mismatch: ${opp.currentRevisionId} !== ${currentRev.id}`,
+        );
         mismatchCount++;
       }
 
@@ -54,8 +66,13 @@ async function main() {
 
         // 1. Decision Recommendation
         projectionCount++;
-        if (bp.decisionEvaluation && opp.decisionRecommendation !== bp.decisionEvaluation.recommendation) {
-          console.error(`[DEFECT] Recommendation mismatch for ${opp.slug}: ${opp.decisionRecommendation} !== ${bp.decisionEvaluation.recommendation}`);
+        if (
+          bp.decisionEvaluation &&
+          opp.decisionRecommendation !== bp.decisionEvaluation.recommendation
+        ) {
+          console.error(
+            `[DEFECT] Recommendation mismatch for ${opp.slug}: ${opp.decisionRecommendation} !== ${bp.decisionEvaluation.recommendation}`,
+          );
           mismatchCount++;
         }
 
@@ -63,14 +80,16 @@ async function main() {
         projectionCount++;
         const primarySegment = bp.customerSegments[0];
         if (primarySegment && opp.economicBuyer !== primarySegment.economicBuyerRole) {
-          console.error(`[DEFECT] Economic buyer mismatch for ${opp.slug}: ${opp.economicBuyer} !== ${primarySegment.economicBuyerRole}`);
+          console.error(
+            `[DEFECT] Economic buyer mismatch for ${opp.slug}: ${opp.economicBuyer} !== ${primarySegment.economicBuyerRole}`,
+          );
           mismatchCount++;
         }
 
         // 3. Riskiest Assumption
         projectionCount++;
         const unresolved = bp.assumptions
-          .filter(a => a.status === "UNTESTED" || a.status === "TESTING")
+          .filter((a) => a.status === "UNTESTED" || a.status === "TESTING")
           .sort((a, b) => {
             const scoreA = (a.importanceScore || 1) * (a.uncertaintyScore || 1);
             const scoreB = (b.importanceScore || 1) * (b.uncertaintyScore || 1);
@@ -79,7 +98,9 @@ async function main() {
           });
         const expectedAssumption = unresolved[0]?.statement ?? bp.assumptions[0]?.statement ?? null;
         if (expectedAssumption && opp.riskiestAssumption !== expectedAssumption) {
-          console.error(`[DEFECT] Riskiest assumption mismatch for ${opp.slug}: ${opp.riskiestAssumption} !== ${expectedAssumption}`);
+          console.error(
+            `[DEFECT] Riskiest assumption mismatch for ${opp.slug}: ${opp.riskiestAssumption} !== ${expectedAssumption}`,
+          );
           mismatchCount++;
         }
 
@@ -87,7 +108,9 @@ async function main() {
         projectionCount++;
         const expectedExp = bp.validationExperiments[0]?.hypothesis ?? null;
         if (expectedExp && opp.cheapestExperiment !== expectedExp) {
-          console.error(`[DEFECT] Cheapest experiment mismatch for ${opp.slug}: ${opp.cheapestExperiment} !== ${expectedExp}`);
+          console.error(
+            `[DEFECT] Cheapest experiment mismatch for ${opp.slug}: ${opp.cheapestExperiment} !== ${expectedExp}`,
+          );
           mismatchCount++;
         }
       }

@@ -46,7 +46,7 @@ export interface DatabaseUserData {
 export function resolveUserEntitlements(
   user: DatabaseUserData | null | undefined,
   currentDate: Date = new Date(),
-  envContext: { isLiveEnvironment?: boolean } = { isLiveEnvironment: true }
+  envContext: { isLiveEnvironment?: boolean } = { isLiveEnvironment: true },
 ): UserEntitlementContext {
   const allKeys: EntitlementKey[] = [
     "EVIDENCE_LINEAGE_UNRESTRICTED",
@@ -236,7 +236,7 @@ export function resolveUserEntitlements(
 export function checkEntitlement(
   context: UserEntitlementContext,
   key: EntitlementKey,
-  requiredUnits: number = 1
+  requiredUnits: number = 1,
 ): EntitlementCheckResult {
   if (requiredUnits <= 0 || !Number.isInteger(requiredUnits)) {
     return { allowed: false, reason: "INVALID_REQUIRED_UNITS", upgradeRequired: false };

@@ -30,7 +30,7 @@ export interface SafeFetchResponse {
  */
 export async function safeFetch(
   targetUrl: string,
-  options: SafeFetchOptions = {}
+  options: SafeFetchOptions = {},
 ): Promise<SafeFetchResponse> {
   const {
     maxRedirects = 3,
@@ -63,7 +63,9 @@ export async function safeFetch(
 
     for (const record of resolvedIps) {
       if (isIpBlocked(record.address)) {
-        throw new Error(`SSRF Blocked: Host ${parsed.hostname} resolved to blocked IP ${record.address}`);
+        throw new Error(
+          `SSRF Blocked: Host ${parsed.hostname} resolved to blocked IP ${record.address}`,
+        );
       }
     }
 
@@ -117,7 +119,11 @@ export async function safeFetch(
             totalBytes += Buffer.byteLength(chunk);
             if (totalBytes > maxSizeBytes) {
               req.destroy();
-              reject(new Error(`Response payload exceeded maximum allowed size of ${maxSizeBytes} bytes`));
+              reject(
+                new Error(
+                  `Response payload exceeded maximum allowed size of ${maxSizeBytes} bytes`,
+                ),
+              );
               return;
             }
             body += chunk;
@@ -132,7 +138,7 @@ export async function safeFetch(
               pinnedIp,
             });
           });
-        }
+        },
       );
 
       req.on("timeout", () => {
@@ -148,10 +154,7 @@ export async function safeFetch(
     });
 
     // If response is a redirect, continue loop and revalidate
-    if (
-      [301, 302, 303, 307, 308].includes(response.status) &&
-      response.finalUrl !== currentUrl
-    ) {
+    if ([301, 302, 303, 307, 308].includes(response.status) && response.finalUrl !== currentUrl) {
       redirectCount++;
       currentUrl = response.finalUrl;
       continue;

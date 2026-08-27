@@ -19,7 +19,6 @@ describe("Phase 4B Billing Unit & Safety Tests", () => {
     expect(mapStripeSubscriptionStatus("")).toBe("UNKNOWN");
   });
 
-
   it("computes deterministic SHA-256 payload hash", () => {
     const rawPayload = JSON.stringify({ id: "evt_123", type: "checkout.session.completed" });
     const hash1 = computePayloadHash(rawPayload);
@@ -27,7 +26,11 @@ describe("Phase 4B Billing Unit & Safety Tests", () => {
     expect(hash1).toBe(hash2);
     expect(hash1).toMatch(/^[a-f0-9]{64}$/);
 
-    const modifiedPayload = JSON.stringify({ id: "evt_123", type: "checkout.session.completed", tampered: true });
+    const modifiedPayload = JSON.stringify({
+      id: "evt_123",
+      type: "checkout.session.completed",
+      tampered: true,
+    });
     const hash3 = computePayloadHash(modifiedPayload);
     expect(hash1).not.toBe(hash3);
   });

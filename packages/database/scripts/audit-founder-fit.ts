@@ -1,13 +1,13 @@
 import { PrismaClient } from "@prisma/client";
-import {
-  buildCanonicalFounderFitPayload,
-  computeCanonicalInputHash,
-} from "@buildworth/scoring";
+import { buildCanonicalFounderFitPayload, computeCanonicalInputHash } from "@buildworth/scoring";
 
 export async function runFounderFitAudit(args: string[] = process.argv.slice(2)) {
   const allowEmpty = args.includes("--allow-empty");
   console.log("=== BuildWorth Phase 3 Founder Fit Strict Evaluation & Hash Audit ===");
-  console.log("Audit Mode:", allowEmpty ? "Permissive (--allow-empty allowed)" : "Strict (requires >= 1 valid evaluation)");
+  console.log(
+    "Audit Mode:",
+    allowEmpty ? "Permissive (--allow-empty allowed)" : "Strict (requires >= 1 valid evaluation)",
+  );
 
   let prisma: PrismaClient | null = null;
 
@@ -73,7 +73,9 @@ export async function runFounderFitAudit(args: string[] = process.argv.slice(2))
     for (const ev of evaluations) {
       // 1. Format validation
       if (!/^[a-f0-9]{64}$/.test(ev.inputHash)) {
-        console.error(`[MALFORMED HASH] Evaluation ${ev.id} has invalid 64-char hex hash: ${ev.inputHash}`);
+        console.error(
+          `[MALFORMED HASH] Evaluation ${ev.id} has invalid 64-char hex hash: ${ev.inputHash}`,
+        );
         malformedHashCount++;
         defectCount++;
         continue;
@@ -81,7 +83,9 @@ export async function runFounderFitAudit(args: string[] = process.argv.slice(2))
 
       // 2. Version validation
       if (ev.rubricVersion !== "2.0.0" || ev.rankingVersion !== "2.0.0") {
-        console.warn(`[OBSOLETE VERSION] Evaluation ${ev.id} uses legacy version (Rubric ${ev.rubricVersion}, Ranking ${ev.rankingVersion})`);
+        console.warn(
+          `[OBSOLETE VERSION] Evaluation ${ev.id} uses legacy version (Rubric ${ev.rubricVersion}, Ranking ${ev.rankingVersion})`,
+        );
         obsoleteVersionCount++;
         defectCount++;
       }
@@ -145,12 +149,14 @@ export async function runFounderFitAudit(args: string[] = process.argv.slice(2))
             profileRevisionId: ev.profileRevisionId,
             profileRevisionInputHash: ev.profileRevision.inputHash,
             opportunityRevisionId: ev.opportunityRevisionId,
-          }
+          },
         );
 
         const expectedHash = computeCanonicalInputHash(canonicalPayload);
         if (ev.inputHash !== expectedHash) {
-          console.error(`[HASH MISMATCH] Evaluation ${ev.id} inputHash (${ev.inputHash}) does not match recalculated (${expectedHash})`);
+          console.error(
+            `[HASH MISMATCH] Evaluation ${ev.id} inputHash (${ev.inputHash}) does not match recalculated (${expectedHash})`,
+          );
           hashMismatchCount++;
           defectCount++;
         }
@@ -180,6 +186,9 @@ export async function runFounderFitAudit(args: string[] = process.argv.slice(2))
   }
 }
 
-if (require.main === module || (typeof process !== "undefined" && process.argv[1]?.includes("audit-founder-fit"))) {
+if (
+  require.main === module ||
+  (typeof process !== "undefined" && process.argv[1]?.includes("audit-founder-fit"))
+) {
   runFounderFitAudit();
 }

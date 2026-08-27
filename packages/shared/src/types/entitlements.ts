@@ -11,7 +11,6 @@ export type BillingSubscriptionStatusType =
   | "PAUSED"
   | "UNKNOWN";
 
-
 export type EntitlementKey =
   | "EVIDENCE_LINEAGE_UNRESTRICTED"
   | "FOUNDER_FIT_FULL_BREAKDOWN"

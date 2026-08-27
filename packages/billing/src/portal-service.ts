@@ -14,7 +14,7 @@ export interface CreateBillingPortalSessionResult {
 export async function createBillingPortalSession(
   prisma: PrismaClient,
   stripe: Stripe,
-  params: CreateBillingPortalSessionParams
+  params: CreateBillingPortalSessionParams,
 ): Promise<CreateBillingPortalSessionResult> {
   const config = getBillingConfig();
   const returnUrl = params.returnUrlOverride || `${config.appUrl}/pricing`;

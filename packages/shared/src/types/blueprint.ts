@@ -1,13 +1,15 @@
 import { PublicationQualityStatus } from "./evidence.js";
-import { CostCategory, BenefitCategory, ScenarioType, CostType, FrequencyPeriod, FinancialMetricOutputs } from "./economics.js";
+import {
+  CostCategory,
+  BenefitCategory,
+  ScenarioType,
+  CostType,
+  FrequencyPeriod,
+  FinancialMetricOutputs,
+} from "./economics.js";
 
 export type DecisionRecommendation =
-  | "BUILD_CANDIDATE"
-  | "VALIDATE_FIRST"
-  | "WATCH"
-  | "WEAK_OPPORTUNITY"
-  | "REJECT"
-  | "UNASSESSED";
+  "BUILD_CANDIDATE" | "VALIDATE_FIRST" | "WATCH" | "WEAK_OPPORTUNITY" | "REJECT" | "UNASSESSED";
 
 export type RiskCategory =
   | "MARKET"
@@ -37,11 +39,7 @@ export type AssumptionCategory =
   | "REGULATORY";
 
 export type AssumptionStatus =
-  | "UNTESTED"
-  | "TESTING"
-  | "SUPPORTED"
-  | "CONTRADICTED"
-  | "INVALIDATED";
+  "UNTESTED" | "TESTING" | "SUPPORTED" | "CONTRADICTED" | "INVALIDATED";
 
 export type ExperimentType =
   | "CUSTOMER_INTERVIEW"

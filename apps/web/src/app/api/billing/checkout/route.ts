@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { prisma, resolveServerSession, checkAndIncrementRateLimit, hashRateLimitKey } from "@buildworth/database";
+import {
+  prisma,
+  resolveServerSession,
+  checkAndIncrementRateLimit,
+  hashRateLimitKey,
+} from "@buildworth/database";
 import { getStripeClient, createBillingCheckoutSession } from "@buildworth/billing";
 
 export async function POST(request: NextRequest) {
@@ -13,7 +18,7 @@ export async function POST(request: NextRequest) {
     if (!sessionUser) {
       return NextResponse.json(
         { error: "UNAUTHORIZED: You must be signed in to upgrade." },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -25,7 +30,7 @@ export async function POST(request: NextRequest) {
       if (originHost !== host) {
         return NextResponse.json(
           { error: "FORBIDDEN: Cross-site request rejected." },
-          { status: 403 }
+          { status: 403 },
         );
       }
     }
@@ -36,7 +41,7 @@ export async function POST(request: NextRequest) {
     if (!rateCheck.allowed) {
       return NextResponse.json(
         { error: "TOO_MANY_REQUESTS: Please wait before creating another checkout session." },
-        { status: 429, headers: { "Retry-After": String(rateCheck.retryAfterSeconds || 60) } }
+        { status: 429, headers: { "Retry-After": String(rateCheck.retryAfterSeconds || 60) } },
       );
     }
 
@@ -52,13 +57,14 @@ export async function POST(request: NextRequest) {
     if (plan !== "PRO") {
       return NextResponse.json(
         { error: "INVALID_PLAN: Only 'PRO' plan checkout is supported." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const normalizedInterval = (interval || "").toUpperCase() === "YEAR" || (interval || "").toUpperCase() === "ANNUAL"
-      ? "ANNUAL"
-      : "MONTHLY";
+    const normalizedInterval =
+      (interval || "").toUpperCase() === "YEAR" || (interval || "").toUpperCase() === "ANNUAL"
+        ? "ANNUAL"
+        : "MONTHLY";
 
     // 5. Create Stripe Checkout Session
     const stripe = getStripeClient();
@@ -79,7 +85,7 @@ export async function POST(request: NextRequest) {
     console.error("Billing Checkout Error:", err);
     return NextResponse.json(
       { error: err?.message || "Internal server error during checkout." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

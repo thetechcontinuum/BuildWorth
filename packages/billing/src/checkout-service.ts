@@ -23,7 +23,7 @@ export interface CreateCheckoutSessionResult {
 export async function createBillingCheckoutSession(
   prisma: PrismaClient,
   stripe: Stripe,
-  params: CreateCheckoutSessionParams
+  params: CreateCheckoutSessionParams,
 ): Promise<CreateCheckoutSessionResult> {
   const config = getBillingConfig();
   const appUrl = params.appUrlOverride || config.appUrl;
@@ -78,16 +78,22 @@ export async function createBillingCheckoutSession(
 
   const selectedPlanPrice = plan?.prices?.[0];
   if (!plan || !plan.isActive || !selectedPlanPrice) {
-    throw new Error(`PRICE_NOT_FOUND: No active allowlisted price found for ${params.planCode} (${params.billingInterval}).`);
+    throw new Error(
+      `PRICE_NOT_FOUND: No active allowlisted price found for ${params.planCode} (${params.billingInterval}).`,
+    );
   }
 
   if (!selectedPlanPrice.stripePriceId) {
-    throw new Error(`STRIPE_PRICE_UNCONFIGURED: No Stripe price ID mapped for ${selectedPlanPrice.id}`);
+    throw new Error(
+      `STRIPE_PRICE_UNCONFIGURED: No Stripe price ID mapped for ${selectedPlanPrice.id}`,
+    );
   }
 
   // Block TEST price IDs in LIVE environment
   if (config.isLiveBilling && selectedPlanPrice.stripePriceId.startsWith("price_test_")) {
-    throw new Error("SECURITY_ERROR: Test Stripe Price ID cannot be used in Live billing environment.");
+    throw new Error(
+      "SECURITY_ERROR: Test Stripe Price ID cannot be used in Live billing environment.",
+    );
   }
 
   // 4. Ensure Billing Customer
@@ -96,13 +102,12 @@ export async function createBillingCheckoutSession(
     stripe,
     params.userId,
     params.userEmail,
-    params.userName
+    params.userName,
   );
 
   // 5. Create deterministic Request & Idempotency Key
   const requestId = params.requestId || `req_chk_${crypto.randomBytes(16).toString("hex")}`;
   const idempotencyKey = `chk_idem_${params.userId}_${requestId}`;
-
 
   // 5. Create Stripe Checkout Session
   const session = await stripe.checkout.sessions.create(
@@ -137,7 +142,7 @@ export async function createBillingCheckoutSession(
     },
     {
       idempotencyKey,
-    }
+    },
   );
 
   if (!session.url) {
@@ -156,7 +161,9 @@ export async function createBillingCheckoutSession(
       checkoutSessionId: session.id,
       idempotencyKey,
       status: "PENDING",
-      expiresAt: new Date(session.expires_at ? session.expires_at * 1000 : Date.now() + 24 * 3600 * 1000),
+      expiresAt: new Date(
+        session.expires_at ? session.expires_at * 1000 : Date.now() + 24 * 3600 * 1000,
+      ),
     },
   });
 

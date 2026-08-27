@@ -5,10 +5,7 @@ import {
   computeCanonicalInputHash,
   computeScoringPolicyFingerprint,
 } from "../src/founder-fit/canonical-hash.js";
-import {
-  FounderProfileData,
-  OpportunityFounderRequirementsData,
-} from "@buildworth/shared";
+import { FounderProfileData, OpportunityFounderRequirementsData } from "@buildworth/shared";
 
 describe("Founder Fit Deterministic Calculator & Canonical SHA-256 Input Hash Tests (v2.0.1)", () => {
   const mockProfile: FounderProfileData = {
@@ -21,10 +18,10 @@ describe("Founder Fit Deterministic Calculator & Canonical SHA-256 Input Hash Te
       { skillKey: "DEVOPS", proficiency: "WORKING" },
     ],
     domainExpertise: [
-      { industryOrDomain: "DevOps & Compliance", yearsExperienceBand: "3-5 years" }
+      { industryOrDomain: "DevOps & Compliance", yearsExperienceBand: "3-5 years" },
     ],
     distributionAssets: [
-      { assetType: "Twitter / X", audienceSizeBand: "1k-5k", description: "Tech builder audience" }
+      { assetType: "Twitter / X", audienceSizeBand: "1k-5k", description: "Tech builder audience" },
     ],
     preferences: {
       preferredIndustries: ["DevOps & Compliance", "B2B SaaS"],
@@ -60,8 +57,20 @@ describe("Founder Fit Deterministic Calculator & Canonical SHA-256 Input Hash Te
     targetIndustries: ["DevOps & Compliance"],
     targetGeographies: ["Global"],
     requiredSkills: [
-      { skillKey: "TYPESCRIPT", minimumProficiency: "WORKING", preferredProficiency: "ADVANCED", importance: 5, isOutsourceable: false },
-      { skillKey: "POSTGRESQL", minimumProficiency: "BASIC", preferredProficiency: "WORKING", importance: 4, isOutsourceable: true },
+      {
+        skillKey: "TYPESCRIPT",
+        minimumProficiency: "WORKING",
+        preferredProficiency: "ADVANCED",
+        importance: 5,
+        isOutsourceable: false,
+      },
+      {
+        skillKey: "POSTGRESQL",
+        minimumProficiency: "BASIC",
+        preferredProficiency: "WORKING",
+        importance: 4,
+        isOutsourceable: true,
+      },
     ],
   };
 
@@ -144,37 +153,57 @@ describe("Founder Fit Deterministic Calculator & Canonical SHA-256 Input Hash Te
   });
 
   it("4. Changing profile revision changes the hash", () => {
-    const p1 = buildCanonicalFounderFitPayload(mockProfile, soc2Requirements, {
-      opportunityScore: 89,
-      evidenceConfidence: 82,
-      publicationQualityStatus: "VERIFIED",
-      decisionRecommendation: "BUILD_CANDIDATE",
-    }, { profileRevisionId: "rev-1" });
+    const p1 = buildCanonicalFounderFitPayload(
+      mockProfile,
+      soc2Requirements,
+      {
+        opportunityScore: 89,
+        evidenceConfidence: 82,
+        publicationQualityStatus: "VERIFIED",
+        decisionRecommendation: "BUILD_CANDIDATE",
+      },
+      { profileRevisionId: "rev-1" },
+    );
 
-    const p2 = buildCanonicalFounderFitPayload(mockProfile, soc2Requirements, {
-      opportunityScore: 89,
-      evidenceConfidence: 82,
-      publicationQualityStatus: "VERIFIED",
-      decisionRecommendation: "BUILD_CANDIDATE",
-    }, { profileRevisionId: "rev-2" });
+    const p2 = buildCanonicalFounderFitPayload(
+      mockProfile,
+      soc2Requirements,
+      {
+        opportunityScore: 89,
+        evidenceConfidence: 82,
+        publicationQualityStatus: "VERIFIED",
+        decisionRecommendation: "BUILD_CANDIDATE",
+      },
+      { profileRevisionId: "rev-2" },
+    );
 
     expect(computeCanonicalInputHash(p1)).not.toBe(computeCanonicalInputHash(p2));
   });
 
   it("5. Changing opportunity revision changes the hash", () => {
-    const p1 = buildCanonicalFounderFitPayload(mockProfile, soc2Requirements, {
-      opportunityScore: 89,
-      evidenceConfidence: 82,
-      publicationQualityStatus: "VERIFIED",
-      decisionRecommendation: "BUILD_CANDIDATE",
-    }, { opportunityRevisionId: "opp-rev-1" });
+    const p1 = buildCanonicalFounderFitPayload(
+      mockProfile,
+      soc2Requirements,
+      {
+        opportunityScore: 89,
+        evidenceConfidence: 82,
+        publicationQualityStatus: "VERIFIED",
+        decisionRecommendation: "BUILD_CANDIDATE",
+      },
+      { opportunityRevisionId: "opp-rev-1" },
+    );
 
-    const p2 = buildCanonicalFounderFitPayload(mockProfile, soc2Requirements, {
-      opportunityScore: 89,
-      evidenceConfidence: 82,
-      publicationQualityStatus: "VERIFIED",
-      decisionRecommendation: "BUILD_CANDIDATE",
-    }, { opportunityRevisionId: "opp-rev-2" });
+    const p2 = buildCanonicalFounderFitPayload(
+      mockProfile,
+      soc2Requirements,
+      {
+        opportunityScore: 89,
+        evidenceConfidence: 82,
+        publicationQualityStatus: "VERIFIED",
+        decisionRecommendation: "BUILD_CANDIDATE",
+      },
+      { opportunityRevisionId: "opp-rev-2" },
+    );
 
     expect(computeCanonicalInputHash(p1)).not.toBe(computeCanonicalInputHash(p2));
   });
@@ -246,19 +275,29 @@ describe("Founder Fit Deterministic Calculator & Canonical SHA-256 Input Hash Te
   });
 
   it("9. Changing rubric or ranking version changes the hash", () => {
-    const p1 = buildCanonicalFounderFitPayload(mockProfile, soc2Requirements, {
-      opportunityScore: 89,
-      evidenceConfidence: 82,
-      publicationQualityStatus: "VERIFIED",
-      decisionRecommendation: "BUILD_CANDIDATE",
-    }, { rubricVersion: "2.0.0" });
+    const p1 = buildCanonicalFounderFitPayload(
+      mockProfile,
+      soc2Requirements,
+      {
+        opportunityScore: 89,
+        evidenceConfidence: 82,
+        publicationQualityStatus: "VERIFIED",
+        decisionRecommendation: "BUILD_CANDIDATE",
+      },
+      { rubricVersion: "2.0.0" },
+    );
 
-    const p2 = buildCanonicalFounderFitPayload(mockProfile, soc2Requirements, {
-      opportunityScore: 89,
-      evidenceConfidence: 82,
-      publicationQualityStatus: "VERIFIED",
-      decisionRecommendation: "BUILD_CANDIDATE",
-    }, { rubricVersion: "2.1.0" });
+    const p2 = buildCanonicalFounderFitPayload(
+      mockProfile,
+      soc2Requirements,
+      {
+        opportunityScore: 89,
+        evidenceConfidence: 82,
+        publicationQualityStatus: "VERIFIED",
+        decisionRecommendation: "BUILD_CANDIDATE",
+      },
+      { rubricVersion: "2.1.0" },
+    );
 
     expect(computeCanonicalInputHash(p1)).not.toBe(computeCanonicalInputHash(p2));
   });
@@ -329,14 +368,19 @@ describe("Founder Fit Deterministic Calculator & Canonical SHA-256 Input Hash Te
       publicationQualityStatus: "VERIFIED",
       decisionRecommendation: "BUILD_CANDIDATE",
     });
-    const p2 = buildCanonicalFounderFitPayload(mockProfile, soc2Requirements, {
-      opportunityScore: 89,
-      evidenceConfidence: 82,
-      publicationQualityStatus: "VERIFIED",
-      decisionRecommendation: "BUILD_CANDIDATE",
-    }, {
-      scoringPolicyHash: "1111111111111111111111111111111111111111111111111111111111111111",
-    });
+    const p2 = buildCanonicalFounderFitPayload(
+      mockProfile,
+      soc2Requirements,
+      {
+        opportunityScore: 89,
+        evidenceConfidence: 82,
+        publicationQualityStatus: "VERIFIED",
+        decisionRecommendation: "BUILD_CANDIDATE",
+      },
+      {
+        scoringPolicyHash: "1111111111111111111111111111111111111111111111111111111111111111",
+      },
+    );
 
     expect(computeCanonicalInputHash(p1)).not.toBe(computeCanonicalInputHash(p2));
   });

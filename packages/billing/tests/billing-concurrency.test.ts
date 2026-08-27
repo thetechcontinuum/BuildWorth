@@ -7,10 +7,18 @@ function createMockPrismaWithConcurrency() {
       { id: "usr_concurrent_1", email: "concurrent@buildworth.io", role: "USER", tier: "FREE" },
     ],
     customers: [
-      { id: "cus_db_concurrent", userId: "usr_concurrent_1", stripeCustomerId: "cus_stripe_concurrent" },
+      {
+        id: "cus_db_concurrent",
+        userId: "usr_concurrent_1",
+        stripeCustomerId: "cus_stripe_concurrent",
+      },
     ],
     planPrices: [
-      { id: "price_pro_monthly", stripePriceId: "price_test_pro_monthly", plan: { code: "PRO", isActive: true } },
+      {
+        id: "price_pro_monthly",
+        stripePriceId: "price_test_pro_monthly",
+        plan: { code: "PRO", isActive: true },
+      },
     ],
     subscriptions: [] as any[],
     webhookEvents: [] as any[],
@@ -20,7 +28,8 @@ function createMockPrismaWithConcurrency() {
 
   const prisma: any = {
     billingWebhookEvent: {
-      findUnique: async ({ where }: any) => db.webhookEvents.find((e) => e.eventId === where.eventId) || null,
+      findUnique: async ({ where }: any) =>
+        db.webhookEvents.find((e) => e.eventId === where.eventId) || null,
       create: async ({ data }: any) => {
         const existing = db.webhookEvents.find((e) => e.eventId === data.eventId);
         if (existing) {
@@ -34,7 +43,11 @@ function createMockPrismaWithConcurrency() {
       update: async ({ where, data }: any) => {
         const item = db.webhookEvents.find((e) => e.eventId === where.eventId);
         if (item) {
-          if (data.attemptCount && typeof data.attemptCount === "object" && data.attemptCount.increment) {
+          if (
+            data.attemptCount &&
+            typeof data.attemptCount === "object" &&
+            data.attemptCount.increment
+          ) {
             item.attemptCount = (item.attemptCount || 1) + data.attemptCount.increment;
           } else if (typeof data.attemptCount === "number") {
             item.attemptCount = data.attemptCount;
@@ -45,17 +58,24 @@ function createMockPrismaWithConcurrency() {
       },
     },
     billingCustomer: {
-      findUnique: async ({ where }: any) => db.customers.find((c) => c.stripeCustomerId === where.stripeCustomerId) || null,
+      findUnique: async ({ where }: any) =>
+        db.customers.find((c) => c.stripeCustomerId === where.stripeCustomerId) || null,
     },
     planPrice: {
-      findFirst: async ({ where }: any) => db.planPrices.find((p) => p.stripePriceId === where.stripePriceId) || null,
+      findFirst: async ({ where }: any) =>
+        db.planPrices.find((p) => p.stripePriceId === where.stripePriceId) || null,
     },
     billingSubscription: {
-      findUnique: async ({ where }: any) => db.subscriptions.find((s) => s.stripeSubscriptionId === where.stripeSubscriptionId) || null,
+      findUnique: async ({ where }: any) =>
+        db.subscriptions.find((s) => s.stripeSubscriptionId === where.stripeSubscriptionId) || null,
       create: async ({ data }: any) => {
-        const existing = db.subscriptions.find((s) => s.stripeSubscriptionId === data.stripeSubscriptionId);
+        const existing = db.subscriptions.find(
+          (s) => s.stripeSubscriptionId === data.stripeSubscriptionId,
+        );
         if (existing) {
-          const err: any = new Error("Unique constraint failed on the fields: (`stripeSubscriptionId`)");
+          const err: any = new Error(
+            "Unique constraint failed on the fields: (`stripeSubscriptionId`)",
+          );
           err.code = "P2002";
           throw err;
         }
@@ -63,7 +83,9 @@ function createMockPrismaWithConcurrency() {
         return data;
       },
       update: async ({ where, data }: any) => {
-        const item = db.subscriptions.find((s) => s.id === where.id || s.stripeSubscriptionId === where.stripeSubscriptionId);
+        const item = db.subscriptions.find(
+          (s) => s.id === where.id || s.stripeSubscriptionId === where.stripeSubscriptionId,
+        );
         if (item) Object.assign(item, data);
         return item;
       },
@@ -94,20 +116,20 @@ function createMockPrismaWithConcurrency() {
   return { prisma, db };
 }
 
-function createMockStripe(overrides?: {
-  retrieveSubscription?: (id: string) => Promise<any>;
-}) {
+function createMockStripe(overrides?: { retrieveSubscription?: (id: string) => Promise<any> }) {
   return {
     subscriptions: {
-      retrieve: overrides?.retrieveSubscription || (async (id: string) => ({
-        id,
-        customer: "cus_stripe_concurrent",
-        status: "active",
-        current_period_start: 1787680000,
-        current_period_end: 1790272000,
-        cancel_at_period_end: false,
-        items: { data: [{ price: { id: "price_test_pro_monthly" } }] },
-      })),
+      retrieve:
+        overrides?.retrieveSubscription ||
+        (async (id: string) => ({
+          id,
+          customer: "cus_stripe_concurrent",
+          status: "active",
+          current_period_start: 1787680000,
+          current_period_end: 1790272000,
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: "price_test_pro_monthly" } }] },
+        })),
     },
     webhooks: {
       constructEvent: (rawBody: any, signature: string, secret: string) => {
@@ -226,7 +248,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       },
     };
-    await processStripeWebhookEvent(prisma, stripe, JSON.stringify(t2DelayedEvent), "valid_sig", secret);
+    await processStripeWebhookEvent(
+      prisma,
+      stripe,
+      JSON.stringify(t2DelayedEvent),
+      "valid_sig",
+      secret,
+    );
 
     // Final state MUST remain PAST_DUE / FREE!
     expect(db.subscriptions[0].status).toBe("PAST_DUE");
@@ -281,8 +309,20 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(activeEvent), "valid_sig", secret);
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(pastDueEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(activeEvent),
+        "valid_sig",
+        secret,
+      );
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(pastDueEvent),
+        "valid_sig",
+        secret,
+      );
 
       expect(db.subscriptions[0].status).toBe("PAST_DUE");
       expect(db.users[0].tier).toBe("FREE");
@@ -335,8 +375,20 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(pastDueEvent), "valid_sig", secret);
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(activeEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(pastDueEvent),
+        "valid_sig",
+        secret,
+      );
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(activeEvent),
+        "valid_sig",
+        secret,
+      );
 
       expect(db.subscriptions[0].status).toBe("PAST_DUE");
       expect(db.users[0].tier).toBe("FREE");
@@ -385,8 +437,20 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(activeEvent), "valid_sig", secret);
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(deletedEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(activeEvent),
+        "valid_sig",
+        secret,
+      );
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(deletedEvent),
+        "valid_sig",
+        secret,
+      );
 
       expect(db.subscriptions[0].status).toBe("CANCELED");
       expect(db.users[0].tier).toBe("FREE");
@@ -445,7 +509,7 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
       };
 
       await expect(
-        processStripeWebhookEvent(prisma, stripe, JSON.stringify(event2), "valid_sig", secret)
+        processStripeWebhookEvent(prisma, stripe, JSON.stringify(event2), "valid_sig", secret),
       ).rejects.toThrow("STRIPE_RETRIEVAL_FAILED");
 
       // Event is marked FAILED and can be retried safely
@@ -453,7 +517,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
 
       // 3. Retry succeeds when Stripe recovers
       failStripe = false;
-      const retryResult = await processStripeWebhookEvent(prisma, stripe, JSON.stringify(event2), "valid_sig", secret);
+      const retryResult = await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(event2),
+        "valid_sig",
+        secret,
+      );
       expect(retryResult.processingStatus).toBe("PROCESSED");
       expect(db.subscriptions[0].status).toBe("PAST_DUE");
     });
@@ -497,7 +567,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(invoiceEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(invoiceEvent),
+        "valid_sig",
+        secret,
+      );
       expect(db.subscriptions[0].status).toBe("ACTIVE");
       expect(db.users[0].tier).toBe("PRO");
     });
@@ -539,7 +615,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(invoiceEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(invoiceEvent),
+        "valid_sig",
+        secret,
+      );
       expect(db.subscriptions[0].status).toBe("INCOMPLETE");
       expect(db.users[0].tier).toBe("FREE");
     });
@@ -582,7 +664,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(invoiceEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(invoiceEvent),
+        "valid_sig",
+        secret,
+      );
       expect(db.subscriptions[0].status).toBe("PAST_DUE");
       expect(db.users[0].tier).toBe("FREE");
     });
@@ -604,7 +692,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      const res = await processStripeWebhookEvent(prisma, stripe, JSON.stringify(invoiceEvent), "valid_sig", secret);
+      const res = await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(invoiceEvent),
+        "valid_sig",
+        secret,
+      );
       expect(res.processingStatus).toBe("PROCESSED");
       expect(db.subscriptions.length).toBe(0);
     });
@@ -636,7 +730,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(invoiceEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(invoiceEvent),
+        "valid_sig",
+        secret,
+      );
       // Subscription unchanged
       expect(db.subscriptions[0].status).toBe("ACTIVE");
     });
@@ -666,7 +766,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(checkoutEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(checkoutEvent),
+        "valid_sig",
+        secret,
+      );
       expect(db.checkoutAttempts[0].status).toBe("COMPLETED");
       // Access remains FREE
       expect(db.users[0].tier).toBe("FREE");
@@ -689,7 +795,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(subCreatedEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(subCreatedEvent),
+        "valid_sig",
+        secret,
+      );
       expect(db.subscriptions[0].status).toBe("ACTIVE");
       expect(db.users[0].tier).toBe("PRO");
     });
@@ -726,7 +838,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
         },
       };
 
-      await processStripeWebhookEvent(prisma, stripe, JSON.stringify(olderEvent), "valid_sig", secret);
+      await processStripeWebhookEvent(
+        prisma,
+        stripe,
+        JSON.stringify(olderEvent),
+        "valid_sig",
+        secret,
+      );
       expect(db.subscriptions[0].status).toBe("CANCELED");
       expect(db.users[0].tier).toBe("FREE");
     });
@@ -765,7 +883,7 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
 
     // First attempt -> fails
     await expect(
-      processStripeWebhookEvent(failingPrisma, stripe, JSON.stringify(event), "valid_sig", secret)
+      processStripeWebhookEvent(failingPrisma, stripe, JSON.stringify(event), "valid_sig", secret),
     ).rejects.toThrow("TRANSIENT_DB_TIMEOUT");
 
     expect(db.webhookEvents[0].processingStatus).toBe("FAILED");
@@ -774,7 +892,13 @@ describe("Phase 4B Concurrency, Webhook Ordering and Retry Tests", () => {
 
     // Second attempt -> succeeds
     failTransaction = false;
-    const res = await processStripeWebhookEvent(failingPrisma, stripe, JSON.stringify(event), "valid_sig", secret);
+    const res = await processStripeWebhookEvent(
+      failingPrisma,
+      stripe,
+      JSON.stringify(event),
+      "valid_sig",
+      secret,
+    );
     expect(res.processingStatus).toBe("PROCESSED");
     expect(db.webhookEvents[0].processingStatus).toBe("PROCESSED");
     expect(db.webhookEvents[0].attemptCount).toBe(2);

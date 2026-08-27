@@ -8,11 +8,13 @@ function createMockPrisma() {
       { id: "usr_alice", email: "alice@buildworth.io", role: "USER", tier: "FREE" },
       { id: "usr_bob", email: "bob@buildworth.io", role: "USER", tier: "FREE" },
     ],
-    customers: [
-      { id: "cus_db_alice", userId: "usr_alice", stripeCustomerId: "cus_stripe_alice" },
-    ],
+    customers: [{ id: "cus_db_alice", userId: "usr_alice", stripeCustomerId: "cus_stripe_alice" }],
     planPrices: [
-      { id: "price_pro_monthly", stripePriceId: "price_test_pro_monthly", plan: { code: "PRO", isActive: true } },
+      {
+        id: "price_pro_monthly",
+        stripePriceId: "price_test_pro_monthly",
+        plan: { code: "PRO", isActive: true },
+      },
     ],
     subscriptions: [] as any[],
     webhookEvents: [] as any[],
@@ -22,7 +24,8 @@ function createMockPrisma() {
 
   const prisma: any = {
     billingWebhookEvent: {
-      findUnique: async ({ where }: any) => db.webhookEvents.find((e) => e.eventId === where.eventId) || null,
+      findUnique: async ({ where }: any) =>
+        db.webhookEvents.find((e) => e.eventId === where.eventId) || null,
       create: async ({ data }: any) => {
         db.webhookEvents.push({ ...data, attemptCount: 1 });
         return data;
@@ -34,7 +37,10 @@ function createMockPrisma() {
       },
     },
     billingCustomer: {
-      findUnique: async ({ where }: any) => db.customers.find((c) => c.stripeCustomerId === where.stripeCustomerId || c.userId === where.userId) || null,
+      findUnique: async ({ where }: any) =>
+        db.customers.find(
+          (c) => c.stripeCustomerId === where.stripeCustomerId || c.userId === where.userId,
+        ) || null,
       create: async ({ data }: any) => {
         const c = { id: `cus_${Date.now()}`, ...data };
         db.customers.push(c);
@@ -42,28 +48,34 @@ function createMockPrisma() {
       },
     },
     planPrice: {
-      findFirst: async ({ where }: any) => db.planPrices.find((p) => p.stripePriceId === where.stripePriceId) || null,
+      findFirst: async ({ where }: any) =>
+        db.planPrices.find((p) => p.stripePriceId === where.stripePriceId) || null,
     },
     productPlan: {
       findUnique: async ({ where }: any) => {
-        if (where.code === "PRO") return { code: "PRO", isActive: true, prices: [db.planPrices[0]] };
+        if (where.code === "PRO")
+          return { code: "PRO", isActive: true, prices: [db.planPrices[0]] };
         return null;
       },
     },
     billingSubscription: {
-      findUnique: async ({ where }: any) => db.subscriptions.find((s) => s.stripeSubscriptionId === where.stripeSubscriptionId) || null,
+      findUnique: async ({ where }: any) =>
+        db.subscriptions.find((s) => s.stripeSubscriptionId === where.stripeSubscriptionId) || null,
       create: async ({ data }: any) => {
         db.subscriptions.push(data);
         return data;
       },
       update: async ({ where, data }: any) => {
-        const item = db.subscriptions.find((s) => s.id === where.id || s.stripeSubscriptionId === where.stripeSubscriptionId);
+        const item = db.subscriptions.find(
+          (s) => s.id === where.id || s.stripeSubscriptionId === where.stripeSubscriptionId,
+        );
         if (item) Object.assign(item, data);
         return item;
       },
     },
     billingCheckoutAttempt: {
-      findUnique: async ({ where }: any) => db.checkoutAttempts.find((a) => a.requestId === where.requestId) || null,
+      findUnique: async ({ where }: any) =>
+        db.checkoutAttempts.find((a) => a.requestId === where.requestId) || null,
       create: async ({ data }: any) => {
         db.checkoutAttempts.push(data);
         return data;
@@ -95,7 +107,10 @@ function createMockStripe() {
     },
     checkout: {
       sessions: {
-        create: async () => ({ id: `cs_${Date.now()}`, url: "https://checkout.stripe.com/pay/cs_1" }),
+        create: async () => ({
+          id: `cs_${Date.now()}`,
+          url: "https://checkout.stripe.com/pay/cs_1",
+        }),
       },
     },
     webhooks: {
@@ -132,7 +147,13 @@ describe("Phase 4B Security, Ownership & Metadata Tamper Tests", () => {
       },
     };
 
-    await processStripeWebhookEvent(prisma, stripe, JSON.stringify(forgedWebhook), "valid_sig", secret);
+    await processStripeWebhookEvent(
+      prisma,
+      stripe,
+      JSON.stringify(forgedWebhook),
+      "valid_sig",
+      secret,
+    );
 
     // Subscription MUST be bound to Alice (the verified customer owner), NEVER Bob!
     expect(db.subscriptions[0].userId).toBe("usr_alice");
@@ -160,7 +181,13 @@ describe("Phase 4B Security, Ownership & Metadata Tamper Tests", () => {
       },
     };
 
-    await processStripeWebhookEvent(prisma, stripe, JSON.stringify(unknownCusWebhook), "valid_sig", secret);
+    await processStripeWebhookEvent(
+      prisma,
+      stripe,
+      JSON.stringify(unknownCusWebhook),
+      "valid_sig",
+      secret,
+    );
 
     // 0 subscriptions created
     expect(db.subscriptions.length).toBe(0);
@@ -186,7 +213,13 @@ describe("Phase 4B Security, Ownership & Metadata Tamper Tests", () => {
       },
     };
 
-    await processStripeWebhookEvent(prisma, stripe, JSON.stringify(unknownPriceWebhook), "valid_sig", secret);
+    await processStripeWebhookEvent(
+      prisma,
+      stripe,
+      JSON.stringify(unknownPriceWebhook),
+      "valid_sig",
+      secret,
+    );
 
     expect(db.subscriptions.length).toBe(0);
     expect(db.users.find((u) => u.id === "usr_alice")?.tier).toBe("FREE");
@@ -226,7 +259,7 @@ describe("Phase 4B Security, Ownership & Metadata Tamper Tests", () => {
         planCode: "PRO",
         billingInterval: "ANNUAL", // Conflicting!
         requestId: "req_idem_100",
-      })
+      }),
     ).rejects.toThrow("IDEMPOTENCY_CONFLICT");
   });
 });

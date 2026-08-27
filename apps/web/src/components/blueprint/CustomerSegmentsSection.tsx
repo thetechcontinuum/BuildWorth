@@ -7,14 +7,18 @@ interface Props {
 
 export function CustomerSegmentsSection({ segments }: Props) {
   return (
-    <section id="section-customer-segments" className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-lg">
+    <section
+      id="section-customer-segments"
+      className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-lg"
+    >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-4">
         <div>
           <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
             <span>🎯</span> Target Customer & Buyer Segments
           </h2>
           <p className="text-xs text-zinc-400 mt-1">
-            Structured distinction between user roles, economic buyers, technical approvers, and buying triggers.
+            Structured distinction between user roles, economic buyers, technical approvers, and
+            buying triggers.
           </p>
         </div>
         <span className="text-xs font-mono px-2.5 py-1 bg-zinc-800 text-zinc-300 rounded border border-zinc-700 w-fit">
@@ -24,7 +28,10 @@ export function CustomerSegmentsSection({ segments }: Props) {
 
       <div className="grid grid-cols-1 gap-6">
         {segments.map((seg, idx) => (
-          <div key={seg.id || idx} className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-5 space-y-5">
+          <div
+            key={seg.id || idx}
+            className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-5 space-y-5"
+          >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -39,7 +46,9 @@ export function CustomerSegmentsSection({ segments }: Props) {
               </div>
               <div className="text-right">
                 <div className="text-xs font-mono text-zinc-400">Sales Cycle</div>
-                <div className="text-xs font-bold text-zinc-200">{seg.salesCycleMinDays} – {seg.salesCycleMaxDays} days</div>
+                <div className="text-xs font-bold text-zinc-200">
+                  {seg.salesCycleMinDays} – {seg.salesCycleMaxDays} days
+                </div>
               </div>
             </div>
 
@@ -51,38 +60,59 @@ export function CustomerSegmentsSection({ segments }: Props) {
               </div>
 
               <div className="p-3 bg-zinc-900/80 rounded-lg border border-zinc-800 space-y-1">
-                <div className="text-[10px] font-mono text-emerald-500/80 uppercase">Economic Buyer</div>
-                <div className="text-xs font-semibold text-emerald-300">{seg.economicBuyerRole}</div>
+                <div className="text-[10px] font-mono text-emerald-500/80 uppercase">
+                  Economic Buyer
+                </div>
+                <div className="text-xs font-semibold text-emerald-300">
+                  {seg.economicBuyerRole}
+                </div>
               </div>
 
               <div className="p-3 bg-zinc-900/80 rounded-lg border border-zinc-800 space-y-1">
-                <div className="text-[10px] font-mono text-zinc-500 uppercase">Technical Approver</div>
-                <div className="text-xs font-semibold text-zinc-200">{seg.technicalApproverRole || "N/A (Direct)"}</div>
+                <div className="text-[10px] font-mono text-zinc-500 uppercase">
+                  Technical Approver
+                </div>
+                <div className="text-xs font-semibold text-zinc-200">
+                  {seg.technicalApproverRole || "N/A (Direct)"}
+                </div>
               </div>
             </div>
 
             {/* Purchasing Behavior & Triggers */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div className="space-y-1 bg-zinc-900/40 p-3 rounded-lg border border-zinc-800/60">
-                <span className="font-mono text-[11px] text-zinc-400 uppercase">⚡ Buying Trigger:</span>
+                <span className="font-mono text-[11px] text-zinc-400 uppercase">
+                  ⚡ Buying Trigger:
+                </span>
                 <p className="text-zinc-300">{seg.buyingTrigger}</p>
               </div>
 
               <div className="space-y-1 bg-zinc-900/40 p-3 rounded-lg border border-zinc-800/60">
-                <span className="font-mono text-[11px] text-zinc-400 uppercase">💳 Spending Behavior & Budget:</span>
-                <p className="text-zinc-300">{seg.spendingBehavior} ({seg.budgetCategory})</p>
+                <span className="font-mono text-[11px] text-zinc-400 uppercase">
+                  💳 Spending Behavior & Budget:
+                </span>
+                <p className="text-zinc-300">
+                  {seg.spendingBehavior} ({seg.budgetCategory})
+                </p>
               </div>
 
               <div className="space-y-1 bg-zinc-900/40 p-3 rounded-lg border border-zinc-800/60">
-                <span className="font-mono text-[11px] text-zinc-400 uppercase">🛑 Primary Objection:</span>
+                <span className="font-mono text-[11px] text-zinc-400 uppercase">
+                  🛑 Primary Objection:
+                </span>
                 <p className="text-zinc-300">{seg.primaryObjection}</p>
               </div>
 
               <div className="space-y-1 bg-zinc-900/40 p-3 rounded-lg border border-zinc-800/60">
-                <span className="font-mono text-[11px] text-zinc-400 uppercase">📣 Acquisition Channels:</span>
+                <span className="font-mono text-[11px] text-zinc-400 uppercase">
+                  📣 Acquisition Channels:
+                </span>
                 <div className="flex flex-wrap gap-1.5 mt-1">
                   {seg.acquisitionChannels.map((ch, i) => (
-                    <span key={i} className="text-[10px] font-mono px-2 py-0.5 bg-zinc-800 text-zinc-300 rounded">
+                    <span
+                      key={i}
+                      className="text-[10px] font-mono px-2 py-0.5 bg-zinc-800 text-zinc-300 rounded"
+                    >
                       {ch}
                     </span>
                   ))}

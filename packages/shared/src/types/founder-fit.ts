@@ -1,32 +1,18 @@
 export type ProficiencyLevel = "NONE" | "BASIC" | "WORKING" | "ADVANCED" | "EXPERT";
 
 export type BudgetBand =
-  | "UNDER_1K_USD"
-  | "USD_1K_TO_5K"
-  | "USD_5K_TO_20K"
-  | "USD_20K_TO_50K"
-  | "USD_50K_PLUS";
+  "UNDER_1K_USD" | "USD_1K_TO_5K" | "USD_5K_TO_20K" | "USD_20K_TO_50K" | "USD_50K_PLUS";
 
 export type CapacityBand =
-  | "UNDER_10_HOURS"
-  | "HOURS_10_TO_20"
-  | "HOURS_21_TO_35"
-  | "HOURS_36_TO_40"
-  | "OVER_40_HOURS";
+  "UNDER_10_HOURS" | "HOURS_10_TO_20" | "HOURS_21_TO_35" | "HOURS_36_TO_40" | "OVER_40_HOURS";
 
 export type TeamSizeBand =
-  | "SOLO_FOUNDER"
-  | "FOUNDER_PLUS_CONTRACTORS"
-  | "SMALL_TEAM_2_TO_3"
-  | "CORE_TEAM_4_PLUS";
+  "SOLO_FOUNDER" | "FOUNDER_PLUS_CONTRACTORS" | "SMALL_TEAM_2_TO_3" | "CORE_TEAM_4_PLUS";
 
 export type RiskToleranceLevel = "LOW" | "MEDIUM" | "HIGH";
 
 export type FundingPreference =
-  | "BOOTSTRAP_ONLY"
-  | "BOOTSTRAP_FIRST"
-  | "OPEN_TO_FUNDING"
-  | "VENTURE_SCALE";
+  "BOOTSTRAP_ONLY" | "BOOTSTRAP_FIRST" | "OPEN_TO_FUNDING" | "VENTURE_SCALE";
 
 export type FitRecommendationCategory =
   | "EXCELLENT_MATCH"
@@ -142,7 +128,8 @@ export interface DimensionScoreBreakdown {
   name: string;
   score: number;
   maxScore: number;
-  status: "CALCULATED" | "NOT_ENOUGH_PROFILE_DATA" | "NOT_ENOUGH_OPPORTUNITY_DATA" | "NOT_APPLICABLE";
+  status:
+    "CALCULATED" | "NOT_ENOUGH_PROFILE_DATA" | "NOT_ENOUGH_OPPORTUNITY_DATA" | "NOT_APPLICABLE";
   explanation: string;
   matchedRequirements: string[];
   missingRequirements: string[];

@@ -1,12 +1,19 @@
 const path = require("path");
 const { execSync } = require("child_process");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 
 async function testDefectCycle() {
   console.log("=== BuildWorth Phase 4A Strict Entitlement Defect Cycle Suite ===");
 
   const dbName = "test_defect_cycle_" + Date.now();
-  execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`);
+  execSync(
+    `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`,
+  );
 
   const dbUrl = `postgresql://postgres:postgres@localhost:5440/${dbName}?schema=public`;
   const prismaBin = path.resolve(__dirname, "../node_modules/.bin/prisma");
@@ -20,7 +27,9 @@ async function testDefectCycle() {
     });
 
     // Seed canonical catalog
-    execSync(`DATABASE_URL="${dbUrl}" node packages/database/scripts/reconcile-catalog.js`, { stdio: "pipe" });
+    execSync(`DATABASE_URL="${dbUrl}" node packages/database/scripts/reconcile-catalog.js`, {
+      stdio: "pipe",
+    });
 
     // Seed valid test users and usage
     const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
@@ -35,7 +44,11 @@ async function testDefectCycle() {
 
     const proPrice = await prisma.planPrice.findFirst({ where: { id: "price_pro_monthly" } });
     const customer = await prisma.billingCustomer.create({
-      data: { userId: userPro.id, stripeCustomerId: "cus_pro_test", billingEmail: "pro@buildworth.io" },
+      data: {
+        userId: userPro.id,
+        stripeCustomerId: "cus_pro_test",
+        billingEmail: "pro@buildworth.io",
+      },
     });
 
     await prisma.billingSubscription.create({
@@ -62,9 +75,12 @@ async function testDefectCycle() {
 
     const runAudit = (args = "") => {
       try {
-        const out = execSync(`DATABASE_URL="${dbUrl}" node packages/database/scripts/audit-entitlements.js ${args}`, {
-          stdio: "pipe",
-        }).toString();
+        const out = execSync(
+          `DATABASE_URL="${dbUrl}" node packages/database/scripts/audit-entitlements.js ${args}`,
+          {
+            stdio: "pipe",
+          },
+        ).toString();
         return { code: 0, out };
       } catch (err) {
         return { code: err.status || 1, out: (err.stdout || "") + "\n" + (err.stderr || "") };
@@ -80,7 +96,12 @@ async function testDefectCycle() {
     // Step 2: Corrupt a plan entitlement -> exit 1
     console.log("Step 2: Corrupt plan entitlement verification...");
     await prisma.planEntitlement.update({
-      where: { planId_entitlementType: { planId: (await prisma.productPlan.findUnique({ where: { code: "PRO" } })).id, entitlementType: "FOUNDER_FIT_FULL_BREAKDOWN" } },
+      where: {
+        planId_entitlementType: {
+          planId: (await prisma.productPlan.findUnique({ where: { code: "PRO" } })).id,
+          entitlementType: "FOUNDER_FIT_FULL_BREAKDOWN",
+        },
+      },
       data: { isUnlimited: false, limitQuantity: 1 },
     });
     const s2 = runAudit();
@@ -89,7 +110,9 @@ async function testDefectCycle() {
 
     // Step 3: Restore -> exit 0
     console.log("Step 3: Reconcile & restore catalog...");
-    execSync(`DATABASE_URL="${dbUrl}" node packages/database/scripts/reconcile-catalog.js`, { stdio: "pipe" });
+    execSync(`DATABASE_URL="${dbUrl}" node packages/database/scripts/reconcile-catalog.js`, {
+      stdio: "pipe",
+    });
     const s3 = runAudit();
     if (s3.code !== 0) throw new Error(`Step 3 failed, expected 0, got ${s3.code}: ${s3.out}`);
     console.log("  ✓ Step 3 Restored audit returned exit code 0.");
@@ -140,12 +163,16 @@ async function testDefectCycle() {
     // Step 8: Unreachable database -> exit 2
     console.log("Step 8: Unreachable database configuration...");
     try {
-      execSync(`DATABASE_URL="postgresql://postgres:postgres@localhost:5999/unreachable" node packages/database/scripts/audit-entitlements.js`, {
-        stdio: "pipe",
-      });
+      execSync(
+        `DATABASE_URL="postgresql://postgres:postgres@localhost:5999/unreachable" node packages/database/scripts/audit-entitlements.js`,
+        {
+          stdio: "pipe",
+        },
+      );
       throw new Error("Unreachable DB did not throw!");
     } catch (err) {
-      if (err.status !== 2) throw new Error(`Expected exit code 2 on unreachable DB, got ${err.status}`);
+      if (err.status !== 2)
+        throw new Error(`Expected exit code 2 on unreachable DB, got ${err.status}`);
     }
     console.log("  ✓ Step 8 Unreachable database exited with code 2.");
 
@@ -157,17 +184,22 @@ async function testDefectCycle() {
     });
     const s9 = runAudit("--report-only");
     if (s9.code !== 0) throw new Error(`Step 9 failed, expected 0, got ${s9.code}: ${s9.out}`);
-    if (!s9.out.includes("Report-only mode enabled")) throw new Error("Expected report-only message");
+    if (!s9.out.includes("Report-only mode enabled"))
+      throw new Error("Expected report-only message");
     console.log("  ✓ Step 9 Report-only mode reported defects with exit code 0.");
 
     await prisma.$disconnect();
-    execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`);
+    execSync(
+      `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`,
+    );
 
     console.log("\n=======================================================");
     console.log("Complete Phase 4A Defect Cycle Passed 100% (9/9 Steps)!");
     console.log("=======================================================");
   } catch (err) {
-    execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${dbName};" >/dev/null 2>&1 || true`);
+    execSync(
+      `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${dbName};" >/dev/null 2>&1 || true`,
+    );
     throw err;
   }
 }

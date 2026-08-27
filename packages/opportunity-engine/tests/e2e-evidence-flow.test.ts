@@ -17,7 +17,8 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       evidenceOrigin: "COLLECTED",
       verificationStatus: "VERIFIED",
       verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-      sanitizedExcerpt: "Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days taking screenshots.",
+      sanitizedExcerpt:
+        "Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days taking screenshots.",
       independenceKey: "hn:story:39210044",
       independenceConfidence: 1.0,
       collectedAt: new Date().toISOString(),
@@ -40,7 +41,8 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       evidenceOrigin: "COLLECTED",
       verificationStatus: "VERIFIED",
       verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-      sanitizedExcerpt: "Would pay $200/mo for a tool that just blocks console edits and collects evidence automatically.",
+      sanitizedExcerpt:
+        "Would pay $200/mo for a tool that just blocks console edits and collects evidence automatically.",
       independenceKey: "reddit:post:devops:1f92a10",
       independenceConfidence: 1.0,
       collectedAt: new Date().toISOString(),
@@ -85,7 +87,8 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       evidenceOrigin: "COLLECTED",
       verificationStatus: "VERIFIED",
       verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-      sanitizedExcerpt: "Enterprise procurement mandate: SOC2 Type II report mandatory for vendors.",
+      sanitizedExcerpt:
+        "Enterprise procurement mandate: SOC2 Type II report mandatory for vendors.",
       independenceKey: "sec:filing:12345",
       independenceConfidence: 1.0,
       collectedAt: new Date().toISOString(),
@@ -107,7 +110,8 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       evidenceOrigin: "COLLECTED",
       verificationStatus: "VERIFIED",
       verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-      sanitizedExcerpt: "We just built a 50-line bash script that exports git log to S3 for SOC2 and it works fine.",
+      sanitizedExcerpt:
+        "We just built a 50-line bash script that exports git log to S3 for SOC2 and it works fine.",
       independenceKey: "hn:story:38491099",
       independenceConfidence: 1.0,
       collectedAt: new Date().toISOString(),
@@ -118,7 +122,7 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       language: "en",
       signalType: "CONTRADICTING_EVIDENCE",
       isContradiction: true,
-    }
+    },
   ];
 
   const claimLinks: ClaimEvidenceLinkItem[] = [
@@ -174,7 +178,7 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       relationshipType: "SUPPORTS",
       supportStrength: "STRONG",
       explanation: "DevOps and VP of Engineering target role identification.",
-      relevanceScore: 0.90,
+      relevanceScore: 0.9,
       signal: verifiedSignals[0],
     },
     {
@@ -191,9 +195,12 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
   ];
 
   it("1. Sanitization preserves faithful plain text without altering quotes", () => {
-    const rawQuote = "<p>Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days just taking screenshots.</p>";
+    const rawQuote =
+      "<p>Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days just taking screenshots.</p>";
     const cleaned = sanitizeToPlainText(rawQuote);
-    expect(cleaned).toBe("Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days just taking screenshots.");
+    expect(cleaned).toBe(
+      "Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days just taking screenshots.",
+    );
   });
 
   it("2. Confidence engine calculates deterministic score with contradiction deduction", () => {

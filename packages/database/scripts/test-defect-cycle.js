@@ -1,10 +1,16 @@
 const { PrismaClient } = require("@prisma/client");
-const { buildCanonicalFounderFitPayload, computeCanonicalInputHash, calculateFounderFit } = require("../../scoring/dist/index.js");
+const {
+  buildCanonicalFounderFitPayload,
+  computeCanonicalInputHash,
+  calculateFounderFit,
+} = require("../../scoring/dist/index.js");
 const { execSync } = require("child_process");
 
 async function runDefectCycleProof() {
   console.log("=== BuildWorth Phase 3 Defect-Cycle Proof Suite ===");
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
   const testEmail = "audit.defect.cycle@buildworth.io";
@@ -30,9 +36,7 @@ async function runDefectCycleProof() {
       domainExpertise: [
         { industryOrDomain: "DevOps & Compliance", yearsExperienceBand: "3-5 years" },
       ],
-      distributionAssets: [
-        { assetType: "Twitter / X", audienceSizeBand: "1k-5k" },
-      ],
+      distributionAssets: [{ assetType: "Twitter / X", audienceSizeBand: "1k-5k" }],
       preferences: {
         preferredIndustries: ["DevOps & Compliance"],
         excludedIndustries: ["Crypto"],
@@ -67,7 +71,13 @@ async function runDefectCycleProof() {
       targetIndustries: ["DevOps & Compliance"],
       targetGeographies: ["Global"],
       requiredSkills: [
-        { skillKey: "TYPESCRIPT", minimumProficiency: "WORKING", preferredProficiency: "ADVANCED", importance: 5, isOutsourceable: false },
+        {
+          skillKey: "TYPESCRIPT",
+          minimumProficiency: "WORKING",
+          preferredProficiency: "ADVANCED",
+          importance: 5,
+          isOutsourceable: false,
+        },
       ],
     };
 
@@ -118,7 +128,7 @@ async function runDefectCycleProof() {
         profileRevisionId: profileRevision.id,
         profileRevisionInputHash: profileRevision.inputHash,
         opportunityRevisionId: requirements.blueprintId,
-      }
+      },
     );
 
     const validHash = computeCanonicalInputHash(canonicalPayload);
@@ -153,7 +163,9 @@ async function runDefectCycleProof() {
         return out;
       } catch (err) {
         if (err.status !== expectCode) {
-          throw new Error(`Expected exit code ${expectCode} but got ${err.status}: ${err.stderr || err.stdout}`);
+          throw new Error(
+            `Expected exit code ${expectCode} but got ${err.status}: ${err.stderr || err.stdout}`,
+          );
         }
         return err.stdout ? err.stdout.toString() : "";
       }
@@ -179,7 +191,9 @@ async function runDefectCycleProof() {
     runAudit(0);
     console.log("  ✓ Step 3 Passed (Restored hash clean, exit 0)");
 
-    console.log("Cycle Step 4: Change referenced scoring input without updating evaluation -> expect exit 1");
+    console.log(
+      "Cycle Step 4: Change referenced scoring input without updating evaluation -> expect exit 1",
+    );
     await prisma.founderProfileSkill.updateMany({
       where: { profileRevisionId: profileRevision.id, skillKey: "TYPESCRIPT" },
       data: { proficiency: "BASIC" },
@@ -213,7 +227,11 @@ async function runDefectCycleProof() {
     try {
       execSync("node packages/database/scripts/audit-founder-fit.js", {
         stdio: "pipe",
-        env: { ...process.env, DATABASE_URL: "postgresql://postgres:wrongpassword@localhost:5999/nonexistent?connect_timeout=1" },
+        env: {
+          ...process.env,
+          DATABASE_URL:
+            "postgresql://postgres:wrongpassword@localhost:5999/nonexistent?connect_timeout=1",
+        },
       });
       throw new Error("Expected exit code 2 for offline database");
     } catch (err) {

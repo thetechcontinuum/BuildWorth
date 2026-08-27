@@ -62,7 +62,7 @@ describe("Phase 4A Comprehensive Entitlement & Policy Suite", () => {
   const testSubWithStatus = (
     status: any,
     periodEndOffsetMs: number,
-    extra: Record<string, any> = {}
+    extra: Record<string, any> = {},
   ) => {
     return {
       id: "sub-matrix-1",
@@ -82,53 +82,100 @@ describe("Phase 4A Comprehensive Entitlement & Policy Suite", () => {
   it("evaluates complete subscription state matrix accurately", () => {
     // 1. ACTIVE future period -> PRO
     const activeSub = testSubWithStatus("ACTIVE", 86400000);
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [activeSub] }, fixedNow).tier).toBe("PRO");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [activeSub] },
+        fixedNow,
+      ).tier,
+    ).toBe("PRO");
 
     // 2. ACTIVE expired period -> FREE
     const expiredActive = testSubWithStatus("ACTIVE", -1000);
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [expiredActive] }, fixedNow).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [expiredActive] },
+        fixedNow,
+      ).tier,
+    ).toBe("FREE");
 
     // 3. TRIALING valid trial -> PRO
     const validTrial = testSubWithStatus("TRIALING", 86400000, {
       trialStart: new Date(fixedNow.getTime() - 86400000),
       trialEnd: new Date(fixedNow.getTime() + 86400000),
     });
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [validTrial] }, fixedNow).tier).toBe("PRO");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [validTrial] },
+        fixedNow,
+      ).tier,
+    ).toBe("PRO");
 
     // 4. TRIALING expired trial -> FREE
     const expiredTrial = testSubWithStatus("TRIALING", 86400000, {
       trialStart: new Date(fixedNow.getTime() - 172800000),
       trialEnd: new Date(fixedNow.getTime() - 86400000),
     });
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [expiredTrial] }, fixedNow).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [expiredTrial] },
+        fixedNow,
+      ).tier,
+    ).toBe("FREE");
 
     // 5. PAST_DUE -> FREE (Never infer grace access)
     const pastDue = testSubWithStatus("PAST_DUE", 86400000);
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [pastDue] }, fixedNow).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [pastDue] }, fixedNow)
+        .tier,
+    ).toBe("FREE");
 
     // 6. UNPAID -> FREE
     const unpaid = testSubWithStatus("UNPAID", 86400000);
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [unpaid] }, fixedNow).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [unpaid] }, fixedNow)
+        .tier,
+    ).toBe("FREE");
 
     // 7. PAUSED -> FREE
     const paused = testSubWithStatus("PAUSED", 86400000);
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [paused] }, fixedNow).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [paused] }, fixedNow)
+        .tier,
+    ).toBe("FREE");
 
     // 8. INCOMPLETE -> FREE
     const incomplete = testSubWithStatus("INCOMPLETE", 86400000);
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [incomplete] }, fixedNow).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [incomplete] },
+        fixedNow,
+      ).tier,
+    ).toBe("FREE");
 
     // 9. INCOMPLETE_EXPIRED -> FREE
     const incExp = testSubWithStatus("INCOMPLETE_EXPIRED", 86400000);
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [incExp] }, fixedNow).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [incExp] }, fixedNow)
+        .tier,
+    ).toBe("FREE");
 
     // 10. CANCELED expired -> FREE
     const canceled = testSubWithStatus("CANCELED", -1000);
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [canceled] }, fixedNow).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [canceled] },
+        fixedNow,
+      ).tier,
+    ).toBe("FREE");
 
     // 11. cancelAtPeriodEnd=true while ACTIVE in future -> PRO until period end
     const pendingCancel = testSubWithStatus("ACTIVE", 86400000, { cancelAtPeriodEnd: true });
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [pendingCancel] }, fixedNow).tier).toBe("PRO");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [pendingCancel] },
+        fixedNow,
+      ).tier,
+    ).toBe("PRO");
 
     // 12. Multiple subscriptions where only one is active -> PRO
     const multipleSubs = [
@@ -136,21 +183,47 @@ describe("Phase 4A Comprehensive Entitlement & Policy Suite", () => {
       testSubWithStatus("ACTIVE", 86400000),
       testSubWithStatus("PAST_DUE", 86400000),
     ];
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: multipleSubs }, fixedNow).tier).toBe("PRO");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: multipleSubs },
+        fixedNow,
+      ).tier,
+    ).toBe("PRO");
 
     // 13. Subscription referencing inactive plan -> FREE
     const inactivePlanSub = testSubWithStatus("ACTIVE", 86400000, {
       planPrice: { plan: { code: "TEAM", isActive: false } },
     });
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [inactivePlanSub] }, fixedNow).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [inactivePlanSub] },
+        fixedNow,
+      ).tier,
+    ).toBe("FREE");
 
     // 14. TEST price ID in LIVE environment -> FREE
     const testPriceSub = testSubWithStatus("ACTIVE", 86400000, {
-      planPrice: { id: "price_test_pro_monthly", stripePriceId: "price_test_pro_monthly", plan: { code: "PRO", isActive: true } },
+      planPrice: {
+        id: "price_test_pro_monthly",
+        stripePriceId: "price_test_pro_monthly",
+        plan: { code: "PRO", isActive: true },
+      },
     });
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [testPriceSub] }, fixedNow, { isLiveEnvironment: true }).tier).toBe("FREE");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [testPriceSub] },
+        fixedNow,
+        { isLiveEnvironment: true },
+      ).tier,
+    ).toBe("FREE");
     // But works in non-live environment:
-    expect(resolveUserEntitlements({ id: "u1", role: "USER", billingSubscriptions: [testPriceSub] }, fixedNow, { isLiveEnvironment: false }).tier).toBe("PRO");
+    expect(
+      resolveUserEntitlements(
+        { id: "u1", role: "USER", billingSubscriptions: [testPriceSub] },
+        fixedNow,
+        { isLiveEnvironment: false },
+      ).tier,
+    ).toBe("PRO");
   });
 
   // =========================================================================
@@ -165,7 +238,10 @@ describe("Phase 4A Comprehensive Entitlement & Policy Suite", () => {
       isUnlimited: true,
       expiresAt: null, // Required for promo
     };
-    const ctx1 = resolveUserEntitlements({ id: "u1", role: "USER", entitlementGrants: [missingExpiryGrant] }, fixedNow);
+    const ctx1 = resolveUserEntitlements(
+      { id: "u1", role: "USER", entitlementGrants: [missingExpiryGrant] },
+      fixedNow,
+    );
     expect(ctx1.entitlements.VENTURE_BLUEPRINT_EXPORT.isGranted).toBe(false);
 
     // 2. Numeric limit merge takes higher remaining limit
@@ -189,7 +265,10 @@ describe("Phase 4A Comprehensive Entitlement & Policy Suite", () => {
         expiresAt: new Date(fixedNow.getTime() + 86400000),
       },
     ];
-    const ctx2 = resolveUserEntitlements({ id: "u1", role: "USER", entitlementGrants: numGrants }, fixedNow);
+    const ctx2 = resolveUserEntitlements(
+      { id: "u1", role: "USER", entitlementGrants: numGrants },
+      fixedNow,
+    );
     expect(ctx2.entitlements.OPPORTUNITY_RADAR_WATCHLIST.remainingUnits).toBe(15);
   });
 

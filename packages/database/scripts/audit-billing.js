@@ -1,17 +1,29 @@
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 const { resolveUserEntitlements } = require("../../entitlements/dist/index.js");
 
 async function auditBilling() {
   const isReportOnly = process.argv.includes("--report-only");
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.error("[FATAL] Missing required environment variable: DATABASE_URL");
+    process.exit(2);
+  }
 
   let prisma;
   try {
     prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     await prisma.$connect();
   } catch (err) {
-    console.error("DATABASE_CONNECTION_ERROR: Could not connect to database for billing audit.", err.message);
+    console.error(
+      "DATABASE_CONNECTION_ERROR: Could not connect to database for billing audit.",
+      err.message,
+    );
     process.exit(2);
   }
 
@@ -51,26 +63,33 @@ async function auditBilling() {
       }
 
       // Check TEST/LIVE mismatch
-      const isLiveDb = process.env.NODE_ENV === "production" && !process.env.ALLOW_TEST_STRIPE_IN_PROD;
+      const isLiveDb =
+        process.env.NODE_ENV === "production" && !process.env.ALLOW_TEST_STRIPE_IN_PROD;
       if (isLiveDb && sub.planPrice?.stripePriceId?.startsWith("price_test_")) {
-        defects.push(`TEST Stripe price ID ${sub.planPrice.stripePriceId} found on LIVE subscription ${sub.id}.`);
+        defects.push(
+          `TEST Stripe price ID ${sub.planPrice.stripePriceId} found on LIVE subscription ${sub.id}.`,
+        );
       }
 
       // Check User.tier read projection consistency
-      const expectedProjectedTier = (sub.status === "ACTIVE" || sub.status === "TRIALING") && sub.planPrice?.plan?.isActive
-        ? sub.planPrice.plan.code
-        : "FREE";
+      const expectedProjectedTier =
+        (sub.status === "ACTIVE" || sub.status === "TRIALING") && sub.planPrice?.plan?.isActive
+          ? sub.planPrice.plan.code
+          : "FREE";
 
       if (sub.user && sub.user.tier !== expectedProjectedTier) {
-        defects.push(`User.tier projection mismatch for user ${sub.user.id}: expected ${expectedProjectedTier}, found ${sub.user.tier}`);
+        defects.push(
+          `User.tier projection mismatch for user ${sub.user.id}: expected ${expectedProjectedTier}, found ${sub.user.tier}`,
+        );
       }
 
       // Check authoritative entitlement resolution
-      const resolvedCtx = resolveUserEntitlements(sub.user, new Date(), { isLiveEnvironment: isLiveDb });
+      const resolvedCtx = resolveUserEntitlements(sub.user, new Date(), {
+        isLiveEnvironment: isLiveDb,
+      });
       if (expectedProjectedTier === "FREE" && resolvedCtx.hasActiveSubscription) {
         defects.push(`Unearned active subscription entitlement resolved for user ${sub.user?.id}`);
       }
-
     }
 
     // 3. Audit Webhook Events & Payload Integrity

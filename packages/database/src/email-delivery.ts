@@ -10,7 +10,9 @@ export interface EmailDeliveryResult {
   error?: string;
 }
 
-export async function sendMagicLinkEmail(options: SendMagicLinkOptions): Promise<EmailDeliveryResult> {
+export async function sendMagicLinkEmail(
+  options: SendMagicLinkOptions,
+): Promise<EmailDeliveryResult> {
   const isTest = process.env.NODE_ENV === "test";
   const appUrl = options.appUrl || process.env.APP_URL || "https://app.buildworth.io";
   const verificationUrl = `${appUrl}/auth/verify?token=${encodeURIComponent(options.token)}`;
@@ -25,7 +27,12 @@ export async function sendMagicLinkEmail(options: SendMagicLinkOptions): Promise
   if (provider === "RESEND") {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
-      console.error("[Email Delivery Error]: RESEND_API_KEY is not configured for " + fromAddress + " sending to " + verificationUrl);
+      console.error(
+        "[Email Delivery Error]: RESEND_API_KEY is not configured for " +
+          fromAddress +
+          " sending to " +
+          verificationUrl,
+      );
       return { delivered: false, provider: "RESEND", error: "PROVIDER_NOT_CONFIGURED" };
     }
     return { delivered: true, provider: "RESEND" };
@@ -36,7 +43,12 @@ export async function sendMagicLinkEmail(options: SendMagicLinkOptions): Promise
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
     if (!host || !user || !pass) {
-      console.error("[Email Delivery Error]: SMTP credentials not configured for " + fromAddress + " sending to " + verificationUrl);
+      console.error(
+        "[Email Delivery Error]: SMTP credentials not configured for " +
+          fromAddress +
+          " sending to " +
+          verificationUrl,
+      );
       return { delivered: false, provider: "SMTP", error: "PROVIDER_NOT_CONFIGURED" };
     }
     return { delivered: true, provider: "SMTP" };

@@ -1,7 +1,16 @@
 const path = require("path");
 const { execSync } = require("child_process");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
-const { createBillingCheckoutSession, createBillingPortalSession, processStripeWebhookEvent } = require("../../billing/dist/index.js");
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
+const {
+  createBillingCheckoutSession,
+  createBillingPortalSession,
+  processStripeWebhookEvent,
+} = require("../../billing/dist/index.js");
 const { resolveUserEntitlements, checkEntitlement } = require("../../entitlements/dist/index.js");
 
 // Mock Stripe Driver for Local Automated Verification
@@ -52,7 +61,9 @@ async function testPhase4bBilling() {
   console.log("=== BuildWorth Phase 4B Stripe Checkout & Webhook Integration Suite ===");
 
   const dbName = "test_phase4b_billing_" + Date.now();
-  execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`);
+  execSync(
+    `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`,
+  );
 
   const dbUrl = `postgresql://postgres:postgres@localhost:5440/${dbName}?schema=public`;
 
@@ -65,15 +76,21 @@ async function testPhase4bBilling() {
     });
 
     // 2. Reconcile Plan Catalog
-    execSync(`DATABASE_URL="${dbUrl}" node "${path.resolve(__dirname, "reconcile-catalog.js")}"`, { stdio: "pipe" });
-
+    execSync(`DATABASE_URL="${dbUrl}" node "${path.resolve(__dirname, "reconcile-catalog.js")}"`, {
+      stdio: "pipe",
+    });
 
     const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
     const stripe = getMockStripe();
 
     // 3. Create User
     const user = await prisma.user.create({
-      data: { email: "founder.billing.test@buildworth.io", name: "Billing Founder", role: "USER", tier: "FREE" },
+      data: {
+        email: "founder.billing.test@buildworth.io",
+        name: "Billing Founder",
+        role: "USER",
+        tier: "FREE",
+      },
     });
 
     console.log("Test 1: Checkout Session Creation Flow...");
@@ -115,7 +132,7 @@ async function testPhase4bBilling() {
       stripe,
       JSON.stringify(checkoutEvent),
       "sig_test_valid",
-      "whsec_test_secret"
+      "whsec_test_secret",
     );
 
     const completedAttempt = await prisma.billingCheckoutAttempt.findUnique({
@@ -133,7 +150,8 @@ async function testPhase4bBilling() {
       data: {
         object: {
           id: "sub_stripe_real_123",
-          customer: (await prisma.billingCustomer.findUnique({ where: { userId: user.id } })).stripeCustomerId,
+          customer: (await prisma.billingCustomer.findUnique({ where: { userId: user.id } }))
+            .stripeCustomerId,
           status: "active",
           current_period_start: Math.floor(Date.now() / 1000),
           current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
@@ -150,7 +168,7 @@ async function testPhase4bBilling() {
       stripe,
       JSON.stringify(subCreatedEvent),
       "sig_test_valid",
-      "whsec_test_secret"
+      "whsec_test_secret",
     );
 
     // Verify DB state
@@ -194,7 +212,8 @@ async function testPhase4bBilling() {
       data: {
         object: {
           id: "sub_stripe_real_123",
-          customer: (await prisma.billingCustomer.findUnique({ where: { userId: user.id } })).stripeCustomerId,
+          customer: (await prisma.billingCustomer.findUnique({ where: { userId: user.id } }))
+            .stripeCustomerId,
         },
       },
     };
@@ -204,26 +223,32 @@ async function testPhase4bBilling() {
       stripe,
       JSON.stringify(subDeletedEvent),
       "sig_test_valid",
-      "whsec_test_secret"
+      "whsec_test_secret",
     );
 
     const deletedSub = await prisma.billingSubscription.findUnique({
       where: { stripeSubscriptionId: "sub_stripe_real_123" },
     });
-    if (deletedSub.status !== "CANCELED") throw new Error("Subscription status was not updated to CANCELED");
+    if (deletedSub.status !== "CANCELED")
+      throw new Error("Subscription status was not updated to CANCELED");
 
     const demotedUser = await prisma.user.findUnique({ where: { id: user.id } });
-    if (demotedUser.tier !== "FREE") throw new Error("User.tier projection was not demoted to FREE");
+    if (demotedUser.tier !== "FREE")
+      throw new Error("User.tier projection was not demoted to FREE");
     console.log("  ✓ Subscription cancellation and tier demotion verified.");
 
     await prisma.$disconnect();
-    execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`);
+    execSync(
+      `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`,
+    );
 
     console.log("\n=======================================================");
     console.log("Phase 4B End-to-End Billing Integration PASSED (5/5)!");
     console.log("=======================================================");
   } catch (err) {
-    execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${dbName};" >/dev/null 2>&1 || true`);
+    execSync(
+      `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${dbName};" >/dev/null 2>&1 || true`,
+    );
     throw err;
   }
 }

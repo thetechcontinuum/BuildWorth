@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       stripe,
       rawBodyBuffer,
       signature,
-      config.stripeWebhookSecret
+      config.stripeWebhookSecret,
     );
 
     return NextResponse.json({
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     console.error("Webhook processing failed:", err?.message || err);
     return NextResponse.json(
       { error: err?.message || "Webhook processing failure." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 }

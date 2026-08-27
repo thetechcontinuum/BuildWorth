@@ -32,7 +32,7 @@ describe("Financial Economics Calculator v1.0.0", () => {
           assumptionIds: [],
           confidenceScore: 85,
         },
-      ]
+      ],
     );
 
     expect(metrics.monthlyRevenueCents.status).toBe("CALCULATED");
@@ -45,13 +45,13 @@ describe("Financial Economics Calculator v1.0.0", () => {
     expect(metrics.grossMarginPercent.value).toBe(92.46);
 
     expect(metrics.monthlyOperatingProfitCents.status).toBe("CALCULATED");
-    expect(metrics.monthlyOperatingProfitCents.value).toBe((50 * 18400) - 200000); // $7,200.00
+    expect(metrics.monthlyOperatingProfitCents.value).toBe(50 * 18400 - 200000); // $7,200.00
 
     expect(metrics.breakEvenCustomers.status).toBe("CALCULATED");
     expect(metrics.breakEvenCustomers.value).toBe(Math.ceil(200000 / 18400)); // 11 customers
 
     expect(metrics.customerAnnualCostCents.value).toBe(19900 * 12); // $2,388.00
-    expect(metrics.customerNetAnnualBenefitCents.value).toBe(2700000 - (19900 * 12)); // $24,612.00
+    expect(metrics.customerNetAnnualBenefitCents.value).toBe(2700000 - 19900 * 12); // $24,612.00
 
     expect(metrics.customerRoiPercent.status).toBe("CALCULATED");
     expect(metrics.customerRoiPercent.value).toBeGreaterThan(1000); // >1000% ROI

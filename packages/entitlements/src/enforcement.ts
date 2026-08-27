@@ -42,7 +42,7 @@ export async function enforceAtomicUsage(
   prisma: SqlPrismaClient,
   userId: string,
   key: EntitlementKey,
-  options: EnforcementOptions = {}
+  options: EnforcementOptions = {},
 ): Promise<EnforcementResult> {
   const unitsToConsume = options.units ?? 1;
 
@@ -72,11 +72,7 @@ export async function enforceAtomicUsage(
       }
     }
 
-    await tx.$executeRawUnsafe(
-      `SELECT pg_advisory_xact_lock($1::int, $2::int);`,
-      hash1,
-      hash2
-    );
+    await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock($1::int, $2::int);`, hash1, hash2);
 
     // 2. Check Idempotency Key
     if (options.idempotencyKey) {

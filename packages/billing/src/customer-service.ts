@@ -6,7 +6,7 @@ export async function ensureBillingCustomer(
   stripe: Stripe,
   userId: string,
   userEmail: string,
-  userName?: string | null
+  userName?: string | null,
 ): Promise<{ customerId: string; billingCustomerId: string }> {
   // Check if BillingCustomer already exists in DB
   const existing = await prisma.billingCustomer.findUnique({
@@ -31,7 +31,7 @@ export async function ensureBillingCustomer(
     },
     {
       idempotencyKey: `create_customer_${userId}`,
-    }
+    },
   );
 
   // Store BillingCustomer in DB

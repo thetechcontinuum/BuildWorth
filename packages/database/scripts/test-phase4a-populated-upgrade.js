@@ -1,20 +1,29 @@
 const path = require("path");
 const { execSync } = require("child_process");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 const { resolveUserEntitlements, checkEntitlement } = require("../../entitlements/dist/index.js");
 
 async function testPopulatedUpgrade() {
   console.log("=== BuildWorth Phase 4A Populated Database Upgrade Rehearsal ===");
 
   const dbName = "test_phase4a_pop_" + Date.now();
-  execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`);
+  execSync(
+    `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`,
+  );
 
   const popDbUrl = `postgresql://postgres:postgres@localhost:5440/${dbName}?schema=public`;
   const cwd = path.resolve("packages/database");
   const prismaBin = path.resolve("packages/database/node_modules/.bin/prisma");
 
   // 2. Temporarily isolate Phase 4A migration and run Phase 1-3 migrations
-  const p4aMigrationDir = path.resolve("packages/database/prisma/migrations/20260825200000_phase4a_billing_entitlements_foundation");
+  const p4aMigrationDir = path.resolve(
+    "packages/database/prisma/migrations/20260825200000_phase4a_billing_entitlements_foundation",
+  );
   const p4aTempDir = path.resolve("packages/database/prisma/migrations/_temp_phase4a");
   const fs = require("fs");
 
@@ -33,8 +42,12 @@ async function testPopulatedUpgrade() {
     console.log("Deployed Phase 1-3 migrations to populated rehearsal database.");
 
     // Seed authoritative Phase 3 records into rehearsal DB
-    execSync(`DATABASE_URL="${popDbUrl}" node packages/database/scripts/seed-taxonomy.js`, { stdio: "pipe" });
-    execSync(`DATABASE_URL="${popDbUrl}" node packages/database/scripts/seed-audit-evaluation.js`, { stdio: "pipe" });
+    execSync(`DATABASE_URL="${popDbUrl}" node packages/database/scripts/seed-taxonomy.js`, {
+      stdio: "pipe",
+    });
+    execSync(`DATABASE_URL="${popDbUrl}" node packages/database/scripts/seed-audit-evaluation.js`, {
+      stdio: "pipe",
+    });
 
     // 3. Capture Pre-Migration Counts & Hashes
     const prisma = new PrismaClient({ datasources: { db: { url: popDbUrl } } });
@@ -89,20 +102,26 @@ async function testPopulatedUpgrade() {
     // Assert zero deleted or altered rows
     for (const [k, v] of Object.entries(beforeCounts)) {
       if (afterCounts[k] !== v) {
-        throw new Error(`Data corruption detected in table ${k}: before=${v}, after=${afterCounts[k]}`);
+        throw new Error(
+          `Data corruption detected in table ${k}: before=${v}, after=${afterCounts[k]}`,
+        );
       }
     }
 
     const afterEvaluation = await prisma.founderFitEvaluation.findFirst();
     if (afterEvaluation.inputHash !== beforeEvalHash) {
-      throw new Error(`Founder fit evaluation hash mutated during upgrade: before=${beforeEvalHash}, after=${afterEvaluation.inputHash}`);
+      throw new Error(
+        `Founder fit evaluation hash mutated during upgrade: before=${beforeEvalHash}, after=${afterEvaluation.inputHash}`,
+      );
     }
 
     // Verify zero fabricated subscriptions or entitlement grants
     const subCount = await prisma.billingSubscription.count();
     const grantCount = await prisma.entitlementGrant.count();
     if (subCount !== 0 || grantCount !== 0) {
-      throw new Error(`Fabricated subscription records created during migration: subs=${subCount}, grants=${grantCount}`);
+      throw new Error(
+        `Fabricated subscription records created during migration: subs=${subCount}, grants=${grantCount}`,
+      );
     }
 
     // Verify legacy users default to FREE tier
@@ -113,7 +132,9 @@ async function testPopulatedUpgrade() {
     }
 
     await prisma.$disconnect();
-    execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`);
+    execSync(
+      `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`,
+    );
 
     console.log("\n=======================================================");
     console.log("Phase 4A Populated Upgrade Rehearsal PASSED with 0 Defects!");

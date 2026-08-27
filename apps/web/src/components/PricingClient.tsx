@@ -97,7 +97,8 @@ export function PricingClient() {
       {/* Header */}
       <div className="text-center space-y-4 max-w-2xl mx-auto">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-          <Sparkles className="w-3.5 h-3.5" /> Evidence-Backed Startup Intelligence • Phase 4 Subscription Billing
+          <Sparkles className="w-3.5 h-3.5" /> Evidence-Backed Startup Intelligence • Phase 4
+          Subscription Billing
         </div>
         <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
           Decision-Grade Venture Blueprints & Market Signals
@@ -229,7 +230,8 @@ export function PricingClient() {
             </div>
 
             <p className="text-xs text-zinc-300">
-              For founders, operators, and PMs building high-conviction ventures with zero guesswork.
+              For founders, operators, and PMs building high-conviction ventures with zero
+              guesswork.
             </p>
 
             <ul className="space-y-3 pt-6 border-t border-zinc-800 text-xs text-zinc-200">
@@ -267,7 +269,11 @@ export function PricingClient() {
                 disabled={loading}
                 className="w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-50"
               >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CreditCard className="w-4 h-4" />
+                )}
                 <span>Manage Billing & Subscription</span>
               </button>
             ) : (
@@ -280,7 +286,9 @@ export function PricingClient() {
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
-                    <span>Upgrade to Pro — {billingPeriod === "annual" ? "$190/yr" : "$19/mo"}</span>
+                    <span>
+                      Upgrade to Pro — {billingPeriod === "annual" ? "$190/yr" : "$19/mo"}
+                    </span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}

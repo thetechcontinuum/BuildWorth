@@ -1,9 +1,16 @@
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 const { CANONICAL_PLANS } = require("../../entitlements/dist/index.js");
 
 async function reconcileCatalog() {
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
   console.log("=== BuildWorth Canonical Plan Catalog Reconciliation ===");
@@ -36,17 +43,25 @@ async function reconcileCatalog() {
       console.log(`Plan [${code}]: isActive=${plan.isActive}, sortOrder=${plan.sortOrder}`);
 
       // 2. Reconcile Plan Prices (USD Minor units: cents)
-      const envMonthlyStripeId = process.env.STRIPE_PRO_MONTHLY_PRICE_ID || "price_test_pro_monthly";
+      const envMonthlyStripeId =
+        process.env.STRIPE_PRO_MONTHLY_PRICE_ID || "price_test_pro_monthly";
       const envAnnualStripeId = process.env.STRIPE_PRO_YEARLY_PRICE_ID || "price_test_pro_annual";
 
       // Monthly Price
       if (cfg.monthlyPriceCents > 0 || code === "FREE") {
         const monthlyStripeId = code === "PRO" ? envMonthlyStripeId : null;
-        const existingMonthly = await prisma.planPrice.findFirst({ where: { planId: plan.id, billingInterval: "MONTHLY" } });
+        const existingMonthly = await prisma.planPrice.findFirst({
+          where: { planId: plan.id, billingInterval: "MONTHLY" },
+        });
         if (existingMonthly) {
           await prisma.planPrice.update({
             where: { id: existingMonthly.id },
-            data: { amountCents: cfg.monthlyPriceCents, currency: "USD", isActive: cfg.isActive, stripePriceId: monthlyStripeId },
+            data: {
+              amountCents: cfg.monthlyPriceCents,
+              currency: "USD",
+              isActive: cfg.isActive,
+              stripePriceId: monthlyStripeId,
+            },
           });
         } else {
           await prisma.planPrice.create({
@@ -66,11 +81,18 @@ async function reconcileCatalog() {
       // Annual Price
       if (cfg.annualPriceCents > 0) {
         const annualStripeId = code === "PRO" ? envAnnualStripeId : null;
-        const existingAnnual = await prisma.planPrice.findFirst({ where: { planId: plan.id, billingInterval: "ANNUAL" } });
+        const existingAnnual = await prisma.planPrice.findFirst({
+          where: { planId: plan.id, billingInterval: "ANNUAL" },
+        });
         if (existingAnnual) {
           await prisma.planPrice.update({
             where: { id: existingAnnual.id },
-            data: { amountCents: cfg.annualPriceCents, currency: "USD", isActive: cfg.isActive, stripePriceId: annualStripeId },
+            data: {
+              amountCents: cfg.annualPriceCents,
+              currency: "USD",
+              isActive: cfg.isActive,
+              stripePriceId: annualStripeId,
+            },
           });
         } else {
           await prisma.planPrice.create({
@@ -86,7 +108,6 @@ async function reconcileCatalog() {
           });
         }
       }
-
 
       // 3. Reconcile Plan Entitlements Matrix
       for (const [entKey, entCfg] of Object.entries(cfg.entitlements)) {

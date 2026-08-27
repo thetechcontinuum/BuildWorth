@@ -1,12 +1,19 @@
 const { execSync } = require("child_process");
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 
 async function runDefectCycle() {
   console.log("=== BuildWorth Phase 4B Billing Audit 11-Step Defect Cycle ===");
 
   const dbName = "test_phase4b_audit_cycle_" + Date.now();
-  execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`);
+  execSync(
+    `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`,
+  );
   const dbUrl = `postgresql://postgres:postgres@localhost:5440/${dbName}?schema=public`;
 
   try {
@@ -16,16 +23,25 @@ async function runDefectCycle() {
       env: { ...process.env, DATABASE_URL: dbUrl },
       stdio: "pipe",
     });
-    execSync(`DATABASE_URL="${dbUrl}" node "${path.resolve(__dirname, "reconcile-catalog.js")}"`, { stdio: "pipe" });
+    execSync(`DATABASE_URL="${dbUrl}" node "${path.resolve(__dirname, "reconcile-catalog.js")}"`, {
+      stdio: "pipe",
+    });
 
     const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
     // Populate initial valid state: User, Customer, PlanPrice, Subscription, WebhookEvent, CheckoutAttempt
     const user = await prisma.user.create({
-      data: { email: "audit.billing.user@buildworth.io", name: "Audit User", role: "USER", tier: "PRO" },
+      data: {
+        email: "audit.billing.user@buildworth.io",
+        name: "Audit User",
+        role: "USER",
+        tier: "PRO",
+      },
     });
 
-    const proPrice = await prisma.planPrice.findFirst({ where: { plan: { code: "PRO" }, billingInterval: "MONTHLY" } });
+    const proPrice = await prisma.planPrice.findFirst({
+      where: { plan: { code: "PRO" }, billingInterval: "MONTHLY" },
+    });
     const customer = await prisma.billingCustomer.create({
       data: { userId: user.id, stripeCustomerId: "cus_audit_123", billingEmail: user.email },
     });
@@ -71,9 +87,12 @@ async function runDefectCycle() {
     function runAudit(flags = "", expectExit = 0, customDbUrl = dbUrl) {
       let code = 0;
       try {
-        execSync(`DATABASE_URL="${customDbUrl}" node "${path.resolve(__dirname, "audit-billing.js")}" ${flags}`, {
-          stdio: "pipe",
-        });
+        execSync(
+          `DATABASE_URL="${customDbUrl}" node "${path.resolve(__dirname, "audit-billing.js")}" ${flags}`,
+          {
+            stdio: "pipe",
+          },
+        );
       } catch (err) {
         code = err.status || 1;
       }
@@ -88,12 +107,18 @@ async function runDefectCycle() {
     console.log("  ✓ Step 1 passed (Exit 0)");
 
     console.log("Step 2: Corrupt Customer Stripe ID -> Expect exit 1...");
-    await prisma.billingCustomer.update({ where: { id: customer.id }, data: { stripeCustomerId: "invalid_stripe_id" } });
+    await prisma.billingCustomer.update({
+      where: { id: customer.id },
+      data: { stripeCustomerId: "invalid_stripe_id" },
+    });
     runAudit("", 1);
     console.log("  ✓ Step 2 passed (Exit 1)");
 
     console.log("Step 3: Restore Customer -> Expect exit 0...");
-    await prisma.billingCustomer.update({ where: { id: customer.id }, data: { stripeCustomerId: "cus_audit_123" } });
+    await prisma.billingCustomer.update({
+      where: { id: customer.id },
+      data: { stripeCustomerId: "cus_audit_123" },
+    });
     runAudit("", 0);
     console.log("  ✓ Step 3 passed (Exit 0)");
 
@@ -108,7 +133,10 @@ async function runDefectCycle() {
     console.log("  ✓ Step 5 passed (Exit 0)");
 
     console.log("Step 6: Corrupt Webhook payloadHash (null) -> Expect exit 1...");
-    await prisma.billingWebhookEvent.update({ where: { eventId: "evt_audit_123" }, data: { payloadHash: null } });
+    await prisma.billingWebhookEvent.update({
+      where: { eventId: "evt_audit_123" },
+      data: { payloadHash: null },
+    });
     runAudit("", 1);
     console.log("  ✓ Step 6 passed (Exit 1)");
 
@@ -140,13 +168,17 @@ async function runDefectCycle() {
     console.log("  ✓ Step 11 passed (Exit 0 with report-only)");
 
     await prisma.$disconnect();
-    execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`);
+    execSync(
+      `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`,
+    );
 
     console.log("\n=======================================================");
     console.log("Phase 4B Billing Audit 11-Step Defect Cycle PASSED (11/11)!");
     console.log("=======================================================");
   } catch (err) {
-    execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${dbName};" >/dev/null 2>&1 || true`);
+    execSync(
+      `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${dbName};" >/dev/null 2>&1 || true`,
+    );
     throw err;
   }
 }

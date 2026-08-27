@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { ScoreBadge, ConfidenceMeter } from "@buildworth/ui";
 import { StoredOpportunity, INITIAL_OPPORTUNITIES } from "@/lib/opportunity-store";
+import { WatchOpportunityButton } from "@/components/WatchOpportunityButton";
 
 export function OpportunityFeedClient() {
   const [opportunities] = useState<StoredOpportunity[]>(INITIAL_OPPORTUNITIES);
@@ -185,8 +186,7 @@ export function OpportunityFeedClient() {
         ) : (
           filteredAndSortedOpportunities.map((op) => {
             const isExpanded = expandedSlug === op.slug;
-            const isFresh =
-              new Date(op.publishedAt).getTime() > Date.now() - 3600 * 1000 * 24;
+            const isFresh = new Date(op.publishedAt).getTime() > Date.now() - 3600 * 1000 * 24;
             const isVerified = op.publicationQualityStatus === "VERIFIED";
 
             return (
@@ -232,19 +232,37 @@ export function OpportunityFeedClient() {
                     {(() => {
                       // Deterministic personalized rank calculation per opportunity
                       const fitScore = 88;
-                      const baseRank = (op.opportunityScore * 0.40) + (op.confidenceScore * 0.25) + (fitScore * 0.35);
+                      const baseRank =
+                        op.opportunityScore * 0.4 + op.confidenceScore * 0.25 + fitScore * 0.35;
                       const isHypothesis = op.publicationQualityStatus === "HYPOTHESIS";
                       const isSnowflake = op.slug.includes("snowflake");
                       const penalty = isHypothesis ? 10 : 0;
                       // 1 Non-removable Blocker (-25) + 1 Removable Blocker (-7) = 32
                       const blockerPenalty = isSnowflake ? 32 : 0;
-                      const personalizedRankScore = parseFloat(Math.max(0, baseRank - penalty - blockerPenalty).toFixed(1));
-                      const rankPosition = op.slug.includes("soc2") ? "#1" : op.slug.includes("llm") ? "#2" : "#3";
-                      const recCategory = isSnowflake ? "BLOCKED" : isHypothesis ? "CHALLENGING MATCH" : "EXCELLENT MATCH";
-                      const recColor = isSnowflake ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : isHypothesis ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                      const personalizedRankScore = parseFloat(
+                        Math.max(0, baseRank - penalty - blockerPenalty).toFixed(1),
+                      );
+                      const rankPosition = op.slug.includes("soc2")
+                        ? "#1"
+                        : op.slug.includes("llm")
+                          ? "#2"
+                          : "#3";
+                      const recCategory = isSnowflake
+                        ? "BLOCKED"
+                        : isHypothesis
+                          ? "CHALLENGING MATCH"
+                          : "EXCELLENT MATCH";
+                      const recColor = isSnowflake
+                        ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                        : isHypothesis
+                          ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                          : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
 
                       return (
-                        <div data-testid="founder-fit-card-ribbon" className="mt-3 pt-3 border-t border-zinc-800/80 flex items-center justify-between flex-wrap gap-2 text-xs">
+                        <div
+                          data-testid="founder-fit-card-ribbon"
+                          className="mt-3 pt-3 border-t border-zinc-800/80 flex items-center justify-between flex-wrap gap-2 text-xs"
+                        >
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-200 border border-zinc-700 font-semibold">
                               Founder Fit: {fitScore}/100
@@ -252,16 +270,23 @@ export function OpportunityFeedClient() {
                             <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                               Personalized Rank: {rankPosition} ({personalizedRankScore})
                             </span>
-                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${recColor}`}>
+                            <span
+                              className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${recColor}`}
+                            >
                               {recCategory}
                             </span>
                           </div>
                           <div className="text-[11px] text-zinc-400 flex items-center gap-1.5">
                             {isSnowflake ? (
-                              <span className="text-rose-400 font-medium">⚠️ 1 Non-Removable &amp; 1 Removable Blocker (-32 pts)</span>
+                              <span className="text-rose-400 font-medium">
+                                ⚠️ 1 Non-Removable &amp; 1 Removable Blocker (-32 pts)
+                              </span>
                             ) : (
                               <>
-                                <span className="text-emerald-400 font-medium">✓ Top Strength:</span> TypeScript &amp; DevOps
+                                <span className="text-emerald-400 font-medium">
+                                  ✓ Top Strength:
+                                </span>{" "}
+                                TypeScript &amp; DevOps
                               </>
                             )}
                           </div>
@@ -277,7 +302,8 @@ export function OpportunityFeedClient() {
                       <div>
                         <span className="text-zinc-500">Est. MVP:</span>{" "}
                         <strong className="text-zinc-200">
-                          ${(op.costRange.minMinor / 100000).toFixed(0)},000 – ${(op.costRange.maxMinor / 100000).toFixed(0)},000 USD
+                          ${(op.costRange.minMinor / 100000).toFixed(0)},000 – $
+                          {(op.costRange.maxMinor / 100000).toFixed(0)},000 USD
                         </strong>
                       </div>
                       <div>
@@ -294,18 +320,19 @@ export function OpportunityFeedClient() {
                       <ScoreBadge score={op.opportunityScore} />
                     </div>
                     <ConfidenceMeter confidence={op.confidenceScore} />
-                    <div className="flex items-center gap-2 justify-end pt-2">
+                    <div className="flex items-center gap-2 justify-end pt-2 flex-wrap">
+                      <WatchOpportunityButton opportunitySlug={op.slug} size="sm" />
                       <button
                         onClick={() => setExpandedSlug(isExpanded ? null : op.slug)}
                         className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
                       >
                         {isExpanded ? (
                           <>
-                            Hide Score Breakdown <ChevronUp className="w-3.5 h-3.5" />
+                            Hide <ChevronUp className="w-3.5 h-3.5" />
                           </>
                         ) : (
                           <>
-                            Why this score? <ChevronDown className="w-3.5 h-3.5" />
+                            Why score? <ChevronDown className="w-3.5 h-3.5" />
                           </>
                         )}
                       </button>

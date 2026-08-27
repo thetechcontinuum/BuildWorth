@@ -4,10 +4,7 @@ import {
   computeCanonicalInputHash,
   computeScoringPolicyFingerprint,
 } from "../src/founder-fit/canonical-hash.js";
-import {
-  FounderProfileData,
-  OpportunityFounderRequirementsData,
-} from "@buildworth/shared";
+import { FounderProfileData, OpportunityFounderRequirementsData } from "@buildworth/shared";
 
 describe("Founder Fit Non-Vacuous Evaluation Audit & Defect Cycle Proof", () => {
   const mockProfile: FounderProfileData = {
@@ -20,9 +17,7 @@ describe("Founder Fit Non-Vacuous Evaluation Audit & Defect Cycle Proof", () => 
     domainExpertise: [
       { industryOrDomain: "DevOps & Compliance", yearsExperienceBand: "3-5 years" },
     ],
-    distributionAssets: [
-      { assetType: "Twitter / X", audienceSizeBand: "1k-5k" },
-    ],
+    distributionAssets: [{ assetType: "Twitter / X", audienceSizeBand: "1k-5k" }],
     preferences: {
       preferredIndustries: ["DevOps & Compliance"],
       excludedIndustries: ["Crypto"],
@@ -57,7 +52,13 @@ describe("Founder Fit Non-Vacuous Evaluation Audit & Defect Cycle Proof", () => 
     targetIndustries: ["DevOps & Compliance"],
     targetGeographies: ["Global"],
     requiredSkills: [
-      { skillKey: "TYPESCRIPT", minimumProficiency: "WORKING", preferredProficiency: "ADVANCED", importance: 5, isOutsourceable: false },
+      {
+        skillKey: "TYPESCRIPT",
+        minimumProficiency: "WORKING",
+        preferredProficiency: "ADVANCED",
+        importance: 5,
+        isOutsourceable: false,
+      },
     ],
   };
 
@@ -75,8 +76,14 @@ describe("Founder Fit Non-Vacuous Evaluation Audit & Defect Cycle Proof", () => 
       }
 
       // 2. Version check
-      if (ev.rubricVersion !== "2.0.0" || ev.rankingVersion !== "2.0.0" || ev.calculatorVersion !== "2.0.1") {
-        defects.push(`[OBSOLETE VERSION] Rubric: ${ev.rubricVersion}, Ranking: ${ev.rankingVersion}`);
+      if (
+        ev.rubricVersion !== "2.0.0" ||
+        ev.rankingVersion !== "2.0.0" ||
+        ev.calculatorVersion !== "2.0.1"
+      ) {
+        defects.push(
+          `[OBSOLETE VERSION] Rubric: ${ev.rubricVersion}, Ranking: ${ev.rankingVersion}`,
+        );
       }
 
       // 3. Hash recalculation verification
@@ -92,7 +99,7 @@ describe("Founder Fit Non-Vacuous Evaluation Audit & Defect Cycle Proof", () => 
             profileRevisionId: ev.profileRevisionId,
             profileRevisionInputHash: ev.profileRevisionInputHash,
             opportunityRevisionId: ev.opportunityRevisionId,
-          }
+          },
         );
 
         const expectedHash = computeCanonicalInputHash(canonicalPayload);
@@ -189,7 +196,7 @@ describe("Founder Fit Non-Vacuous Evaluation Audit & Defect Cycle Proof", () => 
     };
     const res = auditEvaluationRecords([legacyRecord]);
     expect(res.exitCode).toBe(1);
-    expect(res.defects.some(d => d.includes("[MALFORMED HASH]"))).toBe(true);
+    expect(res.defects.some((d) => d.includes("[MALFORMED HASH]"))).toBe(true);
   });
 
   it("Step 7: Empty database in strict mode triggers exitCode 1", () => {

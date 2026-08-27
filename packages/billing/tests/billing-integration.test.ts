@@ -4,14 +4,14 @@ import { processStripeWebhookEvent, computePayloadHash } from "../src/webhook-se
 // Mock Database & Mock Stripe
 function createMockPrisma() {
   const db = {
-    users: [
-      { id: "usr_int_1", email: "subscriber@buildworth.io", role: "USER", tier: "FREE" },
-    ],
-    customers: [
-      { id: "cus_db_1", userId: "usr_int_1", stripeCustomerId: "cus_stripe_123" },
-    ],
+    users: [{ id: "usr_int_1", email: "subscriber@buildworth.io", role: "USER", tier: "FREE" }],
+    customers: [{ id: "cus_db_1", userId: "usr_int_1", stripeCustomerId: "cus_stripe_123" }],
     planPrices: [
-      { id: "price_pro_monthly", stripePriceId: "price_stripe_pro_monthly", plan: { code: "PRO", isActive: true } },
+      {
+        id: "price_pro_monthly",
+        stripePriceId: "price_stripe_pro_monthly",
+        plan: { code: "PRO", isActive: true },
+      },
     ],
     subscriptions: [] as any[],
     webhookEvents: [] as any[],
@@ -21,7 +21,8 @@ function createMockPrisma() {
 
   const prisma: any = {
     billingWebhookEvent: {
-      findUnique: async ({ where }: any) => db.webhookEvents.find((e) => e.eventId === where.eventId) || null,
+      findUnique: async ({ where }: any) =>
+        db.webhookEvents.find((e) => e.eventId === where.eventId) || null,
       create: async ({ data }: any) => {
         db.webhookEvents.push(data);
         return data;
@@ -33,19 +34,24 @@ function createMockPrisma() {
       },
     },
     billingCustomer: {
-      findUnique: async ({ where }: any) => db.customers.find((c) => c.stripeCustomerId === where.stripeCustomerId) || null,
+      findUnique: async ({ where }: any) =>
+        db.customers.find((c) => c.stripeCustomerId === where.stripeCustomerId) || null,
     },
     planPrice: {
-      findFirst: async ({ where }: any) => db.planPrices.find((p) => p.stripePriceId === where.stripePriceId) || null,
+      findFirst: async ({ where }: any) =>
+        db.planPrices.find((p) => p.stripePriceId === where.stripePriceId) || null,
     },
     billingSubscription: {
-      findUnique: async ({ where }: any) => db.subscriptions.find((s) => s.stripeSubscriptionId === where.stripeSubscriptionId) || null,
+      findUnique: async ({ where }: any) =>
+        db.subscriptions.find((s) => s.stripeSubscriptionId === where.stripeSubscriptionId) || null,
       create: async ({ data }: any) => {
         db.subscriptions.push(data);
         return data;
       },
       update: async ({ where, data }: any) => {
-        const item = db.subscriptions.find((s) => s.id === where.id || s.stripeSubscriptionId === where.stripeSubscriptionId);
+        const item = db.subscriptions.find(
+          (s) => s.id === where.id || s.stripeSubscriptionId === where.stripeSubscriptionId,
+        );
         if (item) Object.assign(item, data);
         return item;
       },
@@ -157,19 +163,27 @@ describe("Phase 4B Webhook Idempotency, Ordering and Status Processing", () => {
 
   it("detects and rejects security defects on reused event ID with tampered payload hash", async () => {
     const { prisma } = createMockPrisma();
-    const eventPayload = { id: "evt_tamper_test", type: "invoice.paid", data: { object: { id: "in_1", subscription: "sub_1" } } };
+    const eventPayload = {
+      id: "evt_tamper_test",
+      type: "invoice.paid",
+      data: { object: { id: "in_1", subscription: "sub_1" } },
+    };
     const rawBody1 = JSON.stringify(eventPayload);
     const stripe = createMockStripe({});
 
     await processStripeWebhookEvent(prisma, stripe, rawBody1, "valid_sig", secret);
 
     // Tampered payload with same event ID
-    const rawBody2 = JSON.stringify({ id: "evt_tamper_test", type: "invoice.paid", data: { object: { id: "in_1", subscription: "sub_1" } }, malicious: true });
+    const rawBody2 = JSON.stringify({
+      id: "evt_tamper_test",
+      type: "invoice.paid",
+      data: { object: { id: "in_1", subscription: "sub_1" } },
+      malicious: true,
+    });
     await expect(
-      processStripeWebhookEvent(prisma, stripe, rawBody2, "valid_sig", secret)
+      processStripeWebhookEvent(prisma, stripe, rawBody2, "valid_sig", secret),
     ).rejects.toThrow("WEBHOOK_SECURITY_DEFECT");
   });
-
 
   it("processes subscription.deleted and demotes projected tier back to FREE", async () => {
     const { prisma, db } = createMockPrisma();
@@ -193,7 +207,13 @@ describe("Phase 4B Webhook Idempotency, Ordering and Status Processing", () => {
     };
 
     const stripe = createMockStripe({});
-    await processStripeWebhookEvent(prisma, stripe, JSON.stringify(deleteEvent), "valid_sig", secret);
+    await processStripeWebhookEvent(
+      prisma,
+      stripe,
+      JSON.stringify(deleteEvent),
+      "valid_sig",
+      secret,
+    );
 
     expect(db.subscriptions[0].status).toBe("CANCELED");
     expect(db.users[0].tier).toBe("FREE");
@@ -204,7 +224,7 @@ describe("Phase 4B Webhook Idempotency, Ordering and Status Processing", () => {
     const stripe = createMockStripe({});
 
     await expect(
-      processStripeWebhookEvent(prisma, stripe, "{}", "invalid_sig", secret)
+      processStripeWebhookEvent(prisma, stripe, "{}", "invalid_sig", secret),
     ).rejects.toThrow("WEBHOOK_SIGNATURE_VERIFICATION_FAILED");
   });
 });

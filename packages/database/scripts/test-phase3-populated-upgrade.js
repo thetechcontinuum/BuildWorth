@@ -1,9 +1,16 @@
 const path = require("path");
 const { execSync } = require("child_process");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 
 async function testPopulatedPhase3Upgrade() {
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
   console.log("=== Phase 2 -> Phase 3 Populated Upgrade & Zero Data-Loss Verification ===");
@@ -52,7 +59,7 @@ async function testPopulatedPhase3Upgrade() {
   await prisma.$disconnect();
 }
 
-testPopulatedPhase3Upgrade().catch(err => {
+testPopulatedPhase3Upgrade().catch((err) => {
   console.error("Populated upgrade test failed:", err);
   process.exit(1);
 });

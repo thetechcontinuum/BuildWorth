@@ -15,7 +15,14 @@
     "db:push": "turbo run db:push",
     "db:seed": "turbo run db:seed",
     "typecheck": "turbo run type-check",
-    "pipeline:run": "pnpm --filter @buildworth/opportunity-engine run pipeline:run"
+    "pipeline:run": "pnpm --filter @buildworth/opportunity-engine run pipeline:run",
+    "audit:radar": "pnpm --filter @buildworth/database run audit:radar",
+    "audit:billing": "pnpm --filter @buildworth/database run audit:billing",
+    "audit:entitlements": "pnpm --filter @buildworth/database run audit:entitlements",
+    "audit:founder-fit": "pnpm --filter @buildworth/database run audit:founder-fit",
+    "audit:projections": "pnpm --filter @buildworth/database run audit:projections",
+    "test:phase4c": "pnpm --filter @buildworth/database run test:phase4c",
+    "test:migration:phase4c": "pnpm --filter @buildworth/database run test:migration:phase4c"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",

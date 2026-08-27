@@ -8,7 +8,6 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-
     const cookieStore = cookies();
     const sessionToken = cookieStore.get("buildworth_session")?.value;
     const sessionUser = await resolveServerSession(prisma, sessionToken);
@@ -29,9 +28,9 @@ export async function GET() {
         {
           headers: {
             "Cache-Control": "private, no-store",
-            "Vary": "Cookie",
+            Vary: "Cookie",
           },
-        }
+        },
       );
     }
 
@@ -54,7 +53,7 @@ export async function GET() {
 
     const ctx = resolveUserEntitlements(dbUser);
     const activeSub = dbUser?.billingSubscriptions?.find(
-      (s) => s.status === "ACTIVE" || s.status === "TRIALING"
+      (s) => s.status === "ACTIVE" || s.status === "TRIALING",
     );
 
     return NextResponse.json(
@@ -70,9 +69,9 @@ export async function GET() {
       {
         headers: {
           "Cache-Control": "private, no-store",
-          "Vary": "Cookie",
+          Vary: "Cookie",
         },
-      }
+      },
     );
   } catch (err: any) {
     console.error("Billing Status Error:", err);

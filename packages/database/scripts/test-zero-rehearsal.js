@@ -1,12 +1,19 @@
 const { execSync } = require("child_process");
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 
 async function rehearseZeroDbMigration() {
   console.log("=== Rehearsing Complete Migration Chain From Zero On Clean DB ===");
 
   const dbName = "test_zero_rehearsal_" + Date.now();
-  execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`);
+  execSync(
+    `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`,
+  );
 
   const zeroDbUrl = `postgresql://postgres:postgres@localhost:5440/${dbName}?schema=public`;
 
@@ -57,15 +64,19 @@ async function rehearseZeroDbMigration() {
     }
 
     await prisma.$disconnect();
-    execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`);
+    execSync(
+      `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE ${dbName};"`,
+    );
     console.log("\nZero Rehearsal Database Passed Cleanly!");
   } catch (err) {
-    execSync(`docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${dbName};" >/dev/null 2>&1 || true`);
+    execSync(
+      `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${dbName};" >/dev/null 2>&1 || true`,
+    );
     throw err;
   }
 }
 
-rehearseZeroDbMigration().catch(err => {
+rehearseZeroDbMigration().catch((err) => {
   console.error("Zero rehearsal failed:", err);
   process.exit(1);
 });

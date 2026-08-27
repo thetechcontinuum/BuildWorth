@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { prisma, resolveServerSession, checkAndIncrementRateLimit, hashRateLimitKey } from "@buildworth/database";
+import {
+  prisma,
+  resolveServerSession,
+  checkAndIncrementRateLimit,
+  hashRateLimitKey,
+} from "@buildworth/database";
 import { getStripeClient, createBillingPortalSession } from "@buildworth/billing";
 
 export async function POST(request: NextRequest) {
@@ -13,7 +18,7 @@ export async function POST(request: NextRequest) {
     if (!sessionUser) {
       return NextResponse.json(
         { error: "UNAUTHORIZED: You must be signed in to manage billing." },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -25,7 +30,7 @@ export async function POST(request: NextRequest) {
       if (originHost !== host) {
         return NextResponse.json(
           { error: "FORBIDDEN: Cross-site request rejected." },
-          { status: 403 }
+          { status: 403 },
         );
       }
     }
@@ -36,7 +41,7 @@ export async function POST(request: NextRequest) {
     if (!rateCheck.allowed) {
       return NextResponse.json(
         { error: "TOO_MANY_REQUESTS: Please wait before opening the portal again." },
-        { status: 429, headers: { "Retry-After": String(rateCheck.retryAfterSeconds || 60) } }
+        { status: 429, headers: { "Retry-After": String(rateCheck.retryAfterSeconds || 60) } },
       );
     }
 
@@ -53,7 +58,7 @@ export async function POST(request: NextRequest) {
     console.error("Billing Portal Error:", err);
     return NextResponse.json(
       { error: err?.message || "Failed to create customer portal session." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

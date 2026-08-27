@@ -1,10 +1,23 @@
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
-const { resolveUserEntitlements, checkEntitlement, CANONICAL_PLANS } = require("../../entitlements/dist/index.js");
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
+const {
+  resolveUserEntitlements,
+  checkEntitlement,
+  CANONICAL_PLANS,
+} = require("../../entitlements/dist/index.js");
 
 async function auditEntitlements() {
   const isReportOnly = process.argv.includes("--report-only");
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.error("[FATAL] Missing required environment variable: DATABASE_URL");
+    process.exit(2);
+  }
 
   let prisma;
   try {
@@ -28,7 +41,9 @@ async function auditEntitlements() {
     let defects = [];
 
     if (dbPlans.length < 2) {
-      defects.push(`Canonical plan catalog incomplete: expected at least FREE and PRO, found ${dbPlans.length} plans.`);
+      defects.push(
+        `Canonical plan catalog incomplete: expected at least FREE and PRO, found ${dbPlans.length} plans.`,
+      );
     }
 
     const freeDbPlan = dbPlans.find((p) => p.code === "FREE");
@@ -53,7 +68,9 @@ async function auditEntitlements() {
             dbEnt.isUnlimited !== spec.isUnlimited ||
             dbEnt.limitQuantity !== spec.limitQuantity
           ) {
-            defects.push(`Plan ${plan.code} entitlement ${key} mismatch: db(unlimited=${dbEnt.isUnlimited}, limit=${dbEnt.limitQuantity}) vs spec(unlimited=${spec.isUnlimited}, limit=${spec.limitQuantity})`);
+            defects.push(
+              `Plan ${plan.code} entitlement ${key} mismatch: db(unlimited=${dbEnt.isUnlimited}, limit=${dbEnt.limitQuantity}) vs spec(unlimited=${spec.isUnlimited}, limit=${spec.limitQuantity})`,
+            );
           }
         }
       }
@@ -82,28 +99,33 @@ async function auditEntitlements() {
     for (const user of users) {
       const ctx = resolveUserEntitlements(user, now);
       if (ctx.tier === "FREE") freeResolutionsCount++;
-      if (ctx.tier === "PRO" || ctx.tier === "TEAM" || ctx.tier === "ENTERPRISE") paidResolutionsCount++;
+      if (ctx.tier === "PRO" || ctx.tier === "TEAM" || ctx.tier === "ENTERPRISE")
+        paidResolutionsCount++;
 
       // Check: Legacy User.tier projection must match or be detected
       const hasValidSub = (user.billingSubscriptions || []).some(
         (s) =>
           (s.status === "ACTIVE" || s.status === "TRIALING") &&
           new Date(s.currentPeriodEnd) > now &&
-          s.planPrice?.plan?.isActive
+          s.planPrice?.plan?.isActive,
       );
 
       const hasValidGrant = (user.entitlementGrants || []).some(
-        (g) => g.isUnlimited && (!g.expiresAt || new Date(g.expiresAt) > now)
+        (g) => g.isUnlimited && (!g.expiresAt || new Date(g.expiresAt) > now),
       );
 
       // Check legacy User.tier="PRO" without valid subscription/grant
       if (user.tier === "PRO" && !hasValidSub && !hasValidGrant) {
-        defects.push(`Legacy User.tier='PRO' projection mismatch on user ${user.id} without authoritative subscription.`);
+        defects.push(
+          `Legacy User.tier='PRO' projection mismatch on user ${user.id} without authoritative subscription.`,
+        );
       }
 
       // Check: Unauthorized paid tier resolved
       if (!hasValidSub && !hasValidGrant && ctx.tier !== "FREE") {
-        defects.push(`User ${user.id} resolved commercial tier ${ctx.tier} without valid subscription or grant.`);
+        defects.push(
+          `User ${user.id} resolved commercial tier ${ctx.tier} without valid subscription or grant.`,
+        );
       }
 
       // Check: Expired subscription leak
@@ -133,7 +155,9 @@ async function auditEntitlements() {
         if (ent && !ent.isUnlimited && ent.limitQuantity !== null) {
           const consumed = bucket._sum.unitsConsumed ?? 0;
           if (consumed > ent.limitQuantity) {
-            defects.push(`Usage over-allocation detected: User ${bucket.userId} consumed ${consumed}/${ent.limitQuantity} in ${bucket.periodBucketKey} for ${bucket.entitlementType}.`);
+            defects.push(
+              `Usage over-allocation detected: User ${bucket.userId} consumed ${consumed}/${ent.limitQuantity} in ${bucket.periodBucketKey} for ${bucket.entitlementType}.`,
+            );
           }
         }
       }
@@ -141,7 +165,9 @@ async function auditEntitlements() {
 
     console.log("----------------------------------------------------------------");
     console.log(`Total Plans Audited             : ${dbPlans.length}`);
-    console.log(`Total Users Audited             : ${users.length} (FREE: ${freeResolutionsCount}, Paid: ${paidResolutionsCount})`);
+    console.log(
+      `Total Users Audited             : ${users.length} (FREE: ${freeResolutionsCount}, Paid: ${paidResolutionsCount})`,
+    );
     console.log(`Usage Records Audited           : ${usageRecordsCount}`);
     console.log(`Accounting Buckets Checked      : ${numericChecksCount}`);
     console.log(`Total Defects Found             : ${defects.length}`);

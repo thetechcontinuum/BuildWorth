@@ -21,14 +21,16 @@ export async function processStripeWebhookEvent(
   stripe: Stripe,
   rawBody: string | Buffer,
   signature: string,
-  webhookSecret: string
+  webhookSecret: string,
 ): Promise<ProcessWebhookResult> {
   // 1. Verify Stripe-Signature
   let event: Stripe.Event;
   try {
     event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
   } catch (err: any) {
-    throw new Error(`WEBHOOK_SIGNATURE_VERIFICATION_FAILED: ${err?.message || "Invalid signature"}`);
+    throw new Error(
+      `WEBHOOK_SIGNATURE_VERIFICATION_FAILED: ${err?.message || "Invalid signature"}`,
+    );
   }
 
   const eventId = event.id;
@@ -44,11 +46,16 @@ export async function processStripeWebhookEvent(
   if (existingEvent) {
     // Security check: If eventId reused but payloadHash differs -> defect
     if (existingEvent.payloadHash && existingEvent.payloadHash !== payloadHash) {
-      throw new Error(`WEBHOOK_SECURITY_DEFECT: Event ID ${eventId} reused with differing payload hash.`);
+      throw new Error(
+        `WEBHOOK_SECURITY_DEFECT: Event ID ${eventId} reused with differing payload hash.`,
+      );
     }
 
     // If previously processed or ignored, return immediately
-    if (existingEvent.processingStatus === "PROCESSED" || existingEvent.processingStatus === "IGNORED") {
+    if (
+      existingEvent.processingStatus === "PROCESSED" ||
+      existingEvent.processingStatus === "IGNORED"
+    ) {
       return {
         received: true,
         duplicate: true,
@@ -97,7 +104,6 @@ export async function processStripeWebhookEvent(
       }
     }
   }
-
 
   // 4. Process event within database transaction
   try {
@@ -159,18 +165,19 @@ export async function processStripeWebhookEvent(
     };
   } catch (err: any) {
     // Record error state in DB
-    await prisma.billingWebhookEvent.update({
-      where: { eventId },
-      data: {
-        processingStatus: "FAILED",
-        errorMessage: err?.message || "Unknown error",
-      },
-    }).catch(() => {});
+    await prisma.billingWebhookEvent
+      .update({
+        where: { eventId },
+        data: {
+          processingStatus: "FAILED",
+          errorMessage: err?.message || "Unknown error",
+        },
+      })
+      .catch(() => {});
 
     throw err;
   }
 }
-
 
 async function handleCheckoutSessionCompleted(tx: any, session: Stripe.Checkout.Session) {
   const userId = session.metadata?.userId || (session.client_reference_id as string);
@@ -207,7 +214,7 @@ async function handleSubscriptionUpsert(
   tx: any,
   stripe: Stripe,
   sub: Stripe.Subscription,
-  eventCreated: Date
+  eventCreated: Date,
 ) {
   let targetSub = sub;
 
@@ -217,12 +224,19 @@ async function handleSubscriptionUpsert(
 
   if (existingSub) {
     // 1. Terminal cancellation protection: If already CANCELED, do not allow resurrection from older events
-    if (existingSub.status === "CANCELED" && (!existingSub.latestProviderEventTimestamp || existingSub.latestProviderEventTimestamp > eventCreated)) {
+    if (
+      existingSub.status === "CANCELED" &&
+      (!existingSub.latestProviderEventTimestamp ||
+        existingSub.latestProviderEventTimestamp > eventCreated)
+    ) {
       return;
     }
 
     // 2. Strict older-event protection
-    if (existingSub.latestProviderEventTimestamp && existingSub.latestProviderEventTimestamp > eventCreated) {
+    if (
+      existingSub.latestProviderEventTimestamp &&
+      existingSub.latestProviderEventTimestamp > eventCreated
+    ) {
       return;
     }
 
@@ -237,12 +251,15 @@ async function handleSubscriptionUpsert(
       try {
         targetSub = await stripe.subscriptions.retrieve(sub.id);
       } catch (err: any) {
-        throw new Error(`STRIPE_RETRIEVAL_FAILED: Could not retrieve authoritative subscription ${sub.id}: ${err?.message || "Unknown error"}`);
+        throw new Error(
+          `STRIPE_RETRIEVAL_FAILED: Could not retrieve authoritative subscription ${sub.id}: ${err?.message || "Unknown error"}`,
+        );
       }
     }
   }
 
-  const stripeCustomerId = typeof targetSub.customer === "string" ? targetSub.customer : targetSub.customer.id;
+  const stripeCustomerId =
+    typeof targetSub.customer === "string" ? targetSub.customer : targetSub.customer.id;
   const customer = await tx.billingCustomer.findUnique({
     where: { stripeCustomerId },
     include: { user: true },
@@ -278,7 +295,12 @@ async function handleSubscriptionUpsert(
 
   if (existingSub) {
     // Terminal cancellation protection: never let ambiguous snapshot restore access if target is CANCELED
-    if (existingSub.status === "CANCELED" && mappedStatus !== "CANCELED" && existingSub.latestProviderEventTimestamp && existingSub.latestProviderEventTimestamp.getTime() >= eventCreated.getTime()) {
+    if (
+      existingSub.status === "CANCELED" &&
+      mappedStatus !== "CANCELED" &&
+      existingSub.latestProviderEventTimestamp &&
+      existingSub.latestProviderEventTimestamp.getTime() >= eventCreated.getTime()
+    ) {
       // Re-verify if retrieved was truly not canceled; if targetSub was retrieved and status is indeed not canceled, update. Otherwise ignore.
       if (targetSub === sub) return;
     }
@@ -318,7 +340,8 @@ async function handleSubscriptionUpsert(
 
   // Update User.tier read projection (never the authorization source)
   const isSubscriberActive = mappedStatus === "ACTIVE" || mappedStatus === "TRIALING";
-  const projectedTier = isSubscriberActive && planPrice.plan.isActive ? planPrice.plan.code : "FREE";
+  const projectedTier =
+    isSubscriberActive && planPrice.plan.isActive ? planPrice.plan.code : "FREE";
 
   await tx.user.update({
     where: { id: userId },
@@ -346,7 +369,7 @@ async function handleSubscriptionDeleted(
   tx: any,
   stripe: Stripe,
   sub: Stripe.Subscription,
-  eventCreated: Date
+  eventCreated: Date,
 ) {
   const stripeSubscriptionId = sub.id;
   const existingSub = await tx.billingSubscription.findUnique({
@@ -356,7 +379,10 @@ async function handleSubscriptionDeleted(
   if (!existingSub) return;
 
   // Ordering check: deletion should never be undone by older events
-  if (existingSub.latestProviderEventTimestamp && existingSub.latestProviderEventTimestamp > eventCreated) {
+  if (
+    existingSub.latestProviderEventTimestamp &&
+    existingSub.latestProviderEventTimestamp > eventCreated
+  ) {
     return;
   }
 
@@ -372,7 +398,9 @@ async function handleSubscriptionDeleted(
       const retrieved = await stripe.subscriptions.retrieve(sub.id);
       finalStatus = mapStripeSubscriptionStatus(retrieved.status);
     } catch (err: any) {
-      throw new Error(`STRIPE_RETRIEVAL_FAILED: Could not retrieve authoritative subscription ${sub.id}: ${err?.message || "Unknown error"}`);
+      throw new Error(
+        `STRIPE_RETRIEVAL_FAILED: Could not retrieve authoritative subscription ${sub.id}: ${err?.message || "Unknown error"}`,
+      );
     }
   }
 
@@ -387,12 +415,52 @@ async function handleSubscriptionDeleted(
 
   // Revert User.tier read projection if canceled
   const isSubscriberActive = finalStatus === "ACTIVE" || finalStatus === "TRIALING";
-  const projectedTier = isSubscriberActive ? (existingSub.planPrice?.plan?.code || "PRO") : "FREE";
+  const projectedTier = isSubscriberActive ? existingSub.planPrice?.plan?.code || "PRO" : "FREE";
 
   await tx.user.update({
     where: { id: existingSub.userId },
     data: { tier: projectedTier },
   });
+
+  // Graceful Downgrade Policy:
+  // If user downgraded to FREE and has > 3 watched opportunities:
+  // - Preserve ALL saved records (never delete user data)
+  // - Keep radarEnabled = true on the 3 most recently saved watches
+  // - Set radarEnabled = false on excess watches (ranked 4th and beyond)
+  if (projectedTier === "FREE" && tx.savedOpportunity) {
+    const userWatches = await tx.savedOpportunity.findMany({
+      where: { userId: existingSub.userId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (userWatches && userWatches.length > 3) {
+      const excessWatches = userWatches.slice(3);
+      const excessIds = excessWatches.map((w: any) => w.id);
+
+      await tx.savedOpportunity.updateMany({
+        where: { id: { in: excessIds } },
+        data: {
+          radarEnabled: false,
+          alertCadence: "WEEKLY_DIGEST",
+        },
+      });
+
+      // Cancel any pending instant alert notifications for these disabled watches
+      if (tx.notificationOutbox) {
+        await tx.notificationOutbox.updateMany({
+          where: {
+            userId: existingSub.userId,
+            status: "PENDING",
+            notificationType: "RADAR_CHANGE_ALERT",
+          },
+          data: {
+            status: "CANCELLED",
+            sanitizedLastError: "TIER_DOWNGRADED_TO_FREE",
+          },
+        });
+      }
+    }
+  }
 
   await tx.auditLog.create({
     data: {
@@ -409,9 +477,10 @@ async function handleInvoicePaid(
   tx: any,
   stripe: Stripe,
   invoice: Stripe.Invoice,
-  eventCreated: Date
+  eventCreated: Date,
 ) {
-  const subId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
+  const subId =
+    typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
   if (!subId) return;
 
   const existingSub = await tx.billingSubscription.findUnique({
@@ -422,12 +491,16 @@ async function handleInvoicePaid(
   if (!existingSub) return;
 
   // Verify customer ownership if customer specified in invoice
-  const invoiceCustomerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+  const invoiceCustomerId =
+    typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
   if (invoiceCustomerId && existingSub.billingCustomer.stripeCustomerId !== invoiceCustomerId) {
     return;
   }
 
-  if (existingSub.latestProviderEventTimestamp && existingSub.latestProviderEventTimestamp > eventCreated) {
+  if (
+    existingSub.latestProviderEventTimestamp &&
+    existingSub.latestProviderEventTimestamp > eventCreated
+  ) {
     return;
   }
 
@@ -436,11 +509,14 @@ async function handleInvoicePaid(
   try {
     retrievedSub = await stripe.subscriptions.retrieve(subId);
   } catch (err: any) {
-    throw new Error(`STRIPE_RETRIEVAL_FAILED: Could not retrieve authoritative subscription ${subId}: ${err?.message || "Unknown error"}`);
+    throw new Error(
+      `STRIPE_RETRIEVAL_FAILED: Could not retrieve authoritative subscription ${subId}: ${err?.message || "Unknown error"}`,
+    );
   }
 
   // Validate customer ownership on retrieved sub
-  const retrievedCustId = typeof retrievedSub.customer === "string" ? retrievedSub.customer : retrievedSub.customer.id;
+  const retrievedCustId =
+    typeof retrievedSub.customer === "string" ? retrievedSub.customer : retrievedSub.customer.id;
   if (retrievedCustId !== existingSub.billingCustomer.stripeCustomerId) {
     return;
   }
@@ -483,9 +559,10 @@ async function handleInvoicePaymentFailed(
   tx: any,
   stripe: Stripe,
   invoice: Stripe.Invoice,
-  eventCreated: Date
+  eventCreated: Date,
 ) {
-  const subId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
+  const subId =
+    typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
   if (!subId) return;
 
   const existingSub = await tx.billingSubscription.findUnique({
@@ -496,12 +573,16 @@ async function handleInvoicePaymentFailed(
   if (!existingSub) return;
 
   // Verify customer ownership
-  const invoiceCustomerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+  const invoiceCustomerId =
+    typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
   if (invoiceCustomerId && existingSub.billingCustomer.stripeCustomerId !== invoiceCustomerId) {
     return;
   }
 
-  if (existingSub.latestProviderEventTimestamp && existingSub.latestProviderEventTimestamp > eventCreated) {
+  if (
+    existingSub.latestProviderEventTimestamp &&
+    existingSub.latestProviderEventTimestamp > eventCreated
+  ) {
     return;
   }
 
@@ -510,7 +591,9 @@ async function handleInvoicePaymentFailed(
   try {
     retrievedSub = await stripe.subscriptions.retrieve(subId);
   } catch (err: any) {
-    throw new Error(`STRIPE_RETRIEVAL_FAILED: Could not retrieve authoritative subscription ${subId}: ${err?.message || "Unknown error"}`);
+    throw new Error(
+      `STRIPE_RETRIEVAL_FAILED: Could not retrieve authoritative subscription ${subId}: ${err?.message || "Unknown error"}`,
+    );
   }
 
   const mappedStatus = mapStripeSubscriptionStatus(retrievedSub.status);
@@ -531,6 +614,6 @@ async function handleInvoicePaymentFailed(
   const isSubscriberActive = mappedStatus === "ACTIVE" || mappedStatus === "TRIALING";
   await tx.user.update({
     where: { id: existingSub.userId },
-    data: { tier: isSubscriberActive ? (existingSub.planPrice?.plan?.code || "PRO") : "FREE" },
+    data: { tier: isSubscriberActive ? existingSub.planPrice?.plan?.code || "PRO" : "FREE" },
   });
 }

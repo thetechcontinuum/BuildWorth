@@ -1,4 +1,7 @@
-import { SOC2_BLUEPRINT_DEV_FIXTURE, SNOWFLAKE_BLUEPRINT_DEV_FIXTURE } from "@/lib/blueprint-fixtures";
+import {
+  SOC2_BLUEPRINT_DEV_FIXTURE,
+  SNOWFLAKE_BLUEPRINT_DEV_FIXTURE,
+} from "@/lib/blueprint-fixtures";
 import React from "react";
 import Link from "next/link";
 import { ArrowLeft, Users } from "lucide-react";
@@ -22,7 +25,9 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   const opp = getStoredOpportunityBySlug(params.slug);
   return {
     title: `${opp ? opp.title : "Opportunity Blueprint"} — BuildWorth`,
-    description: opp ? opp.summary : "Decision-grade venture blueprint and cost-benefit intelligence.",
+    description: opp
+      ? opp.summary
+      : "Decision-grade venture blueprint and cost-benefit intelligence.",
   };
 }
 
@@ -39,7 +44,6 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
 
   const isSnowflake = params.slug.includes("snowflake");
   const blueprint = isSnowflake ? SNOWFLAKE_BLUEPRINT_DEV_FIXTURE : SOC2_BLUEPRINT_DEV_FIXTURE;
-
 
   const getClaimEvidenceCount = (type: ClaimType) => {
     return (opp.evidenceLinks || []).filter(
@@ -88,24 +92,90 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
                   { reason: "1 Removable Blocker(s)", penaltyPoints: 7 },
                 ],
                 dimensions: [
-                  { name: "Capability Match", score: 19, maxScore: 20, status: "CALCULATED", explanation: "Covers TypeScript, PostgreSQL, and Data Ops.", matchedRequirements: ["TypeScript", "PostgreSQL"], missingRequirements: [] },
-                  { name: "Domain Expertise Match", score: 14, maxScore: 15, status: "CALCULATED", explanation: "Background in data tooling and warehouse optimization.", matchedRequirements: ["Data Engineering"], missingRequirements: [] },
-                  { name: "Budget Fit", score: 15, maxScore: 15, status: "CALCULATED", explanation: "Covers Milestone 1 infrastructure.", matchedRequirements: ["USD_5K_TO_20K"], missingRequirements: [] },
-                  { name: "Time & Capacity Fit", score: 10, maxScore: 10, status: "CALCULATED", explanation: "20+ weekly hours commitment.", matchedRequirements: ["HOURS_21_TO_35"], missingRequirements: [] },
-                  { name: "Distribution Advantage", score: 12, maxScore: 15, status: "CALCULATED", explanation: "Active in data communities.", matchedRequirements: ["Data Network"], missingRequirements: [] },
-                  { name: "Buyer & Market Access", score: 9, maxScore: 10, status: "CALCULATED", explanation: "Access to Head of Data buyers.", matchedRequirements: ["Head of Data"], missingRequirements: [] },
-                  { name: "Team & Resource Fit", score: 9, maxScore: 10, status: "CALCULATED", explanation: "Solo founder capability covers discovery.", matchedRequirements: ["SOLO_FOUNDER"], missingRequirements: [] },
-                  { name: "Risk & Constraint Fit", score: 0, maxScore: 5, status: "CALCULATED", explanation: "Exceeds regulatory exposure tolerance.", matchedRequirements: [], missingRequirements: ["SOC2_COMPLIANCE"] },
+                  {
+                    name: "Capability Match",
+                    score: 19,
+                    maxScore: 20,
+                    status: "CALCULATED",
+                    explanation: "Covers TypeScript, PostgreSQL, and Data Ops.",
+                    matchedRequirements: ["TypeScript", "PostgreSQL"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Domain Expertise Match",
+                    score: 14,
+                    maxScore: 15,
+                    status: "CALCULATED",
+                    explanation: "Background in data tooling and warehouse optimization.",
+                    matchedRequirements: ["Data Engineering"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Budget Fit",
+                    score: 15,
+                    maxScore: 15,
+                    status: "CALCULATED",
+                    explanation: "Covers Milestone 1 infrastructure.",
+                    matchedRequirements: ["USD_5K_TO_20K"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Time & Capacity Fit",
+                    score: 10,
+                    maxScore: 10,
+                    status: "CALCULATED",
+                    explanation: "20+ weekly hours commitment.",
+                    matchedRequirements: ["HOURS_21_TO_35"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Distribution Advantage",
+                    score: 12,
+                    maxScore: 15,
+                    status: "CALCULATED",
+                    explanation: "Active in data communities.",
+                    matchedRequirements: ["Data Network"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Buyer & Market Access",
+                    score: 9,
+                    maxScore: 10,
+                    status: "CALCULATED",
+                    explanation: "Access to Head of Data buyers.",
+                    matchedRequirements: ["Head of Data"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Team & Resource Fit",
+                    score: 9,
+                    maxScore: 10,
+                    status: "CALCULATED",
+                    explanation: "Solo founder capability covers discovery.",
+                    matchedRequirements: ["SOLO_FOUNDER"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Risk & Constraint Fit",
+                    score: 0,
+                    maxScore: 5,
+                    status: "CALCULATED",
+                    explanation: "Exceeds regulatory exposure tolerance.",
+                    matchedRequirements: [],
+                    missingRequirements: ["SOC2_COMPLIANCE"],
+                  },
                 ],
                 blockers: [
                   {
                     code: "REGULATORY_RISK_REJECTED",
                     severity: "CRITICAL",
-                    explanation: "Opportunity requires SOC2 Type II certification exceeding founder current risk profile.",
+                    explanation:
+                      "Opportunity requires SOC2 Type II certification exceeding founder current risk profile.",
                     sourceRequirement: "SOC2 Compliance Certification",
                     profileConstraint: "Founder risk tolerance: LOW / Moderate",
                     isRemovable: false,
-                    suggestedMitigation: "Pursue automated compliance platform partner prior to enterprise pilots.",
+                    suggestedMitigation:
+                      "Pursue automated compliance platform partner prior to enterprise pilots.",
                   },
                   {
                     code: "TEAM_SIZE_INSUFFICIENT",
@@ -118,10 +188,19 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
                   },
                 ],
                 strengths: [
-                  { title: "Technical Stack Alignment", description: "Proficiency matches data pipeline requirements.", category: "CAPABILITY" },
+                  {
+                    title: "Technical Stack Alignment",
+                    description: "Proficiency matches data pipeline requirements.",
+                    category: "CAPABILITY",
+                  },
                 ],
                 gaps: [
-                  { title: "Enterprise Compliance Burden", description: "SOC2 required for enterprise query log access.", severity: "CRITICAL", mitigationSuggestion: "Partner with compliance platform." },
+                  {
+                    title: "Enterprise Compliance Burden",
+                    description: "SOC2 required for enterprise query log access.",
+                    severity: "CRITICAL",
+                    mitigationSuggestion: "Partner with compliance platform.",
+                  },
                 ],
                 rubricVersion: "2.0.0",
                 rankingVersion: "2.0.0",
@@ -137,22 +216,103 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
                 baseRank: 86.9,
                 penalties: [],
                 dimensions: [
-                  { name: "Capability Match", score: 19, maxScore: 20, status: "CALCULATED", explanation: "Covers TypeScript, PostgreSQL, and DevOps requirements.", matchedRequirements: ["TypeScript", "PostgreSQL", "DevOps"], missingRequirements: [] },
-                  { name: "Domain Expertise Match", score: 14, maxScore: 15, status: "CALCULATED", explanation: "3+ years background in DevOps & Compliance tooling.", matchedRequirements: ["DevOps & Compliance"], missingRequirements: [] },
-                  { name: "Budget Fit", score: 15, maxScore: 15, status: "CALCULATED", explanation: "Available budget band covers Milestone 1 build cost comfortably.", matchedRequirements: ["USD_5K_TO_20K"], missingRequirements: [] },
-                  { name: "Time & Capacity Fit", score: 10, maxScore: 10, status: "CALCULATED", explanation: "20+ weekly hours provides ample runway for 4-week delivery.", matchedRequirements: ["HOURS_21_TO_35"], missingRequirements: [] },
-                  { name: "Distribution Advantage", score: 12, maxScore: 15, status: "CALCULATED", explanation: "Existing developer community access accelerates pilot acquisition.", matchedRequirements: ["Developer Network"], missingRequirements: [] },
-                  { name: "Buyer & Market Access", score: 9, maxScore: 10, status: "CALCULATED", explanation: "Direct network relationships with Engineering leadership.", matchedRequirements: ["VP of Engineering"], missingRequirements: [] },
-                  { name: "Team & Resource Fit", score: 9, maxScore: 10, status: "CALCULATED", explanation: "Solo founder capability covers discovery through initial MVP launch.", matchedRequirements: ["SOLO_FOUNDER"], missingRequirements: [] },
-                  { name: "Risk & Constraint Fit", score: 5, maxScore: 5, status: "CALCULATED", explanation: "Technical and regulatory exposure align with profile risk tolerance.", matchedRequirements: [], missingRequirements: [] },
+                  {
+                    name: "Capability Match",
+                    score: 19,
+                    maxScore: 20,
+                    status: "CALCULATED",
+                    explanation: "Covers TypeScript, PostgreSQL, and DevOps requirements.",
+                    matchedRequirements: ["TypeScript", "PostgreSQL", "DevOps"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Domain Expertise Match",
+                    score: 14,
+                    maxScore: 15,
+                    status: "CALCULATED",
+                    explanation: "3+ years background in DevOps & Compliance tooling.",
+                    matchedRequirements: ["DevOps & Compliance"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Budget Fit",
+                    score: 15,
+                    maxScore: 15,
+                    status: "CALCULATED",
+                    explanation: "Available budget band covers Milestone 1 build cost comfortably.",
+                    matchedRequirements: ["USD_5K_TO_20K"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Time & Capacity Fit",
+                    score: 10,
+                    maxScore: 10,
+                    status: "CALCULATED",
+                    explanation: "20+ weekly hours provides ample runway for 4-week delivery.",
+                    matchedRequirements: ["HOURS_21_TO_35"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Distribution Advantage",
+                    score: 12,
+                    maxScore: 15,
+                    status: "CALCULATED",
+                    explanation:
+                      "Existing developer community access accelerates pilot acquisition.",
+                    matchedRequirements: ["Developer Network"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Buyer & Market Access",
+                    score: 9,
+                    maxScore: 10,
+                    status: "CALCULATED",
+                    explanation: "Direct network relationships with Engineering leadership.",
+                    matchedRequirements: ["VP of Engineering"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Team & Resource Fit",
+                    score: 9,
+                    maxScore: 10,
+                    status: "CALCULATED",
+                    explanation:
+                      "Solo founder capability covers discovery through initial MVP launch.",
+                    matchedRequirements: ["SOLO_FOUNDER"],
+                    missingRequirements: [],
+                  },
+                  {
+                    name: "Risk & Constraint Fit",
+                    score: 5,
+                    maxScore: 5,
+                    status: "CALCULATED",
+                    explanation:
+                      "Technical and regulatory exposure align with profile risk tolerance.",
+                    matchedRequirements: [],
+                    missingRequirements: [],
+                  },
                 ],
                 blockers: [],
                 strengths: [
-                  { title: "Proprietary Technical Fit", description: "Full-stack proficiency matches the entire stack requirements.", category: "CAPABILITY" },
-                  { title: "GTM Channel Access", description: "Existing developer community enables $0 CAC initial customer discovery.", category: "DISTRIBUTION" },
+                  {
+                    title: "Proprietary Technical Fit",
+                    description: "Full-stack proficiency matches the entire stack requirements.",
+                    category: "CAPABILITY",
+                  },
+                  {
+                    title: "GTM Channel Access",
+                    description:
+                      "Existing developer community enables $0 CAC initial customer discovery.",
+                    category: "DISTRIBUTION",
+                  },
                 ],
                 gaps: [
-                  { title: "Enterprise Procurement Complexity", description: "Enterprise SOC2 pilots may involve legal redlines.", severity: "MODERATE", mitigationSuggestion: "Use standardized click-through pilot DPA agreements." },
+                  {
+                    title: "Enterprise Procurement Complexity",
+                    description: "Enterprise SOC2 pilots may involve legal redlines.",
+                    severity: "MODERATE",
+                    mitigationSuggestion: "Use standardized click-through pilot DPA agreements.",
+                  },
                 ],
                 rubricVersion: "1.0.0",
                 rankingVersion: "1.0.0",
@@ -167,7 +327,10 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
       <StickySectionNav />
 
       {/* 2. Problem Space & Workaround */}
-      <section id="section-problem-workaround" className="p-6 sm:p-8 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4 shadow-lg">
+      <section
+        id="section-problem-workaround"
+        className="p-6 sm:p-8 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4 shadow-lg"
+      >
         <div className="flex items-center justify-between flex-wrap gap-2 border-b border-zinc-800 pb-4">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Users className="w-5 h-5 text-indigo-400" /> Problem Space & Workaround
@@ -178,7 +341,8 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
           </div>
         </div>
         <p className="text-sm text-zinc-300 leading-relaxed">
-          {opp.existingWorkflow || "Manual engineering scripts and fragmented spreadsheet tracking."}
+          {opp.existingWorkflow ||
+            "Manual engineering scripts and fragmented spreadsheet tracking."}
         </p>
       </section>
 
@@ -192,10 +356,7 @@ export default function OpportunityDetailPage({ params }: { params: { slug: stri
       <CostBenefitEconomicsSection blueprint={blueprint} />
 
       {/* 6. Risks & Assumptions */}
-      <RiskAssumptionMatrix
-        risks={blueprint.risks}
-        assumptions={blueprint.assumptions}
-      />
+      <RiskAssumptionMatrix risks={blueprint.risks} assumptions={blueprint.assumptions} />
 
       {/* 7. Validation Roadmap & Experiments */}
       <ValidationRoadmap experiments={blueprint.validationExperiments} />

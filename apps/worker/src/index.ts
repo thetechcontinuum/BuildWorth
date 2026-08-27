@@ -1,21 +1,27 @@
 import { logger } from "@buildworth/observability";
-import { executeIntelligencePipeline } from "@buildworth/opportunity-engine";
+import {
+  executeIntelligencePipeline,
+  processOpportunityRadarForRevision,
+  processPendingNotificationOutbox,
+} from "@buildworth/opportunity-engine";
 
 export type JobType =
   | "INGEST_SOURCE_JOB"
   | "PROCESS_SIGNALS_JOB"
   | "CLUSTER_PROBLEM_SPACES_JOB"
   | "SYNTHESIZE_OPPORTUNITY_JOB"
-  | "RUN_FULL_PIPELINE_JOB";
+  | "RUN_FULL_PIPELINE_JOB"
+  | "RADAR_PROCESS_REVISION_JOB"
+  | "OUTBOX_DELIVERY_JOB";
 
-export interface QueueJob<T = unknown> {
+export interface QueueJob<T = any> {
   id: string;
   type: JobType;
   payload: T;
   attempts: number;
 }
 
-export async function processQueueJob(job: QueueJob): Promise<void> {
+export async function processQueueJob(job: QueueJob, prisma?: any): Promise<void> {
   logger.info(`Processing job ${job.id} of type ${job.type}...`);
   switch (job.type) {
     case "RUN_FULL_PIPELINE_JOB": {
@@ -23,6 +29,30 @@ export async function processQueueJob(job: QueueJob): Promise<void> {
       logger.info(
         `Pipeline job complete: synthesized ${summary.opportunitiesSynthesized.length} opportunities.`,
       );
+      break;
+    }
+    case "RADAR_PROCESS_REVISION_JOB": {
+      const { revisionId } = job.payload || {};
+      if (!revisionId) {
+        throw new Error("RADAR_PROCESS_REVISION_JOB: Missing revisionId in payload.");
+      }
+      if (prisma) {
+        const res = await processOpportunityRadarForRevision(prisma, revisionId);
+        logger.info(
+          `Radar revision job complete for ${revisionId}: ${res.evaluationsCount} evaluations, ${res.outboxItemsCount} outbox rows.`,
+        );
+      }
+      break;
+    }
+    case "OUTBOX_DELIVERY_JOB": {
+      if (prisma) {
+        const res = await processPendingNotificationOutbox(prisma, {
+          batchSize: job.payload?.batchSize || 50,
+        });
+        logger.info(
+          `Outbox delivery job complete: processed ${res.processed}, delivered ${res.delivered}, failed ${res.failed}, cancelled ${res.cancelled}.`,
+        );
+      }
       break;
     }
     default:

@@ -1,14 +1,18 @@
 import { createHash } from "crypto";
-import {
-  FounderProfileData,
-} from "@buildworth/shared";
+import { FounderProfileData } from "@buildworth/shared";
 
 export function computeProfileInputHash(data: FounderProfileData): string {
   const canonical = JSON.stringify({
     userId: data.userId,
-    skills: data.skills.map(s => ({ k: s.skillKey, p: s.proficiency, pri: !!s.isPrimary })).sort((a, b) => a.k.localeCompare(b.k)),
-    domains: data.domainExpertise.map(d => ({ i: d.industryOrDomain, y: d.yearsExperienceBand })).sort((a, b) => a.i.localeCompare(b.i)),
-    assets: data.distributionAssets.map(a => ({ t: a.assetType, d: a.description })).sort((a, b) => a.t.localeCompare(b.t)),
+    skills: data.skills
+      .map((s) => ({ k: s.skillKey, p: s.proficiency, pri: !!s.isPrimary }))
+      .sort((a, b) => a.k.localeCompare(b.k)),
+    domains: data.domainExpertise
+      .map((d) => ({ i: d.industryOrDomain, y: d.yearsExperienceBand }))
+      .sort((a, b) => a.i.localeCompare(b.i)),
+    assets: data.distributionAssets
+      .map((a) => ({ t: a.assetType, d: a.description }))
+      .sort((a, b) => a.t.localeCompare(b.t)),
     preferences: {
       ind: [...data.preferences.preferredIndustries].sort(),
       geo: [...data.preferences.targetGeographies].sort(),
@@ -29,12 +33,12 @@ export function computeProfileInputHash(data: FounderProfileData): string {
 export async function createOrUpdateFounderProfileTransaction(
   prismaClient: any,
   userId: string,
-  input: FounderProfileData
+  input: FounderProfileData,
 ): Promise<{ profileId: string; revisionId: string; revisionNumber: number }> {
   return await prismaClient.$transaction(async (tx: any) => {
-    const lockKey = Math.abs(
-      userId.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)
-    ) % 2147483647;
+    const lockKey =
+      Math.abs(userId.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)) %
+      2147483647;
     await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`);
 
     let profile = await tx.founderProfile.findUnique({
@@ -51,7 +55,8 @@ export async function createOrUpdateFounderProfileTransaction(
       });
     }
 
-    const nextRevisionNumber = ((profile.revisions && profile.revisions[0]?.revisionNumber) ?? 0) + 1;
+    const nextRevisionNumber =
+      ((profile.revisions && profile.revisions[0]?.revisionNumber) ?? 0) + 1;
     const inputHash = computeProfileInputHash(input);
 
     const revision = await tx.founderProfileRevision.create({
@@ -130,7 +135,10 @@ export async function createOrUpdateFounderProfileTransaction(
   });
 }
 
-export async function deleteFounderProfileTransaction(prismaClient: any, userId: string): Promise<void> {
+export async function deleteFounderProfileTransaction(
+  prismaClient: any,
+  userId: string,
+): Promise<void> {
   await prismaClient.$transaction(async (tx: any) => {
     const profile = await tx.founderProfile.findUnique({ where: { userId } });
     if (!profile) return;

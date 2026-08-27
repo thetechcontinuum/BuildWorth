@@ -1,8 +1,14 @@
 const { PrismaClient } = require("@prisma/client");
-const { buildCanonicalFounderFitPayload, computeCanonicalInputHash, calculateFounderFit } = require("../../scoring/dist/index.js");
+const {
+  buildCanonicalFounderFitPayload,
+  computeCanonicalInputHash,
+  calculateFounderFit,
+} = require("../../scoring/dist/index.js");
 
 async function seedAuditEvaluation() {
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
   const testEmail = "strict.audit.persisted@buildworth.io";
@@ -12,11 +18,15 @@ async function seedAuditEvaluation() {
     const existingUser = await prisma.user.findUnique({ where: { email: testEmail } });
     if (existingUser) {
       await prisma.founderFitEvaluation.deleteMany({ where: { userId: existingUser.id } });
-      await prisma.founderProfileRevision.deleteMany({ where: { profile: { userId: existingUser.id } } });
+      await prisma.founderProfileRevision.deleteMany({
+        where: { profile: { userId: existingUser.id } },
+      });
       await prisma.founderProfile.deleteMany({ where: { userId: existingUser.id } });
       await prisma.user.delete({ where: { id: existingUser.id } });
     }
-    await prisma.opportunityFounderRequirements.deleteMany({ where: { blueprintId: "bp-soc2-strict-audit" } });
+    await prisma.opportunityFounderRequirements.deleteMany({
+      where: { blueprintId: "bp-soc2-strict-audit" },
+    });
     await prisma.opportunityBlueprint.deleteMany({ where: { id: "bp-soc2-strict-audit" } });
     await prisma.opportunityRevision.deleteMany({ where: { id: "rev-soc2-strict-audit-1" } });
     await prisma.opportunity.deleteMany({ where: { slug: "automated-soc2-strict-audit" } });
@@ -164,8 +174,20 @@ async function seedAuditEvaluation() {
       targetIndustries: ["DevOps & Compliance", "B2B SaaS"],
       targetGeographies: ["Global"],
       requiredSkills: [
-        { skillKey: "TYPESCRIPT", minimumProficiency: "WORKING", preferredProficiency: "ADVANCED", importance: 5, isOutsourceable: false },
-        { skillKey: "POSTGRESQL", minimumProficiency: "BASIC", preferredProficiency: "WORKING", importance: 4, isOutsourceable: true },
+        {
+          skillKey: "TYPESCRIPT",
+          minimumProficiency: "WORKING",
+          preferredProficiency: "ADVANCED",
+          importance: 5,
+          isOutsourceable: false,
+        },
+        {
+          skillKey: "POSTGRESQL",
+          minimumProficiency: "BASIC",
+          preferredProficiency: "WORKING",
+          importance: 4,
+          isOutsourceable: true,
+        },
       ],
     };
 
@@ -188,20 +210,25 @@ async function seedAuditEvaluation() {
     });
 
     // 6. Calculate Founder Fit using canonical calculator
-    const fitResult = calculateFounderFit(mockProfileData, soc2ReqData, {
-      opportunityScore: 89,
-      evidenceConfidence: 82,
-      publicationQualityStatus: "VERIFIED",
-      decisionRecommendation: "BUILD_CANDIDATE",
-    }, {
-      calculatorVersion: "2.0.1",
-      rubricVersion: "2.0.0",
-      rankingVersion: "2.0.0",
-      taxonomyVersion: "1.0.0",
-      profileRevisionId: profileRevision.id,
-      profileRevisionInputHash: profileRevision.inputHash,
-      opportunityRevisionId: blueprint.id,
-    });
+    const fitResult = calculateFounderFit(
+      mockProfileData,
+      soc2ReqData,
+      {
+        opportunityScore: 89,
+        evidenceConfidence: 82,
+        publicationQualityStatus: "VERIFIED",
+        decisionRecommendation: "BUILD_CANDIDATE",
+      },
+      {
+        calculatorVersion: "2.0.1",
+        rubricVersion: "2.0.0",
+        rankingVersion: "2.0.0",
+        taxonomyVersion: "1.0.0",
+        profileRevisionId: profileRevision.id,
+        profileRevisionInputHash: profileRevision.inputHash,
+        opportunityRevisionId: blueprint.id,
+      },
+    );
 
     // 7. Persist FounderFitEvaluation with dimension records
     const evaluation = await prisma.founderFitEvaluation.create({
@@ -222,7 +249,7 @@ async function seedAuditEvaluation() {
         taxonomyVersion: "1.0.0",
         inputHash: fitResult.inputHash,
         dimensions: {
-          create: fitResult.dimensions.map(d => ({
+          create: fitResult.dimensions.map((d) => ({
             dimensionName: d.name,
             score: d.score,
             maxScore: d.maxScore,
@@ -245,7 +272,7 @@ async function seedAuditEvaluation() {
   }
 }
 
-seedAuditEvaluation().catch(err => {
+seedAuditEvaluation().catch((err) => {
   console.error("Seeding failed:", err);
   process.exit(1);
 });

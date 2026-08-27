@@ -181,6 +181,12 @@ model User {
   entitlementGrants    EntitlementGrant[]
   usageLedgers         UsageLedger[]
 
+  // Phase 4C Opportunity Radar & Notifications
+  notificationPreference NotificationPreference?
+  notificationOutbox     NotificationOutbox[]
+  digestRuns             DigestRun[]
+  unsubscribeTokens      NotificationUnsubscribeToken[]
+
   @@map("users")
 }
 
@@ -399,11 +405,13 @@ model Opportunity {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  scorecards     Scorecard[]
-  evidenceLinks  EvidenceLink[]
-  revisions      OpportunityRevision[]
-  savedByUsers   SavedOpportunity[]
-  scoreOverrides ScoreOverride[]
+  scorecards         Scorecard[]
+  evidenceLinks      EvidenceLink[]
+  revisions          OpportunityRevision[]
+  savedByUsers       SavedOpportunity[]
+  scoreOverrides     ScoreOverride[]
+  changeEvents       OpportunityChangeEvent[]
+  notificationOutbox NotificationOutbox[]
 
   @@map("opportunities")
 }
@@ -420,6 +428,11 @@ model OpportunityRevision {
   evidenceLinks        EvidenceLink[]
   blueprint            OpportunityBlueprint?
   FounderFitEvaluation FounderFitEvaluation[]
+
+  changeEventsFrom   OpportunityChangeEvent[] @relation("FromRevision")
+  changeEventsTo     OpportunityChangeEvent[] @relation("ToRevision")
+  evaluatedInWatches SavedOpportunity[]       @relation("LastEvaluatedRevision")
+  radarJob           OpportunityRadarJob?
 
   @@unique([opportunityId, revisionNumber])
   @@map("opportunity_revisions")
@@ -519,12 +532,32 @@ model ScoreOverride {
 model SavedOpportunity {
   id            String      @id @default(uuid())
   userId        String
-  user          User        @relation(fields: [userId], references: [id])
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   opportunityId String
-  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
-  createdAt     DateTime    @default(now())
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  radarEnabled                Boolean              @default(true)
+  alertCadence                RadarAlertCadence    @default(WEEKLY_DIGEST)
+  minimumSeverity             RadarChangeSeverity  @default(MEDIUM)
+  minimumConfidenceDelta      Int                  @default(5)
+  alertOnStatusChange         Boolean              @default(true)
+  alertOnRecommendationChange Boolean              @default(true)
+  alertOnNewWtpEvidence       Boolean              @default(true)
+  alertOnCostChange           Boolean              @default(true)
+  alertOnCompetitorChange     Boolean              @default(true)
+  alertOnRiskChange           Boolean              @default(true)
+  mutedUntil                  DateTime?
+  lastEvaluatedRevisionId     String?
+  lastEvaluatedRevision       OpportunityRevision? @relation("LastEvaluatedRevision", fields: [lastEvaluatedRevisionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  radarEvaluations RadarEvaluation[]
 
   @@unique([userId, opportunityId])
+  @@index([userId, radarEnabled])
+  @@index([opportunityId, radarEnabled])
   @@map("saved_opportunities")
 }
 
@@ -1309,6 +1342,7 @@ model FounderProfileRevision {
   preference         FounderPreference?
   constraint         FounderConstraint?
   fitEvaluations     FounderFitEvaluation[]
+  radarEvaluations   RadarEvaluation[]
 
   @@unique([profileId, revisionNumber])
   @@map("founder_profile_revisions")
@@ -1730,4 +1764,280 @@ model UsageLedger {
 
   @@index([userId, entitlementType, periodBucketKey])
   @@map("usage_ledgers")
+}
+
+// ====================================================
+// PHASE 4C: OPPORTUNITY RADAR & NOTIFICATION OUTBOX
+// ====================================================
+
+enum RadarChangeDimension {
+  PUBLICATION_STATUS
+  EVIDENCE_CONFIDENCE
+  DECISION_RECOMMENDATION
+  WILLINGNESS_TO_PAY
+  PRICING
+  MVP_COST
+  DELIVERY_TIME
+  COMPETITOR
+  CRITICAL_RISK
+  EVIDENCE_SIGNAL
+}
+
+enum RadarChangeDirection {
+  POSITIVE
+  NEGATIVE
+  NEUTRAL
+}
+
+enum RadarChangeSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RadarAlertCadence {
+  INSTANT
+  DAILY_DIGEST
+  WEEKLY_DIGEST
+}
+
+enum NotificationChannel {
+  EMAIL
+  IN_APP
+}
+
+enum RadarJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
+}
+
+enum OutboxNotificationType {
+  RADAR_CHANGE_ALERT
+  RADAR_DAILY_DIGEST
+  RADAR_WEEKLY_DIGEST
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  DEAD_LETTER
+  SKIPPED
+  CANCELLED
+}
+
+enum DeliveryProvider {
+  SMTP
+  RESEND
+  TEST_MOCK
+}
+
+enum DeliveryStatus {
+  SUCCESS
+  FAILED
+  PENDING
+}
+
+model OpportunityRadarJob {
+  id                    String              @id @default(uuid())
+  opportunityRevisionId String              @unique
+  opportunityRevision   OpportunityRevision @relation(fields: [opportunityRevisionId], references: [id], onDelete: Cascade)
+  status                RadarJobStatus      @default(PENDING)
+  claimToken            String?
+  lockedBy              String?
+  lockedAt              DateTime?
+  lockedUntil           DateTime?
+  attemptCount          Int                 @default(0)
+  nextAttemptAt         DateTime?
+  lastError             String?
+  completedAt           DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([status, lockedUntil])
+  @@map("opportunity_radar_jobs")
+}
+
+model OpportunityChangeEvent {
+  id                 String              @id @default(uuid())
+  opportunityId      String
+  opportunity        Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  fromRevisionId     String
+  fromRevision       OpportunityRevision @relation("FromRevision", fields: [fromRevisionId], references: [id], onDelete: Cascade)
+  toRevisionId       String
+  toRevision         OpportunityRevision @relation("ToRevision", fields: [toRevisionId], references: [id], onDelete: Cascade)
+  diffVersion        String              @default("1.0.0")
+  canonicalInputHash String
+  overallSeverity    RadarChangeSeverity @default(LOW)
+  createdAt          DateTime            @default(now())
+
+  items              OpportunityChangeItem[]
+  radarEvaluations   RadarEvaluation[]
+  notificationOutbox NotificationOutbox[]
+
+  @@unique([fromRevisionId, toRevisionId, diffVersion])
+  @@index([opportunityId, createdAt])
+  @@map("opportunity_change_events")
+}
+
+model OpportunityChangeItem {
+  id                String                 @id @default(uuid())
+  changeEventId     String
+  changeEvent       OpportunityChangeEvent @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+  dimension         RadarChangeDimension
+  direction         RadarChangeDirection   @default(NEUTRAL)
+  severity          RadarChangeSeverity    @default(LOW)
+  reasonCode        String
+  sanitizedSummary  String
+  beforeValue       Json
+  afterValue        Json
+  numericDelta      Float?
+  evidenceSignalIds String[]               @default([])
+  createdAt         DateTime               @default(now())
+
+  @@index([changeEventId, dimension])
+  @@map("opportunity_change_items")
+}
+
+model RadarEvaluation {
+  id                       String                  @id @default(uuid())
+  watchId                  String
+  watch                    SavedOpportunity        @relation(fields: [watchId], references: [id], onDelete: Cascade)
+  changeEventId            String
+  changeEvent              OpportunityChangeEvent  @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+  founderProfileRevisionId String?
+  founderProfileRevision   FounderProfileRevision? @relation(fields: [founderProfileRevisionId], references: [id], onDelete: SetNull)
+
+  previousFounderFit       Int?
+  currentFounderFit        Int?
+  founderFitDelta          Int?
+  previousPersonalizedRank Float?
+  currentPersonalizedRank  Float?
+  personalizedRankDelta    Float?
+  hardBlockersAdded        String[] @default([])
+  hardBlockersRemoved      String[] @default([])
+
+  matched            Boolean  @default(false)
+  reasonCodes        String[] @default([])
+  evaluationVersion  String   @default("1.0.0")
+  canonicalInputHash String
+  createdAt          DateTime @default(now())
+
+  notificationOutbox NotificationOutbox[]
+
+  @@unique([watchId, changeEventId, evaluationVersion])
+  @@index([watchId, matched])
+  @@map("radar_evaluations")
+}
+
+model NotificationPreference {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailEnabled        Boolean  @default(true)
+  instantEnabled      Boolean  @default(true)
+  dailyDigestEnabled  Boolean  @default(true)
+  weeklyDigestEnabled Boolean  @default(true)
+  timezone            String   @default("UTC")
+  quietHoursStart     Int? // 0-23
+  quietHoursEnd       Int? // 0-23
+  unsubscribeToken    String?  @unique
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("notification_preferences")
+}
+
+model NotificationOutbox {
+  id                String                 @id @default(uuid())
+  userId            String
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunityId     String
+  opportunity       Opportunity            @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  changeEventId     String
+  changeEvent       OpportunityChangeEvent @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+  radarEvaluationId String?
+  radarEvaluation   RadarEvaluation?       @relation(fields: [radarEvaluationId], references: [id], onDelete: SetNull)
+
+  notificationType   OutboxNotificationType @default(RADAR_CHANGE_ALERT)
+  channel            NotificationChannel    @default(EMAIL)
+  scheduledFor       DateTime               @default(now())
+  status             OutboxStatus           @default(PENDING)
+  deduplicationKey   String                 @unique
+  claimToken         String?
+  lockedBy           String?
+  attemptCount       Int                    @default(0)
+  nextAttemptAt      DateTime?
+  lockedAt           DateTime?
+  lockedUntil        DateTime?
+  sentAt             DateTime?
+  sanitizedPayload   Json
+  sanitizedLastError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveries NotificationDelivery[]
+
+  @@index([userId, status, scheduledFor])
+  @@index([status, nextAttemptAt])
+  @@map("notification_outbox")
+}
+
+model NotificationDelivery {
+  id                     String             @id @default(uuid())
+  outboxId               String
+  outbox                 NotificationOutbox @relation(fields: [outboxId], references: [id], onDelete: Cascade)
+  attemptNumber          Int                @default(1)
+  provider               DeliveryProvider   @default(TEST_MOCK)
+  providerIdempotencyKey String
+  providerMessageId      String?
+  status                 DeliveryStatus     @default(PENDING)
+  attemptedAt            DateTime           @default(now())
+  deliveredAt            DateTime?
+  sanitizedError         String?
+
+  @@unique([outboxId, attemptNumber])
+  @@index([outboxId, status])
+  @@index([providerIdempotencyKey])
+  @@map("notification_deliveries")
+}
+
+model NotificationUnsubscribeToken {
+  id         String              @id @default(uuid())
+  tokenHash  String              @unique
+  userId     String
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose    String              @default("BUILDWORTH_RADAR_UNSUBSCRIBE_V1")
+  channel    NotificationChannel @default(EMAIL)
+  keyVersion Int                 @default(2)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  consumedAt DateTime?
+  createdAt  DateTime            @default(now())
+
+  @@index([userId, channel])
+  @@index([expiresAt])
+  @@map("notification_unsubscribe_tokens")
+}
+
+model DigestRun {
+  id           String                 @id @default(uuid())
+  userId       String
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  digestType   OutboxNotificationType // RADAR_DAILY_DIGEST or RADAR_WEEKLY_DIGEST
+  scheduledFor DateTime
+  processedAt  DateTime?
+  status       String                 @default("PENDING") // PENDING, COMPLETED, SKIPPED
+  createdAt    DateTime               @default(now())
+
+  @@unique([userId, digestType, scheduledFor])
+  @@index([userId, status])
+  @@map("digest_runs")
 }
