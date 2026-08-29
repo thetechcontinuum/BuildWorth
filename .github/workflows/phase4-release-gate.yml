@@ -111,6 +111,10 @@ jobs:
       - name: Run Phase 4A Entitlements Isolation Suite
         run: |
           DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database exec prisma migrate deploy
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run catalog:entitlements
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
           pnpm --filter @buildworth/database run test:phase4a
 
       - name: Run Phase 4B Billing & Webhook Suite
