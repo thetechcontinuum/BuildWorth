@@ -157,6 +157,8 @@ jobs:
           DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
           pnpm --filter @buildworth/database exec prisma migrate deploy
           DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database run catalog:entitlements
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
           node packages/database/scripts/test-phase4d-seed-fixture.js
 
       - name: Run Entitlements Audit
