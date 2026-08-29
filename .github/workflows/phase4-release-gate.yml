@@ -93,8 +93,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run Prisma Client generation
-        run: pnpm --filter @buildworth/database run db:generate
+      - name: Run Prisma Client generation & build packages
+        run: |
+          pnpm --filter @buildworth/database run db:generate
+          pnpm run build
 
       - name: Start Disposable PostgreSQL & Run Clean Migration from Zero
         run: |

@@ -430,6 +430,10 @@ export default async function OpportunityDetailPage({
           slug={opp.slug}
           isLocked={opportunityDTO.isLocked}
           exportLockDescriptor={opportunityDTO.lockedSections.exports}
+          initialShowUpgradeModal={
+            searchParams?.modal === "export_blocked" ||
+            searchParams?.view === "export_modal"
+          }
         />
       </div>
 

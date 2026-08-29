@@ -9,17 +9,20 @@ interface OpportunityExportControlsProps {
   slug: string;
   isLocked: boolean;
   exportLockDescriptor?: LockedContentDescriptor;
+  initialShowUpgradeModal?: boolean;
 }
 
 export function OpportunityExportControls({
   slug,
   isLocked,
   exportLockDescriptor,
+  initialShowUpgradeModal = false,
 }: OpportunityExportControlsProps) {
   const [downloadingFormat, setDownloadingFormat] = useState<"PDF" | "CSV" | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(() => {
+    if (initialShowUpgradeModal) return true;
     if (typeof window !== "undefined") {
       const url = new URLSearchParams(window.location.search);
       return url.get("modal") === "export_blocked" || url.get("view") === "export_modal";
