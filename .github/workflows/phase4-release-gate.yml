@@ -42,9 +42,13 @@ jobs:
         run: pnpm --filter @buildworth/database exec prisma format --check
 
       - name: Validate Prisma schema
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/buildworth?schema=public"
         run: pnpm --filter @buildworth/database exec prisma validate
 
       - name: Generate Prisma client
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/buildworth?schema=public"
         run: pnpm --filter @buildworth/database run db:generate
 
       - name: Run repository linter
@@ -116,7 +120,7 @@ jobs:
 
       - name: Run Phase 4C Radar & Outbox Suite
         run: |
-          DATABASE_URL="postgresql://postgres:postgrespassword@localhost:5440/postgres?schema=public" \
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
           pnpm --filter @buildworth/database run test:phase4c
 
       - name: Run Phase 4D Content Access & Quota Suite
