@@ -188,6 +188,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@buildworth/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@buildworth/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -348,6 +351,9 @@ importers:
       '@buildworth/ai':
         specifier: workspace:*
         version: link:../ai
+      '@buildworth/billing':
+        specifier: workspace:*
+        version: link:../billing
       '@buildworth/config':
         specifier: workspace:*
         version: link:../config
