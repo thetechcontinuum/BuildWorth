@@ -16,13 +16,53 @@ export function getBillingConfig(): BillingConfig {
   const stripeProMonthlyPriceId = process.env.STRIPE_PRO_MONTHLY_PRICE_ID || "";
   const stripeProYearlyPriceId = process.env.STRIPE_PRO_YEARLY_PRICE_ID || "";
 
-  const parsedMonthlyCents = parseInt(process.env.STRIPE_PRO_MONTHLY_AMOUNT_CENTS || "1900", 10);
-  const parsedYearlyCents = parseInt(process.env.STRIPE_PRO_YEARLY_AMOUNT_CENTS || "19000", 10);
-  const stripeProMonthlyAmountCents = isNaN(parsedMonthlyCents) || parsedMonthlyCents <= 0 ? 1900 : parsedMonthlyCents;
-  const stripeProYearlyAmountCents = isNaN(parsedYearlyCents) || parsedYearlyCents <= 0 ? 19000 : parsedYearlyCents;
-  const stripeCurrency = (process.env.STRIPE_CURRENCY || "USD").toUpperCase();
+  const isProd = process.env.NODE_ENV === "production" && !process.env.TEST_ENV;
 
-  const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const rawMonthlyCents = process.env.STRIPE_PRO_MONTHLY_AMOUNT_CENTS;
+  const rawYearlyCents = process.env.STRIPE_PRO_YEARLY_AMOUNT_CENTS;
+  const rawCurrency = process.env.STRIPE_CURRENCY;
+
+  let stripeProMonthlyAmountCents = 0;
+  if (rawMonthlyCents !== undefined && rawMonthlyCents !== "") {
+    const parsed = parseInt(rawMonthlyCents, 10);
+    if (!isNaN(parsed) && parsed > 0 && String(parsed) === rawMonthlyCents.trim()) {
+      stripeProMonthlyAmountCents = parsed;
+    }
+  } else if (!isProd) {
+    stripeProMonthlyAmountCents = 1900;
+  }
+
+  let stripeProYearlyAmountCents = 0;
+  if (rawYearlyCents !== undefined && rawYearlyCents !== "") {
+    const parsed = parseInt(rawYearlyCents, 10);
+    if (!isNaN(parsed) && parsed > 0 && String(parsed) === rawYearlyCents.trim()) {
+      stripeProYearlyAmountCents = parsed;
+    }
+  } else if (!isProd) {
+    stripeProYearlyAmountCents = 19000;
+  }
+
+  let stripeCurrency = "";
+  if (rawCurrency !== undefined && rawCurrency !== "") {
+    const trimmed = rawCurrency.trim().toUpperCase();
+    if (/^[A-Z]{3}$/.test(trimmed)) {
+      stripeCurrency = trimmed;
+    }
+  } else if (!isProd) {
+    stripeCurrency = "USD";
+  }
+
+  // Canonical server application URL validation
+  const rawAppUrl = process.env.APP_URL || (!isProd ? process.env.NEXT_PUBLIC_APP_URL : "") || "http://localhost:3000";
+  let appUrl = "http://localhost:3000";
+  try {
+    const parsedUrl = new URL(rawAppUrl);
+    if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") {
+      if (!parsedUrl.username && !parsedUrl.password) {
+        appUrl = `${parsedUrl.protocol}//${parsedUrl.host}`;
+      }
+    }
+  } catch {}
 
   const isLiveBilling = stripeSecretKey.startsWith("sk_live_");
 
@@ -34,7 +74,7 @@ export function getBillingConfig(): BillingConfig {
     stripeProMonthlyAmountCents,
     stripeProYearlyAmountCents,
     stripeCurrency,
-    appUrl: appUrl.replace(/\/+$/, ""),
+    appUrl,
     isLiveBilling,
   };
 }

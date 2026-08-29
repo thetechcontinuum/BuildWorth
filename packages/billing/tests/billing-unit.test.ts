@@ -146,4 +146,115 @@ describe("Phase 4B/4D Billing Unit & Safety Tests", () => {
       }),
     ).toThrow("PRICING_CONFIGURATION_MISMATCH");
   });
+
+  describe("Server-Authoritative Pricing Contract & Fallback Removal", () => {
+    it("handles missing or malformed pricing configuration in production without test fallbacks", () => {
+      const origEnv = process.env.NODE_ENV;
+      const origTest = process.env.TEST_ENV;
+      const origMonthly = process.env.STRIPE_PRO_MONTHLY_AMOUNT_CENTS;
+      const origYearly = process.env.STRIPE_PRO_YEARLY_AMOUNT_CENTS;
+      const origCurrency = process.env.STRIPE_CURRENCY;
+
+      try {
+        process.env.NODE_ENV = "production";
+        delete process.env.TEST_ENV;
+
+        // 1. Missing monthly amount in production
+        delete process.env.STRIPE_PRO_MONTHLY_AMOUNT_CENTS;
+        process.env.STRIPE_PRO_YEARLY_AMOUNT_CENTS = "19000";
+        process.env.STRIPE_CURRENCY = "USD";
+        let config = getBillingConfig();
+        expect(config.stripeProMonthlyAmountCents).toBe(0);
+
+        // 2. Missing yearly amount in production
+        process.env.STRIPE_PRO_MONTHLY_AMOUNT_CENTS = "1900";
+        delete process.env.STRIPE_PRO_YEARLY_AMOUNT_CENTS;
+        config = getBillingConfig();
+        expect(config.stripeProYearlyAmountCents).toBe(0);
+
+        // 3. Missing currency in production
+        delete process.env.STRIPE_CURRENCY;
+        config = getBillingConfig();
+        expect(config.stripeCurrency).toBe("");
+
+        // 4. Malformed amount
+        process.env.STRIPE_PRO_MONTHLY_AMOUNT_CENTS = "not_a_number";
+        config = getBillingConfig();
+        expect(config.stripeProMonthlyAmountCents).toBe(0);
+
+        // 5. Unsupported currency format
+        process.env.STRIPE_CURRENCY = "US_DOLLAR";
+        config = getBillingConfig();
+        expect(config.stripeCurrency).toBe("");
+
+        // 6. Valid explicit configuration
+        process.env.STRIPE_PRO_MONTHLY_AMOUNT_CENTS = "1900";
+        process.env.STRIPE_PRO_YEARLY_AMOUNT_CENTS = "19000";
+        process.env.STRIPE_CURRENCY = "USD";
+        config = getBillingConfig();
+        expect(config.stripeProMonthlyAmountCents).toBe(1900);
+        expect(config.stripeProYearlyAmountCents).toBe(19000);
+        expect(config.stripeCurrency).toBe("USD");
+      } finally {
+        process.env.NODE_ENV = origEnv;
+        if (origTest !== undefined) process.env.TEST_ENV = origTest;
+        if (origMonthly !== undefined) process.env.STRIPE_PRO_MONTHLY_AMOUNT_CENTS = origMonthly;
+        if (origYearly !== undefined) process.env.STRIPE_PRO_YEARLY_AMOUNT_CENTS = origYearly;
+        if (origCurrency !== undefined) process.env.STRIPE_CURRENCY = origCurrency;
+      }
+    });
+  });
+
+  describe("Privacy Transparency Contact Hardening", () => {
+    it("handles explicit PRIVACY_CONTACT_EMAIL and unconfigured production state safely", async () => {
+      const { getPrivacyRetentionDTO } = await import("../src/commercial-events.js");
+      const origEnv = process.env.NODE_ENV;
+      const origTest = process.env.TEST_ENV;
+      const origEmail = process.env.PRIVACY_CONTACT_EMAIL;
+
+      try {
+        // Explicit valid email
+        process.env.PRIVACY_CONTACT_EMAIL = "compliance@buildworth.io";
+        let dto = getPrivacyRetentionDTO();
+        expect(dto.privacyContact).toBe("compliance@buildworth.io");
+        expect(dto.privacyContactConfigured).toBe(true);
+
+        // Production without configured email
+        process.env.NODE_ENV = "production";
+        delete process.env.TEST_ENV;
+        delete process.env.PRIVACY_CONTACT_EMAIL;
+
+        dto = getPrivacyRetentionDTO();
+        expect(dto.privacyContact).toBeNull();
+        expect(dto.privacyContactConfigured).toBe(false);
+      } finally {
+        process.env.NODE_ENV = origEnv;
+        if (origTest !== undefined) process.env.TEST_ENV = origTest;
+        if (origEmail !== undefined) process.env.PRIVACY_CONTACT_EMAIL = origEmail;
+        else delete process.env.PRIVACY_CONTACT_EMAIL;
+      }
+    });
+  });
+
+  describe("Canonical Application URL Ownership & Normalization", () => {
+    it("normalizes origins and rejects credentials, fragments, and paths", () => {
+      const origAppUrl = process.env.APP_URL;
+      try {
+        process.env.APP_URL = "https://app.buildworth.io/subpath/";
+        let config = getBillingConfig();
+        expect(config.appUrl).toBe("https://app.buildworth.io");
+
+        process.env.APP_URL = "https://user:pass@evil.com/leak";
+        config = getBillingConfig();
+        expect(config.appUrl).toBe("http://localhost:3000"); // Neutralized fallback
+
+        process.env.APP_URL = "javascript:alert(1)";
+        config = getBillingConfig();
+        expect(config.appUrl).toBe("http://localhost:3000");
+      } finally {
+        if (origAppUrl !== undefined) process.env.APP_URL = origAppUrl;
+        else delete process.env.APP_URL;
+      }
+    });
+  });
 });

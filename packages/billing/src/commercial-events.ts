@@ -729,9 +729,15 @@ export async function setCommercialEventLegalHold(
  * Public Privacy-Retention DTO for UI transparency section
  */
 export function getPrivacyRetentionDTO(): PrivacyRetentionDTO {
+  const isProd = process.env.NODE_ENV === "production" && !process.env.TEST_ENV;
+  const configuredEmail = process.env.PRIVACY_CONTACT_EMAIL || (!isProd ? "privacy@buildworth.io" : "");
+  const privacyContact = configuredEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configuredEmail) ? configuredEmail : null;
+  const privacyContactConfigured = privacyContact !== null;
+
   return {
     version: "2026.1-GDPR",
-    dpoContact: process.env.DPO_CONTACT_EMAIL || "privacy@buildworth.io",
+    privacyContact,
+    privacyContactConfigured,
     jurisdiction: "EU / Croatia (GDPR Art. 13/14)",
     purposes: [
       {

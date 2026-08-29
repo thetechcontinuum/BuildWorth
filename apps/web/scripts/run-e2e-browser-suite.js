@@ -10,7 +10,15 @@ const { PrismaClient } = require(
   ),
 );
 
-const CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME_PATH =
+  process.env.CHROME_BIN ||
+  (fs.existsSync("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    : fs.existsSync("/usr/bin/google-chrome")
+      ? "/usr/bin/google-chrome"
+      : fs.existsSync("/usr/bin/chromium-browser")
+        ? "/usr/bin/chromium-browser"
+        : "google-chrome");
 const OUTPUT_DIR = path.resolve(__dirname, "../../../docs/design/implementation/phase-4d");
 
 function fetchUrl(urlPath, options = {}) {
@@ -79,7 +87,7 @@ function captureScreenshot(urlPath, filename, width, height, cookieHeader = null
     finalUrl += `${querySeparator}session=${sessionVal}`;
   }
 
-  const cmd = `"${CHROME_PATH}" --headless --disable-gpu --user-data-dir="${tempUserData}" --screenshot="${targetPath}" --window-size=${width},${height} "${finalUrl}"`;
+  const cmd = `"${CHROME_PATH}" --headless --no-sandbox --disable-dev-shm-usage --disable-gpu --user-data-dir="${tempUserData}" --screenshot="${targetPath}" --window-size=${width},${height} "${finalUrl}"`;
   execSync(cmd, { env: process.env, stdio: "pipe" });
 
   try {

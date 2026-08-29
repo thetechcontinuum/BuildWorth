@@ -163,7 +163,8 @@ export interface CommercialEventPayload {
 
 export interface PrivacyRetentionDTO {
   version: string;
-  dpoContact: string;
+  privacyContact: string | null;
+  privacyContactConfigured: boolean;
   jurisdiction: string;
   purposes: Array<{
     purposeCode: CommercialPurposeCode;
