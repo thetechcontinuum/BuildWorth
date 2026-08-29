@@ -58,11 +58,14 @@ async function seedPopulatedRadar() {
 
     const entitlementsToGrant = [
       { type: "OPPORTUNITY_RADAR_ALERTS", unlimited: true },
+      { type: "OPPORTUNITY_RADAR_WATCHLIST", unlimited: true },
       { type: "VENTURE_BLUEPRINT_EXPORT", unlimited: false, limit: 50, remaining: 50 },
       { type: "VENTURE_BLUEPRINT_FINANCIALS", unlimited: true },
-      { type: "COMPETITOR_DEEP_DIVES", unlimited: true },
-      { type: "FOUNDER_FIT_DEEP_EVALUATION", unlimited: true },
-      { type: "TEAM_COLLABORATION", unlimited: true },
+      { type: "EVIDENCE_LINEAGE_UNRESTRICTED", unlimited: true },
+      { type: "FOUNDER_FIT_FULL_BREAKDOWN", unlimited: true },
+      { type: "OPPORTUNITY_COMPARISON", unlimited: true },
+      { type: "EARLY_OPPORTUNITY_ACCESS", unlimited: true },
+      { type: "CUSTOM_SOURCE_INDEXING", unlimited: true },
     ];
 
     for (const item of entitlementsToGrant) {
