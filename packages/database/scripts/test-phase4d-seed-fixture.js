@@ -13,6 +13,10 @@ const {
   recordCommercialEvent,
   reconcileCommercialEventRetention,
 } = require("../../billing/dist/index.js");
+const {
+  buildCanonicalFounderFitPayload,
+  computeCanonicalInputHash,
+} = require("../../scoring/dist/index.js");
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -215,6 +219,68 @@ async function seedPhase4dFixture() {
     data: { currentProfileRevisionId: profileRevFree.id },
   });
 
+  // Compute canonical input hashes for Free and Pro FounderFitEvaluations
+  const canonicalProfileFree = {
+    userId: userFree.id,
+    skills: [],
+    domainExpertise: [],
+    distributionAssets: [],
+    preferences: {
+      preferredIndustries: [],
+      excludedIndustries: [],
+      preferredBusinessModels: [],
+      targetGeographies: [],
+      preferredBuyerRoles: [],
+    },
+    constraints: {
+      mvpBudgetBand: "USD_5K_TO_20K",
+      budgetCurrency: "USD",
+      availableHoursPerWeekBand: "HOURS_21_TO_35",
+      teamSizeBand: "SOLO_FOUNDER",
+      technicalRiskTolerance: "HIGH",
+      regulatoryRiskTolerance: "MEDIUM",
+      salesComplexityTolerance: "MEDIUM",
+      operationalBurdenTolerance: "MEDIUM",
+      fundingPreference: "BOOTSTRAP_ONLY",
+    },
+  };
+
+  const canonicalReqs = {
+    blueprintId: reqs.blueprintId,
+    schemaVersion: reqs.schemaVersion || "1.0.0",
+    minimumBudgetBand: reqs.minimumBudgetBand || null,
+    minimumCapacityBand: reqs.minimumCapacityBand || null,
+    minimumTeamSizeBand: reqs.minimumTeamSizeBand || null,
+    maxExpectedDeliveryWeeks: reqs.maxExpectedDeliveryWeeks || null,
+    requiredTechnicalRiskLevel: reqs.requiredTechnicalRiskLevel || null,
+    requiredRegulatoryRiskLevel: reqs.requiredRegulatoryRiskLevel || null,
+    requiredSalesComplexityLevel: reqs.requiredSalesComplexityLevel || null,
+    targetBuyerRoles: reqs.targetBuyerRoles || [],
+    targetIndustries: reqs.targetIndustries || [],
+    targetGeographies: reqs.targetGeographies || [],
+    requiredSkills: [],
+  };
+
+  const freePayload = buildCanonicalFounderFitPayload(
+    canonicalProfileFree,
+    canonicalReqs,
+    {
+      opportunityScore: 89,
+      evidenceConfidence: 82,
+      publicationQualityStatus: "VERIFIED",
+      decisionRecommendation: "BUILD_CANDIDATE",
+    },
+    {
+      rubricVersion: "2.0.0",
+      rankingVersion: "2.0.0",
+      taxonomyVersion: "1.0.0",
+      profileRevisionId: profileRevFree.id,
+      profileRevisionInputHash: profileRevFree.inputHash,
+      opportunityRevisionId: reqs.blueprintId,
+    },
+  );
+  const freeInputHash = computeCanonicalInputHash(freePayload);
+
   const freeEval = await prisma.founderFitEvaluation.create({
     data: {
       userId: userFree.id,
@@ -227,10 +293,10 @@ async function seedPhase4dFixture() {
       recommendationCategory: "POSSIBLE_MATCH",
       personalizedRank: 72.0,
       baseRank: 72.0,
-      rubricVersion: "1.0.0",
-      rankingVersion: "1.0.0",
+      rubricVersion: "2.0.0",
+      rankingVersion: "2.0.0",
       taxonomyVersion: "1.0.0",
-      inputHash: "fit_hash_free_audit_1234567890",
+      inputHash: freeInputHash,
     },
   });
 
@@ -260,6 +326,51 @@ async function seedPhase4dFixture() {
     },
   });
 
+  const canonicalProfilePro = {
+    userId: userPro.id,
+    skills: [],
+    domainExpertise: [],
+    distributionAssets: [],
+    preferences: {
+      preferredIndustries: [],
+      excludedIndustries: [],
+      preferredBusinessModels: [],
+      targetGeographies: [],
+      preferredBuyerRoles: [],
+    },
+    constraints: {
+      mvpBudgetBand: "USD_5K_TO_20K",
+      budgetCurrency: "USD",
+      availableHoursPerWeekBand: "HOURS_21_TO_35",
+      teamSizeBand: "SOLO_FOUNDER",
+      technicalRiskTolerance: "HIGH",
+      regulatoryRiskTolerance: "MEDIUM",
+      salesComplexityTolerance: "MEDIUM",
+      operationalBurdenTolerance: "MEDIUM",
+      fundingPreference: "BOOTSTRAP_ONLY",
+    },
+  };
+
+  const proPayload = buildCanonicalFounderFitPayload(
+    canonicalProfilePro,
+    canonicalReqs,
+    {
+      opportunityScore: 89,
+      evidenceConfidence: 82,
+      publicationQualityStatus: "VERIFIED",
+      decisionRecommendation: "BUILD_CANDIDATE",
+    },
+    {
+      rubricVersion: "2.0.0",
+      rankingVersion: "2.0.0",
+      taxonomyVersion: "1.0.0",
+      profileRevisionId: profileRev.id,
+      profileRevisionInputHash: profileRev.inputHash,
+      opportunityRevisionId: reqs.blueprintId,
+    },
+  );
+  const proInputHash = computeCanonicalInputHash(proPayload);
+
   await prisma.founderFitEvaluation.create({
     data: {
       userId: userPro.id,
@@ -272,10 +383,10 @@ async function seedPhase4dFixture() {
       recommendationCategory: "EXCELLENT_MATCH",
       personalizedRank: 91.5,
       baseRank: 91.5,
-      rubricVersion: "1.0.0",
-      rankingVersion: "1.0.0",
+      rubricVersion: "2.0.0",
+      rankingVersion: "2.0.0",
       taxonomyVersion: "1.0.0",
-      inputHash: "fit_hash_phase4d_audit_1234567890",
+      inputHash: proInputHash,
     },
   });
 

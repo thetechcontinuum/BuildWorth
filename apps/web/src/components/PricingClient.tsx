@@ -31,13 +31,16 @@ export function PricingClient() {
   const [checkoutParam, setCheckoutParam] = useState<string | null>(null);
 
   useEffect(() => {
+    let sessionQuery = "";
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const chk = urlParams.get("checkout");
       if (chk) setCheckoutParam(chk);
+      const sess = urlParams.get("session");
+      if (sess) sessionQuery = `?session=${encodeURIComponent(sess)}`;
     }
 
-    fetch("/api/billing/status")
+    fetch(`/api/billing/status${sessionQuery}`)
       .then((res) => res.json())
       .then((data) => setBillingStatus(data))
       .catch((err) => {
@@ -109,10 +112,10 @@ export function PricingClient() {
     }
   };
 
-  const isProActive = billingStatus?.conversionState === "PRO_ACTIVE";
+  const isProActive = billingStatus?.conversionState === "PRO_ACTIVE" || checkoutParam === "success";
   const isProScheduledCancel = billingStatus?.conversionState === "PRO_ACTIVE_UNTIL_PERIOD_END";
   const isActivationPending =
-    billingStatus?.conversionState === "ACTIVATION_PENDING" || (checkoutParam === "success" && !isProActive && !isProScheduledCancel);
+    billingStatus?.conversionState === "ACTIVATION_PENDING" || checkoutParam === "pending";
 
   const formattedPeriodEnd = billingStatus?.currentPeriodEnd
     ? new Date(billingStatus.currentPeriodEnd).toLocaleDateString(undefined, {
