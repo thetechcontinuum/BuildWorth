@@ -94,6 +94,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run Prisma Client generation & build packages
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/buildworth?schema=public"
         run: |
           pnpm --filter @buildworth/database run db:generate
           pnpm run build
@@ -221,6 +223,8 @@ jobs:
           sudo apt-get --only-upgrade install google-chrome-stable || sudo apt-get install -y google-chrome-stable
 
       - name: Run Prisma Client generation & build packages
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/buildworth?schema=public"
         run: |
           pnpm --filter @buildworth/database run db:generate
           pnpm run build
