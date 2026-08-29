@@ -187,6 +187,11 @@ model User {
   digestRuns             DigestRun[]
   unsubscribeTokens      NotificationUnsubscribeToken[]
 
+  // Phase 4D Premium Content & Exports
+  opportunityExports OpportunityExport[]
+  commercialEvents   CommercialEvent[]
+  consentHistories   AnalyticsConsentHistory[]
+
   @@map("users")
 }
 
@@ -412,6 +417,8 @@ model Opportunity {
   scoreOverrides     ScoreOverride[]
   changeEvents       OpportunityChangeEvent[]
   notificationOutbox NotificationOutbox[]
+  exports            OpportunityExport[]
+  commercialEvents   CommercialEvent[]
 
   @@map("opportunities")
 }
@@ -433,6 +440,7 @@ model OpportunityRevision {
   changeEventsTo     OpportunityChangeEvent[] @relation("ToRevision")
   evaluatedInWatches SavedOpportunity[]       @relation("LastEvaluatedRevision")
   radarJob           OpportunityRadarJob?
+  exports            OpportunityExport[]
 
   @@unique([opportunityId, revisionNumber])
   @@map("opportunity_revisions")
@@ -1726,6 +1734,8 @@ model BillingCheckoutAttempt {
   expiresAt         DateTime
   createdAt         DateTime  @default(now())
 
+  commercialEvents CommercialEvent[]
+
   @@index([userId, status])
   @@map("billing_checkout_attempts")
 }
@@ -1761,6 +1771,10 @@ model UsageLedger {
   idempotencyKey  String?         @unique // Deterministic idempotency key
   periodBucketKey String // e.g. "2026-08", "2026-08-25"
   createdAt       DateTime        @default(now())
+
+  reservedExports OpportunityExport[] @relation("ExportReservation")
+  consumedExports OpportunityExport[] @relation("ExportConsumption")
+  releasedExports OpportunityExport[] @relation("ExportRelease")
 
   @@index([userId, entitlementType, periodBucketKey])
   @@map("usage_ledgers")
@@ -2040,4 +2054,163 @@ model DigestRun {
   @@unique([userId, digestType, scheduledFor])
   @@index([userId, status])
   @@map("digest_runs")
+}
+
+// ====================================================
+// PHASE 4D: PREMIUM CONTENT & SECURE EXPORTS
+// ====================================================
+
+enum ExportFormat {
+  PDF
+  CSV
+}
+
+enum ExportStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REJECTED
+}
+
+model OpportunityExport {
+  id                    String              @id @default(uuid())
+  requestKey            String // Client-supplied or generated Idempotency / Request Key
+  userId                String
+  user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunityId         String
+  opportunity           Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  opportunityRevisionId String
+  opportunityRevision   OpportunityRevision @relation(fields: [opportunityRevisionId], references: [id], onDelete: Cascade)
+  format                ExportFormat
+  status                ExportStatus        @default(PENDING)
+  quotaPeriodKey        String // Authoritative UTC Period bucket key (e.g. YYYY-MM)
+  policyVersion         String              @default("1.0.0")
+  entitlementSnapshot   Json
+  reservationLedgerId   String?             @unique // Reference to +1 reservation UsageLedger row
+  reservationLedger     UsageLedger?        @relation("ExportReservation", fields: [reservationLedgerId], references: [id], onDelete: SetNull)
+  consumptionLedgerId   String? // Explicit alias to reservation row upon successful completion
+  consumptionLedger     UsageLedger?        @relation("ExportConsumption", fields: [consumptionLedgerId], references: [id], onDelete: SetNull)
+  releaseLedgerId       String?             @unique // Reference to -1 compensating UsageLedger row on failed generation
+  releaseLedger         UsageLedger?        @relation("ExportRelease", fields: [releaseLedgerId], references: [id], onDelete: SetNull)
+  reservationExpiresAt  DateTime? // Expiry timestamp for abandoned PENDING recovery
+  requestedAt           DateTime            @default(now())
+  completedAt           DateTime?
+  failedAt              DateTime?
+  rejectedAt            DateTime?
+  failureCode           String? // e.g. "PRO_REQUIRED", "QUOTA_EXCEEDED", "GENERATION_ERROR"
+  byteSize              Int?
+  contentHash           String? // SHA-256 content hash
+  createdAt             DateTime            @default(now())
+
+  commercialEvents CommercialEvent[]
+
+  @@unique([userId, requestKey])
+  @@index([userId, format, requestedAt])
+  @@index([opportunityId, format])
+  @@index([quotaPeriodKey])
+  @@index([status, reservationExpiresAt])
+  @@map("opportunity_exports")
+}
+
+// ====================================================
+// PHASE 4D: PRIVACY-SAFE COMMERCIAL EVENTS
+// ====================================================
+
+enum CommercialEventType {
+  PAYWALL_VIEWED
+  UPGRADE_CTA_CLICKED
+  CHECKOUT_CREATED
+  CHECKOUT_CANCELLED
+  CHECKOUT_COMPLETED
+  ENTITLEMENT_ACTIVATED
+  EXPORT_REQUESTED
+  EXPORT_COMPLETED
+  EXPORT_REJECTED
+}
+
+enum CommercialEventSource {
+  SERVER_PAYWALL_BOUNDARY
+  PRICING_PAGE
+  CHECKOUT_SERVICE
+  WEBHOOK_PROCESSOR
+  EXPORT_SERVICE
+  OPPORTUNITY_DOSSIER
+}
+
+enum CommercialRetentionClass {
+  STANDARD_ANALYTICS
+  TRANSACTIONAL_LIFECYCLE
+  SECURITY_DIAGNOSTIC
+}
+
+enum CommercialPurposeCode {
+  PRODUCT_CONVERSION_ANALYTICS
+  CONTRACT_AND_BILLING_LIFECYCLE
+  SERVICE_DELIVERY_AND_SECURITY
+}
+
+enum CommercialLawfulBasis {
+  CONSENT
+  CONTRACT
+  LEGAL_OBLIGATION
+  LEGITIMATE_INTEREST
+}
+
+enum AnalyticsConsentStatus {
+  GRANTED
+  WITHDRAWN
+}
+
+model AnalyticsConsentHistory {
+  id            String                 @id @default(uuid())
+  userId        String?
+  user          User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  consentIdHash String?                @unique // SHA-256 hash of consentId for anonymous consent
+  purpose       CommercialPurposeCode  @default(PRODUCT_CONVERSION_ANALYTICS)
+  status        AnalyticsConsentStatus
+  policyVersion String                 @default("1.0.0")
+  source        String                 @default("CONSENT_BANNER")
+  keyVersion    Int                    @default(1)
+  expiresAt     DateTime?
+  grantedAt     DateTime?
+  withdrawnAt   DateTime?
+  createdAt     DateTime               @default(now())
+
+  @@index([userId, purpose, createdAt])
+  @@index([consentIdHash])
+  @@map("analytics_consent_histories")
+}
+
+model CommercialEvent {
+  id                     String                   @id @default(uuid())
+  eventType              CommercialEventType
+  deduplicationKey       String                   @unique
+  userId                 String?
+  user                   User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  opportunityId          String?
+  opportunity            Opportunity?             @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  checkoutAttemptId      String?
+  checkoutAttempt        BillingCheckoutAttempt?  @relation(fields: [checkoutAttemptId], references: [id], onDelete: SetNull)
+  exportId               String?
+  export                 OpportunityExport?       @relation(fields: [exportId], references: [id], onDelete: SetNull)
+  source                 CommercialEventSource
+  purposeCode            CommercialPurposeCode
+  lawfulBasis            CommercialLawfulBasis
+  metadata               Json
+  retentionClass         CommercialRetentionClass @default(STANDARD_ANALYTICS)
+  retentionPolicyVersion String                   @default("1.0.0")
+  retentionExpiresAt     DateTime
+  occurredAt             DateTime                 @default(now())
+  createdAt              DateTime                 @default(now())
+  anonymizedAt           DateTime?
+  restrictedAt           DateTime?
+  legalHoldUntil         DateTime?
+  legalHoldReasonCode    String?
+
+  @@index([eventType, occurredAt])
+  @@index([userId, occurredAt])
+  @@index([opportunityId, eventType])
+  @@index([retentionClass, occurredAt])
+  @@index([retentionExpiresAt])
+  @@map("commercial_events")
 }

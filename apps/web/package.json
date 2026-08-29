@@ -8,6 +8,7 @@
     "start": "next start -p 3000",
     "lint": "tsc --noEmit",
     "type-check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "db:generate": "pnpm --filter @buildworth/database run db:generate",
     "test:fixture-isolation": "node scripts/test-fixture-isolation.js",
     "test:e2e": "node scripts/run-e2e-browser-suite.js"

@@ -3,6 +3,7 @@ import {
   executeIntelligencePipeline,
   processOpportunityRadarForRevision,
   processPendingNotificationOutbox,
+  reconcileExpiredExports,
 } from "@buildworth/opportunity-engine";
 
 export type JobType =
@@ -12,7 +13,9 @@ export type JobType =
   | "SYNTHESIZE_OPPORTUNITY_JOB"
   | "RUN_FULL_PIPELINE_JOB"
   | "RADAR_PROCESS_REVISION_JOB"
-  | "OUTBOX_DELIVERY_JOB";
+  | "OUTBOX_DELIVERY_JOB"
+  | "EXPORT_RESERVATION_RECONCILIATION_JOB"
+  | "COMMERCIAL_EVENT_RETENTION_JOB";
 
 export interface QueueJob<T = any> {
   id: string;
@@ -51,6 +54,28 @@ export async function processQueueJob(job: QueueJob, prisma?: any): Promise<void
         });
         logger.info(
           `Outbox delivery job complete: processed ${res.processed}, delivered ${res.delivered}, failed ${res.failed}, cancelled ${res.cancelled}.`,
+        );
+      }
+      break;
+    }
+    case "EXPORT_RESERVATION_RECONCILIATION_JOB": {
+      if (prisma) {
+        const res = await reconcileExpiredExports(prisma, job.payload?.userId);
+        logger.info(
+          `Export reservation reconciliation job complete: recovered ${res.recoveredCount} expired reservations.`,
+        );
+      }
+      break;
+    }
+    case "COMMERCIAL_EVENT_RETENTION_JOB": {
+      if (prisma) {
+        const { reconcileCommercialEventRetention } = await import("@buildworth/billing");
+        const res = await reconcileCommercialEventRetention(prisma, {
+          batchSize: job.payload?.batchSize || 100,
+          now: job.payload?.now ? new Date(job.payload.now) : new Date(),
+        });
+        logger.info(
+          `Commercial event retention job complete: deleted ${res.deletedCount} expired rows.`,
         );
       }
       break;

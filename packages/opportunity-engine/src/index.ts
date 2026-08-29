@@ -16,3 +16,5 @@ export * from "./radar/severity.js";
 export * from "./radar/diff-engine.js";
 export * from "./radar/radar-service.js";
 export * from "./radar/notification-service.js";
+export * from "./access/content-policy-service.js";
+export * from "./exports/export-service.js";

@@ -43,9 +43,8 @@ async function reconcileCatalog() {
       console.log(`Plan [${code}]: isActive=${plan.isActive}, sortOrder=${plan.sortOrder}`);
 
       // 2. Reconcile Plan Prices (USD Minor units: cents)
-      const envMonthlyStripeId =
-        process.env.STRIPE_PRO_MONTHLY_PRICE_ID || "price_test_pro_monthly";
-      const envAnnualStripeId = process.env.STRIPE_PRO_YEARLY_PRICE_ID || "price_test_pro_annual";
+      const envMonthlyStripeId = process.env.STRIPE_PRO_MONTHLY_PRICE_ID || null;
+      const envAnnualStripeId = process.env.STRIPE_PRO_YEARLY_PRICE_ID || null;
 
       // Monthly Price
       if (cfg.monthlyPriceCents > 0 || code === "FREE") {

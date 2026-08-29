@@ -6,6 +6,8 @@ export interface EnforcementResult {
   allowed: boolean;
   unitsConsumed?: number;
   remainingUnits?: number | null;
+  ledgerId?: string;
+  isExisting?: boolean;
   error?: string;
   upgradeRequired?: boolean;
 }
@@ -95,6 +97,8 @@ export async function enforceAtomicUsage(
           allowed: true,
           unitsConsumed: existingLedger.unitsConsumed,
           remainingUnits: null, // Idempotent repeat
+          ledgerId: existingLedger.id,
+          isExisting: true,
         };
       }
     }
@@ -169,7 +173,7 @@ export async function enforceAtomicUsage(
     }
 
     // 5. Insert usage ledger entry
-    await tx.usageLedger.create({
+    const createdLedger = await tx.usageLedger.create({
       data: {
         userId,
         entitlementType: key,
@@ -186,6 +190,7 @@ export async function enforceAtomicUsage(
       success: true,
       allowed: true,
       unitsConsumed: unitsToConsume,
+      ledgerId: createdLedger.id,
       remainingUnits: check.entitlement.isUnlimited
         ? null
         : (check.entitlement.limitQuantity ?? 0) - unitsToConsume,

@@ -130,8 +130,8 @@ export function resolveUserEntitlements(
       const stripePriceId = sub.planPrice?.stripePriceId;
       const priceId = sub.planPrice?.id;
       if (
-        (stripePriceId && stripePriceId.startsWith("price_test_")) ||
-        (priceId && priceId.startsWith("price_test_"))
+        (stripePriceId && /^price_(test|sample|fixture)_/.test(stripePriceId)) ||
+        (priceId && /^price_(test|sample|fixture)_/.test(priceId))
       ) {
         return false;
       }
@@ -192,6 +192,11 @@ export function resolveUserEntitlements(
       }
     } else if (grant.source !== "SUBSCRIPTION") {
       // Require explicit expiry for non-subscription grants to prevent indefinite unearned access
+      continue;
+    }
+
+    // If grant source is SUBSCRIPTION, it is only active if the user currently has an active subscription
+    if (grant.source === "SUBSCRIPTION" && !activeSub) {
       continue;
     }
 

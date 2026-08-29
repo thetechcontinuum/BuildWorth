@@ -1,10 +1,18 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { CheckCircle2, Sparkles, ArrowRight, ShieldCheck, CreditCard, Loader2 } from "lucide-react";
+import { CheckCircle2, Sparkles, ArrowRight, ShieldCheck, CreditCard, Loader2, AlertTriangle } from "lucide-react";
 import Link from "next/link";
+import { PublicPriceCatalogDTO } from "@buildworth/billing";
 
-interface BillingStatus {
+interface BillingStatusResponse {
+  conversionState:
+    | "FREE"
+    | "ACTIVATION_PENDING"
+    | "PRO_ACTIVE"
+    | "PRO_ACTIVE_UNTIL_PERIOD_END"
+    | "PAYMENT_GRACE"
+    | "PAYMENT_ACTION_REQUIRED";
   tier: "FREE" | "PRO" | "TEAM" | "ENTERPRISE";
   subscriptionStatus: string | null;
   currentPeriodEnd: string | null;
@@ -12,11 +20,12 @@ interface BillingStatus {
   isCheckoutAvailable: boolean;
   isPortalAvailable: boolean;
   hasActiveSubscription: boolean;
+  catalog?: PublicPriceCatalogDTO[];
 }
 
 export function PricingClient() {
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
-  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
+  const [billingStatus, setBillingStatus] = useState<BillingStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [checkoutParam, setCheckoutParam] = useState<string | null>(null);
@@ -31,8 +40,18 @@ export function PricingClient() {
     fetch("/api/billing/status")
       .then((res) => res.json())
       .then((data) => setBillingStatus(data))
-      .catch((err) => console.error("Failed to load billing status", err));
+      .catch((err) => {
+        console.error("Failed to load billing status", err);
+        setActionError("Unable to load live pricing information. Please check your connection.");
+      });
   }, []);
+
+  const catalog = billingStatus?.catalog || [];
+  const monthlyEntry = catalog.find((c) => c.catalogKey === "pro_monthly");
+  const annualEntry = catalog.find((c) => c.catalogKey === "pro_annual");
+
+  const currentPriceEntry = billingPeriod === "annual" ? annualEntry : monthlyEntry;
+  const currentCatalogKey = billingPeriod === "annual" ? "pro_annual" : "pro_monthly";
 
   const handleProCheckout = async () => {
     setActionError(null);
@@ -43,8 +62,8 @@ export function PricingClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          plan: "PRO",
-          interval: billingPeriod === "annual" ? "ANNUAL" : "MONTHLY",
+          catalogKey: currentCatalogKey,
+          returnTo: "/pricing",
         }),
       });
 
@@ -90,15 +109,25 @@ export function PricingClient() {
     }
   };
 
-  const isPro = billingStatus?.tier === "PRO" && billingStatus?.hasActiveSubscription;
+  const isProActive = billingStatus?.conversionState === "PRO_ACTIVE";
+  const isProScheduledCancel = billingStatus?.conversionState === "PRO_ACTIVE_UNTIL_PERIOD_END";
+  const isActivationPending =
+    billingStatus?.conversionState === "ACTIVATION_PENDING" || (checkoutParam === "success" && !isProActive && !isProScheduledCancel);
+
+  const formattedPeriodEnd = billingStatus?.currentPeriodEnd
+    ? new Date(billingStatus.currentPeriodEnd).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    : null;
 
   return (
     <div className="space-y-16 max-w-6xl mx-auto py-8 px-4 sm:px-6">
       {/* Header */}
       <div className="text-center space-y-4 max-w-2xl mx-auto">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-          <Sparkles className="w-3.5 h-3.5" /> Evidence-Backed Startup Intelligence • Phase 4
-          Subscription Billing
+          <Sparkles className="w-3.5 h-3.5" /> Evidence-Backed Startup Intelligence • Server Authoritative Billing
         </div>
         <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
           Decision-Grade Venture Blueprints & Market Signals
@@ -108,25 +137,44 @@ export function PricingClient() {
           proven willingness to pay, and un-gated Founder Fit calculations.
         </p>
 
-        {/* Status Notification */}
-        {billingStatus && isPro && (
-          <div className="p-3 bg-indigo-950/60 border border-indigo-500/30 rounded-xl text-xs text-indigo-200 inline-block">
-            You currently have an <strong>Active Pro Subscription</strong>. Access is unrestricted.
+        {/* State Banner: Pro Active */}
+        {isProActive && (
+          <div className="p-3 bg-indigo-950/60 border border-indigo-500/30 rounded-xl text-xs text-indigo-200 inline-flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />
+            <span>
+              You currently have an <strong>Active Pro Subscription</strong>. All decision-grade features and export capabilities are unlocked.
+            </span>
           </div>
         )}
 
-        {checkoutParam === "success" && !isPro && (
-          <div className="p-3 bg-amber-950/60 border border-amber-500/30 rounded-xl text-xs text-amber-200 inline-block">
-            Payment confirmation pending. Please wait a moment for the subscription to activate.
+        {/* State Banner: Scheduled Cancellation */}
+        {isProScheduledCancel && (
+          <div className="p-3 bg-amber-950/60 border border-amber-500/30 rounded-xl text-xs text-amber-200 inline-flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              Your Pro subscription is scheduled to cancel. You retain full Pro access until <strong>{formattedPeriodEnd}</strong>.
+            </span>
           </div>
         )}
 
+        {/* State Banner: Activation Pending */}
+        {isActivationPending && (
+          <div className="p-3 bg-amber-950/60 border border-amber-500/30 rounded-xl text-xs text-amber-200 inline-flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-amber-400 shrink-0" />
+            <span>
+              Payment received! Webhook activation is processing in the background. Please refresh in a moment.
+            </span>
+          </div>
+        )}
+
+        {/* State Banner: Checkout Cancelled */}
         {checkoutParam === "cancelled" && (
           <div className="p-3 bg-zinc-800/80 border border-zinc-700 rounded-xl text-xs text-zinc-400 inline-block">
             Checkout was cancelled. No charges were made.
           </div>
         )}
 
+        {/* Action Error / Billing Unavailable */}
         {actionError && (
           <div className="p-3 bg-red-950/80 border border-red-500/50 rounded-xl text-xs text-red-300">
             {actionError}
@@ -153,9 +201,11 @@ export function PricingClient() {
             className={`text-xs font-medium flex items-center gap-1.5 ${billingPeriod === "annual" ? "text-white" : "text-zinc-500"}`}
           >
             Annual Billing
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              SAVE $38 / YEAR
-            </span>
+            {annualEntry?.savingsBadge && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                {annualEntry.savingsBadge}
+              </span>
+            )}
           </span>
         </div>
       </div>
@@ -222,48 +272,37 @@ export function PricingClient() {
 
             <div className="flex items-baseline gap-1">
               <span className="text-4xl font-extrabold text-white">
-                {billingPeriod === "annual" ? "$190" : "$19"}
+                {currentPriceEntry?.displayAmount || (billingPeriod === "annual" ? "$190" : "$19")}
               </span>
               <span className="text-xs text-zinc-400">
-                {billingPeriod === "annual" ? "/ year" : "/ month"}
+                {currentPriceEntry?.displayInterval || (billingPeriod === "annual" ? "/ year" : "/ month")}
               </span>
             </div>
 
             <p className="text-xs text-zinc-300">
-              For founders, operators, and PMs building high-conviction ventures with zero
-              guesswork.
+              {currentPriceEntry?.description ||
+                "For founders, operators, and PMs building high-conviction ventures with zero guesswork."}
             </p>
 
             <ul className="space-y-3 pt-6 border-t border-zinc-800 text-xs text-zinc-200">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                <strong>Unrestricted Evidence Lineage & Raw Source Audit</strong>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                <strong>Full Multi-Dimensional Founder Fit Breakdown</strong>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                <strong>Decision-Grade Venture Financial Scenarios & Costs</strong>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                <strong>Export Venture Blueprints to Audit-Grade PDF & JSON</strong>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                <span>Opportunity Radar Watchlist expansion (up to 50 items)</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                <span>Early access to newly verified market signals</span>
-              </li>
+              {(currentPriceEntry?.features || [
+                "Unrestricted Evidence Lineage & Raw Source Audit",
+                "Full Multi-Dimensional Founder Fit Breakdown",
+                "Decision-Grade Venture Financial Scenarios & Costs",
+                "Export Venture Blueprints to Audit-Grade PDF & CSV",
+                "Opportunity Radar Watchlist expansion (up to 50 items)",
+                "Early access to newly verified market signals",
+              ]).map((feat, idx) => (
+                <li key={idx} className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                  <span>{feat}</span>
+                </li>
+              ))}
             </ul>
           </div>
 
           <div>
-            {isPro ? (
+            {isProActive || isProScheduledCancel ? (
               <button
                 onClick={handleOpenPortal}
                 disabled={loading}
@@ -279,15 +318,20 @@ export function PricingClient() {
             ) : (
               <button
                 onClick={handleProCheckout}
-                disabled={loading}
+                disabled={loading || isActivationPending}
                 className="w-full py-3 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-50"
               >
                 {loading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isActivationPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Activation in Progress...</span>
+                  </>
                 ) : (
                   <>
                     <span>
-                      Upgrade to Pro — {billingPeriod === "annual" ? "$190/yr" : "$19/mo"}
+                      Upgrade to Pro — {currentPriceEntry?.displayAmount || "$19"}{currentPriceEntry?.displayInterval || "/mo"}
                     </span>
                     <ArrowRight className="w-4 h-4" />
                   </>

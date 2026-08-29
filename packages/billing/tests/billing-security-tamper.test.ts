@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { processStripeWebhookEvent } from "../src/webhook-service.js";
 import { createBillingCheckoutSession } from "../src/checkout-service.js";
 
@@ -105,6 +105,29 @@ function createMockStripe() {
     customers: {
       create: async () => ({ id: `cus_stripe_${Date.now()}` }),
     },
+    prices: {
+      retrieve: async (priceId: string) => {
+        if (priceId === "price_test_pro_monthly") {
+          return {
+            id: "price_test_pro_monthly",
+            active: true,
+            currency: "usd",
+            unit_amount: 1900,
+            recurring: { interval: "month" },
+          };
+        }
+        if (priceId === "price_test_pro_annual") {
+          return {
+            id: "price_test_pro_annual",
+            active: true,
+            currency: "usd",
+            unit_amount: 19000,
+            recurring: { interval: "year" },
+          };
+        }
+        throw new Error(`No such price: ${priceId}`);
+      },
+    },
     checkout: {
       sessions: {
         create: async () => ({
@@ -124,6 +147,11 @@ function createMockStripe() {
 
 describe("Phase 4B Security, Ownership & Metadata Tamper Tests", () => {
   const secret = "whsec_test_secret";
+
+  beforeEach(() => {
+    process.env.STRIPE_PRO_MONTHLY_PRICE_ID = "price_test_pro_monthly";
+    process.env.STRIPE_PRO_YEARLY_PRICE_ID = "price_test_pro_annual";
+  });
 
   it("proves forged metadata userId in webhook cannot escalate privileges of victim or unearned user", async () => {
     const { prisma, db } = createMockPrisma();
@@ -225,7 +253,7 @@ describe("Phase 4B Security, Ownership & Metadata Tamper Tests", () => {
     expect(db.users.find((u) => u.id === "usr_alice")?.tier).toBe("FREE");
   });
 
-  it("enforces checkout idempotency and rejects conflicting parameters on reused requestId", async () => {
+  it("enforces checkout idempotency and rejects conflicting parameters or returnTo on reused requestId", async () => {
     const { prisma, db } = createMockPrisma();
     const stripe = createMockStripe();
 
@@ -233,8 +261,8 @@ describe("Phase 4B Security, Ownership & Metadata Tamper Tests", () => {
     const res1 = await createBillingCheckoutSession(prisma, stripe, {
       userId: "usr_alice",
       userEmail: "alice@buildworth.io",
-      planCode: "PRO",
-      billingInterval: "MONTHLY",
+      catalogKey: "pro_monthly",
+      returnTo: "/pricing",
       requestId: "req_idem_100",
     });
     expect(res1.requestId).toBe("req_idem_100");
@@ -244,8 +272,8 @@ describe("Phase 4B Security, Ownership & Metadata Tamper Tests", () => {
     const res2 = await createBillingCheckoutSession(prisma, stripe, {
       userId: "usr_alice",
       userEmail: "alice@buildworth.io",
-      planCode: "PRO",
-      billingInterval: "MONTHLY",
+      catalogKey: "pro_monthly",
+      returnTo: "/pricing",
       requestId: "req_idem_100",
     });
     expect(res2.requestId).toBe("req_idem_100");
@@ -256,8 +284,19 @@ describe("Phase 4B Security, Ownership & Metadata Tamper Tests", () => {
       createBillingCheckoutSession(prisma, stripe, {
         userId: "usr_alice",
         userEmail: "alice@buildworth.io",
-        planCode: "PRO",
-        billingInterval: "ANNUAL", // Conflicting!
+        catalogKey: "pro_annual", // Conflicting!
+        returnTo: "/pricing",
+        requestId: "req_idem_100",
+      }),
+    ).rejects.toThrow("IDEMPOTENCY_CONFLICT");
+
+    // 4. Replay with conflicting returnTo path -> throws IDEMPOTENCY_CONFLICT
+    await expect(
+      createBillingCheckoutSession(prisma, stripe, {
+        userId: "usr_alice",
+        userEmail: "alice@buildworth.io",
+        catalogKey: "pro_monthly",
+        returnTo: "/opportunities/different-venture", // Conflicting!
         requestId: "req_idem_100",
       }),
     ).rejects.toThrow("IDEMPOTENCY_CONFLICT");

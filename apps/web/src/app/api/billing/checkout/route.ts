@@ -53,18 +53,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "INVALID_JSON_BODY" }, { status: 400 });
     }
 
-    const { plan, interval } = body;
-    if (plan !== "PRO") {
+    // Disallow client-supplied price IDs, amounts, currencies, or Stripe customer IDs
+    if ("priceId" in body || "stripePriceId" in body || "amount" in body || "currency" in body || "customerId" in body || "stripeCustomerId" in body) {
       return NextResponse.json(
-        { error: "INVALID_PLAN: Only 'PRO' plan checkout is supported." },
+        { error: "INVALID_PARAMETERS: Client cannot supply arbitrary price IDs, amounts, currencies, or customer IDs." },
         { status: 400 },
       );
     }
 
-    const normalizedInterval =
-      (interval || "").toUpperCase() === "YEAR" || (interval || "").toUpperCase() === "ANNUAL"
-        ? "ANNUAL"
-        : "MONTHLY";
+    let catalogKey = body.catalogKey;
+    if (!catalogKey) {
+      // Fallback for plan/interval legacy shape
+      const plan = (body.plan || "").toUpperCase();
+      const interval = (body.interval || "").toUpperCase();
+      if (plan === "PRO") {
+        if (interval === "ANNUAL" || interval === "YEAR") {
+          catalogKey = "pro_annual";
+        } else {
+          catalogKey = "pro_monthly";
+        }
+      }
+    }
+
+    if (!catalogKey) {
+      return NextResponse.json(
+        { error: "INVALID_CATALOG_KEY: catalogKey is required." },
+        { status: 400 },
+      );
+    }
 
     // 5. Create Stripe Checkout Session
     const stripe = getStripeClient();
@@ -72,17 +88,25 @@ export async function POST(request: NextRequest) {
       userId: sessionUser.id,
       userEmail: sessionUser.email,
       userName: sessionUser.name,
-      planCode: "PRO",
-      billingInterval: normalizedInterval,
+      catalogKey,
+      returnTo: body.returnTo,
+      requestId: body.requestId,
     });
 
     return NextResponse.json({
       checkoutUrl: result.checkoutUrl,
       sessionId: result.sessionId,
       requestId: result.requestId,
+      catalogKey: result.catalogKey,
     });
   } catch (err: any) {
     console.error("Billing Checkout Error:", err);
+    if (err?.message?.includes("INVALID_CATALOG_KEY") || err?.message?.includes("IDEMPOTENCY_CONFLICT")) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+    if (err?.message?.includes("PRICING_UNAVAILABLE")) {
+      return NextResponse.json({ error: "PRICING_UNAVAILABLE: Pricing is temporarily unavailable." }, { status: 503 });
+    }
     return NextResponse.json(
       { error: err?.message || "Internal server error during checkout." },
       { status: 500 },

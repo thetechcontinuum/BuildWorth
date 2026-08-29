@@ -32,6 +32,16 @@ export const SCHEDULED_TASKS = [
     cron: "0 8 * * 1",
     description: "Generate and queue weekly Radar opportunity digest runs for Free and Pro users",
   },
+  {
+    name: "minutely_export_reservation_reconciliation",
+    cron: "* * * * *",
+    description: "Reconcile abandoned/expired PENDING opportunity export reservations and append compensating releases",
+  },
+  {
+    name: "daily_03am_commercial_event_retention_reconciliation",
+    cron: "0 3 * * *",
+    description: "Reconcile expired GDPR commercial events: permanently delete expired analytics and irreversibly anonymize audit trails",
+  },
 ];
 
 async function runScheduler() {

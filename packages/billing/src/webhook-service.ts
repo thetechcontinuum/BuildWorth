@@ -207,6 +207,30 @@ async function handleCheckoutSessionCompleted(tx: any, session: Stripe.Checkout.
         },
       },
     });
+
+    // Emit Server-Authoritative CHECKOUT_COMPLETED Commercial Event
+    try {
+      const { recordCommercialEvent } = await import("./commercial-events.js");
+      const attempt = requestId
+        ? await tx.billingCheckoutAttempt.findUnique({ where: { requestId } })
+        : null;
+
+      await recordCommercialEvent(tx, {
+        eventType: "CHECKOUT_COMPLETED",
+        deduplicationKey: `chk_completed_${session.id}`,
+        userId,
+        checkoutAttemptId: attempt?.id || null,
+        source: "WEBHOOK_PROCESSOR",
+        metadata: {
+          planCode: attempt?.selectedPlanCode || "PRO",
+          billingInterval: attempt?.billingInterval || "MONTHLY",
+          catalogKey: attempt?.selectedPlanCode === "PRO" && attempt?.billingInterval === "ANNUAL" ? "pro_annual" : "pro_monthly",
+          stripeEventId: session.id,
+        },
+      });
+    } catch (err: any) {
+      console.error("Commercial Event Emission Error:", err?.message || err);
+    }
   }
 }
 
@@ -363,6 +387,29 @@ async function handleSubscriptionUpsert(
       },
     },
   });
+
+  // Emit Server-Authoritative ENTITLEMENT_ACTIVATED Commercial Event when subscriber is active
+  if (isSubscriberActive && projectedTier === "PRO") {
+    try {
+      const { recordCommercialEvent } = await import("./commercial-events.js");
+      await recordCommercialEvent(tx, {
+        eventType: "ENTITLEMENT_ACTIVATED",
+        deduplicationKey: `ent_activated_${targetSub.id}_${periodStart.getTime()}`,
+        userId,
+        source: "WEBHOOK_PROCESSOR",
+        metadata: {
+          tier: "PRO",
+          planCode: planPrice.plan.code,
+          billingInterval: planPrice.billingInterval,
+          subscriptionStatus: mappedStatus,
+          periodEnd: periodEnd.toISOString(),
+          stripeEventId: targetSub.id,
+        },
+      });
+    } catch (err: any) {
+      console.error("Commercial Event Emission Error:", err?.message || err);
+    }
+  }
 }
 
 async function handleSubscriptionDeleted(

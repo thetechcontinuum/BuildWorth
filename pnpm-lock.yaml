@@ -257,7 +257,7 @@ importers:
         specifier: ^5.16.1
         version: 5.22.0(prisma@5.22.0)
       stripe:
-        specifier: ^16.2.0
+        specifier: 16.12.0
         version: 16.12.0
     devDependencies:
       '@types/node':
@@ -351,6 +351,9 @@ importers:
       '@buildworth/config':
         specifier: workspace:*
         version: link:../config
+      '@buildworth/entitlements':
+        specifier: workspace:*
+        version: link:../entitlements
       '@buildworth/observability':
         specifier: workspace:*
         version: link:../observability

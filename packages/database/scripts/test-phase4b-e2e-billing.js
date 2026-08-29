@@ -16,6 +16,15 @@ const { resolveUserEntitlements, checkEntitlement } = require("../../entitlement
 // Mock Stripe Driver for Local Automated Verification
 function getMockStripe() {
   return {
+    prices: {
+      retrieve: async (priceId) => ({
+        id: priceId,
+        active: true,
+        currency: "usd",
+        unit_amount: 1900,
+        recurring: { interval: "month" },
+      }),
+    },
     customers: {
       create: async (data, opts) => ({ id: `cus_stripe_mock_${Date.now()}` }),
     },
@@ -60,6 +69,9 @@ function getMockStripe() {
 async function testPhase4bBilling() {
   console.log("=== BuildWorth Phase 4B Stripe Checkout & Webhook Integration Suite ===");
 
+  process.env.STRIPE_PRO_MONTHLY_PRICE_ID = "price_test_pro_monthly";
+  process.env.STRIPE_PRO_YEARLY_PRICE_ID = "price_test_pro_annual";
+
   const dbName = "test_phase4b_billing_" + Date.now();
   execSync(
     `docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE ${dbName};"`,
@@ -98,8 +110,7 @@ async function testPhase4bBilling() {
       userId: user.id,
       userEmail: user.email,
       userName: user.name,
-      planCode: "PRO",
-      billingInterval: "MONTHLY",
+      catalogKey: "pro_monthly",
     });
 
     if (!checkoutResult.checkoutUrl || !checkoutResult.sessionId) {
