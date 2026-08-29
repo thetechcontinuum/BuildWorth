@@ -26,6 +26,55 @@ async function seedPopulatedRadar() {
     create: { email: "radar_audit_pro@buildworth.io", tier: "PRO" },
   });
 
+  const proPlan = await prisma.productPlan.findUnique({ where: { code: "PRO" } });
+  const proPrice = proPlan
+    ? await prisma.planPrice.findFirst({ where: { planId: proPlan.id, billingInterval: "MONTHLY" } })
+    : null;
+
+  if (proPlan && proPrice) {
+    const cust = await prisma.billingCustomer.upsert({
+      where: { userId: userPro.id },
+      update: {},
+      create: {
+        userId: userPro.id,
+        stripeCustomerId: `cus_radar_pro_${Date.now()}`,
+        billingEmail: userPro.email,
+      },
+    });
+
+    const sub = await prisma.billingSubscription.upsert({
+      where: { stripeSubscriptionId: `sub_radar_pro_${userPro.id}` },
+      update: { status: "ACTIVE" },
+      create: {
+        userId: userPro.id,
+        billingCustomerId: cust.id,
+        planPriceId: proPrice.id,
+        stripeSubscriptionId: `sub_radar_pro_${userPro.id}`,
+        status: "ACTIVE",
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(Date.now() + 30 * 86400 * 1000),
+      },
+    });
+
+    await prisma.entitlementGrant.upsert({
+      where: {
+        userId_entitlementType_source: {
+          userId: userPro.id,
+          entitlementType: "OPPORTUNITY_RADAR_ALERTS",
+          source: "SUBSCRIPTION",
+        },
+      },
+      update: { isUnlimited: true },
+      create: {
+        userId: userPro.id,
+        subscriptionId: sub.id,
+        entitlementType: "OPPORTUNITY_RADAR_ALERTS",
+        source: "SUBSCRIPTION",
+        isUnlimited: true,
+      },
+    });
+  }
+
   // 2. Create Opportunity with 3 consecutive revisions
   const opp = await prisma.opportunity.upsert({
     where: { slug: "radar-audit-opportunity" },
