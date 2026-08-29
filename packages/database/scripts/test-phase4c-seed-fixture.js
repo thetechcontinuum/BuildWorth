@@ -56,23 +56,40 @@ async function seedPopulatedRadar() {
       },
     });
 
-    await prisma.entitlementGrant.upsert({
-      where: {
-        userId_entitlementType_source: {
-          userId: userPro.id,
-          entitlementType: "OPPORTUNITY_RADAR_ALERTS",
-          source: "SUBSCRIPTION",
+    const entitlementsToGrant = [
+      { type: "OPPORTUNITY_RADAR_ALERTS", unlimited: true },
+      { type: "VENTURE_BLUEPRINT_EXPORT", unlimited: false, limit: 50, remaining: 50 },
+      { type: "VENTURE_BLUEPRINT_FINANCIALS", unlimited: true },
+      { type: "COMPETITOR_DEEP_DIVES", unlimited: true },
+      { type: "FOUNDER_FIT_DEEP_EVALUATION", unlimited: true },
+      { type: "TEAM_COLLABORATION", unlimited: true },
+    ];
+
+    for (const item of entitlementsToGrant) {
+      await prisma.entitlementGrant.upsert({
+        where: {
+          userId_entitlementType_source: {
+            userId: userPro.id,
+            entitlementType: item.type,
+            source: "SUBSCRIPTION",
+          },
         },
-      },
-      update: { isUnlimited: true },
-      create: {
-        userId: userPro.id,
-        subscriptionId: sub.id,
-        entitlementType: "OPPORTUNITY_RADAR_ALERTS",
-        source: "SUBSCRIPTION",
-        isUnlimited: true,
-      },
-    });
+        update: {
+          isUnlimited: item.unlimited,
+          limitQuantity: item.limit ?? null,
+          remainingUnits: item.remaining ?? null,
+        },
+        create: {
+          userId: userPro.id,
+          subscriptionId: sub.id,
+          entitlementType: item.type,
+          source: "SUBSCRIPTION",
+          isUnlimited: item.unlimited,
+          limitQuantity: item.limit ?? null,
+          remainingUnits: item.remaining ?? null,
+        },
+      });
+    }
   }
 
   // 2. Create Opportunity with 3 consecutive revisions
