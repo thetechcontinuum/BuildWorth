@@ -18,3 +18,4 @@ export * from "./radar/radar-service.js";
 export * from "./radar/notification-service.js";
 export * from "./access/content-policy-service.js";
 export * from "./exports/export-service.js";
+export * from "./ingestion/manual-staging-ingestion.js";

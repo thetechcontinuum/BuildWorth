@@ -2214,3 +2214,42 @@ model CommercialEvent {
   @@index([retentionExpiresAt])
   @@map("commercial_events")
 }
+
+// ====================================================
+// PHASE 5: DURABLE STAGING MANUAL INGESTION RUNS
+// ====================================================
+
+enum IngestionRunStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model IngestionRun {
+  id                String             @id @default(uuid())
+  idempotencyKey    String             @unique
+  status            IngestionRunStatus @default(PENDING)
+  claimToken        String?
+  lockedBy          String?
+  lockedAt          DateTime?
+  lockedUntil       DateTime?
+  attemptCount      Int                @default(0)
+  startedAt         DateTime?
+  completedAt       DateTime?
+  failedAt          DateTime?
+  failureCode       String?
+  totalFetched      Int                @default(0)
+  totalDeduplicated Int                @default(0)
+  rawSignalsCount   Int                @default(0)
+  candidatesCount   Int                @default(0)
+  publishedCount    Int                @default(0)
+  publishedSlugs    String[]           @default([])
+  summary           Json?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([status, lockedUntil])
+  @@index([idempotencyKey])
+  @@map("ingestion_runs")
+}

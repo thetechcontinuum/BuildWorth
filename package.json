@@ -22,7 +22,8 @@
     "audit:founder-fit": "pnpm --filter @buildworth/database run audit:founder-fit",
     "audit:projections": "pnpm --filter @buildworth/database run audit:projections",
     "test:phase4c": "pnpm --filter @buildworth/database run test:phase4c",
-    "test:migration:phase4c": "pnpm --filter @buildworth/database run test:migration:phase4c"
+    "test:migration:phase4c": "pnpm --filter @buildworth/database run test:migration:phase4c",
+    "staging:ingest:manual": "node scripts/staging-ingest-manual.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",
