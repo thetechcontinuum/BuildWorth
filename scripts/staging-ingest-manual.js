@@ -109,6 +109,8 @@ async function main() {
         "Authorization": `Bearer ${secret}`,
         "Idempotency-Key": idempotencyKey,
         "Content-Type": "application/json",
+        ...(process.env.VERCEL_OIDC_TOKEN ? { "x-vercel-protection-bypass": process.env.VERCEL_OIDC_TOKEN } : {}),
+        ...(process.env.VERCEL_PROTECTION_BYPASS ? { "x-vercel-protection-bypass": process.env.VERCEL_PROTECTION_BYPASS } : {}),
       },
     });
 
