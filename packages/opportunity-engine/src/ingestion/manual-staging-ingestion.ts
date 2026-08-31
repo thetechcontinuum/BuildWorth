@@ -69,6 +69,48 @@ export async function executeManualStagingIngestion(
 
   logger.info("Initiating staging manual ingestion claim...", { idempotencyKey, workerId });
 
+  // 0. Ensure schema table exists
+  try {
+    await prisma.$executeRawUnsafe(`
+      DO $
+      BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'IngestionRunStatus') THEN
+              CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+          END IF;
+      END $;
+
+      CREATE TABLE IF NOT EXISTS "ingestion_runs" (
+          "id" TEXT NOT NULL,
+          "idempotency_key" TEXT NOT NULL,
+          "status" "IngestionRunStatus" NOT NULL DEFAULT 'PENDING',
+          "failure_code" TEXT,
+          "claim_token" TEXT,
+          "locked_by" TEXT,
+          "locked_at" TIMESTAMP(3),
+          "locked_until" TIMESTAMP(3),
+          "attempt_count" INTEGER NOT NULL DEFAULT 0,
+          "total_fetched" INTEGER NOT NULL DEFAULT 0,
+          "total_deduplicated" INTEGER NOT NULL DEFAULT 0,
+          "raw_signals_count" INTEGER NOT NULL DEFAULT 0,
+          "candidates_count" INTEGER NOT NULL DEFAULT 0,
+          "published_count" INTEGER NOT NULL DEFAULT 0,
+          "published_slugs" TEXT[] DEFAULT ARRAY[]::TEXT[],
+          "summary" JSONB,
+          "started_at" TIMESTAMP(3),
+          "completed_at" TIMESTAMP(3),
+          "failed_at" TIMESTAMP(3),
+          "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updated_at" TIMESTAMP(3) NOT NULL,
+
+          CONSTRAINT "ingestion_runs_pkey" PRIMARY KEY ("id")
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS "ingestion_runs_idempotency_key_key" ON "ingestion_runs"("idempotency_key");
+      CREATE INDEX IF NOT EXISTS "ingestion_runs_status_idx" ON "ingestion_runs"("status");
+      CREATE INDEX IF NOT EXISTS "ingestion_runs_locked_until_idx" ON "ingestion_runs"("locked_until");
+    `);
+  } catch {}
+
   // 1. Durable Claim / Acquire Lease
   let currentRun: any = null;
 
@@ -178,13 +220,35 @@ export async function executeManualStagingIngestion(
 
   try {
     // 2. Fetch Active Approved Sources
-    const activeSources = await prisma.source.findMany({
+    let activeSources = await prisma.source.findMany({
       where: {
         isEnabled: true,
         key: { in: ALLOWLISTED_SOURCE_KEYS },
       },
       take: maxSources,
     });
+
+    if (!activeSources || activeSources.length === 0) {
+      // Seed default approved staging sources if none exist
+      try {
+        await prisma.source.createMany({
+          data: [
+            { key: "hackernews", name: "Hacker News", isEnabled: true, permittedExcerptLength: 280, pollIntervalMinutes: 60 },
+            { key: "github", name: "GitHub Issues & PRs", isEnabled: true, permittedExcerptLength: 280, pollIntervalMinutes: 60 },
+            { key: "reddit", name: "Reddit Tech Communities", isEnabled: true, permittedExcerptLength: 280, pollIntervalMinutes: 60 },
+            { key: "producthunt", name: "Product Hunt Launches", isEnabled: true, permittedExcerptLength: 280, pollIntervalMinutes: 60 },
+          ],
+          skipDuplicates: true,
+        });
+        activeSources = await prisma.source.findMany({
+          where: {
+            isEnabled: true,
+            key: { in: ALLOWLISTED_SOURCE_KEYS },
+          },
+          take: maxSources,
+        });
+      } catch {}
+    }
 
     if (!activeSources || activeSources.length === 0) {
       logger.warn("No active approved sources found for staging manual ingestion.");
