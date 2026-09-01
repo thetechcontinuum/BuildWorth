@@ -607,8 +607,8 @@ export async function executeManualStagingIngestion(
         });
       }
 
-      const customerSegments: CustomerSegmentItem[] = blueprint.targetCustomerSegments.map((name, idx) => ({
-        id: "seg-" + opp.id + "-" + (idx + 1),
+      const customerSegments: CustomerSegmentItem[] = blueprint.targetCustomerSegments.map((name) => ({
+        id: "seg-" + crypto.randomUUID(),
         segmentName: name,
         industry: opp.industry,
         companySizeRange: "10-250 employees",
@@ -631,7 +631,7 @@ export async function executeManualStagingIngestion(
       }));
 
       const mvpFeatures: MvpFeatureItem[] = blueprint.narrowMvpScope.map((name, idx) => ({
-        id: "feat-" + opp.id + "-" + (idx + 1),
+        id: "feat-" + crypto.randomUUID(),
         featureName: name,
         description: name,
         category: "MUST_HAVE",
@@ -643,8 +643,8 @@ export async function executeManualStagingIngestion(
         orderIndex: idx,
       }));
 
-      const competitors: CompetitorItem[] = (blueprint.existingCompetitors || []).map((name, idx) => ({
-        id: "comp-" + opp.id + "-" + (idx + 1),
+      const competitors: CompetitorItem[] = (blueprint.existingCompetitors || []).map((name) => ({
+        id: "comp-" + crypto.randomUUID(),
         name,
         competitorType: "DIRECT",
         differentiationHypothesis: blueprint.competitorWeaknesses?.[0] || "Lightweight and automated",
@@ -657,7 +657,7 @@ export async function executeManualStagingIngestion(
 
       const costs: CostLineItemData[] = [
         {
-          id: "cost-" + opp.id + "-1",
+          id: "cost-" + crypto.randomUUID(),
           costType: "ONE_TIME_BUILD",
           category: "BACKEND_DEV",
           title: "MVP Engineering Build",
@@ -674,7 +674,7 @@ export async function executeManualStagingIngestion(
 
       const benefits: BenefitDriverData[] = [
         {
-          id: "ben-" + opp.id + "-1",
+          id: "ben-" + crypto.randomUUID(),
           category: "LABOR_TIME_SAVED",
           title: "Engineering Hours Saved",
           affectedRole: blueprint.endUser,
@@ -690,8 +690,8 @@ export async function executeManualStagingIngestion(
         },
       ];
 
-      const risks: RiskItem[] = (blueprint.majorRisks || []).map((desc, idx) => ({
-        id: "risk-" + opp.id + "-" + (idx + 1),
+      const risks: RiskItem[] = (blueprint.majorRisks || []).map((desc) => ({
+        id: "risk-" + crypto.randomUUID(),
         category: "TECHNICAL",
         severity: "MEDIUM",
         description: desc,
@@ -703,8 +703,8 @@ export async function executeManualStagingIngestion(
         evidenceLinkIds: [],
       }));
 
-      const assumptions: AssumptionItem[] = (blueprint.majorAssumptions || []).map((stmt, idx) => ({
-        id: "asm-" + opp.id + "-" + (idx + 1),
+      const assumptions: AssumptionItem[] = (blueprint.majorAssumptions || []).map((stmt) => ({
+        id: "asm-" + crypto.randomUUID(),
         category: "PROBLEM",
         statement: stmt,
         importanceScore: 4,
@@ -719,7 +719,7 @@ export async function executeManualStagingIngestion(
 
       const experiments: ValidationExperimentItem[] = [
         {
-          id: "exp-" + opp.id + "-1",
+          id: "exp-" + crypto.randomUUID(),
           hypothesis: blueprint.recommendedNextExperiment,
           experimentType: "PREORDER",
           targetParticipant: blueprint.economicBuyer,
