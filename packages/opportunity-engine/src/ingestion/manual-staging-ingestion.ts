@@ -110,83 +110,36 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
   for (const slug of syntheticSlugs) {
     const opp = await prisma.opportunity.findUnique({
       where: { slug },
-      include: {
-        revisions: {
-          include: {
-            blueprint: {
-              include: {
-                customerSegments: true,
-                mvpFeatures: true,
-                competitors: true,
-                costLineItems: true,
-                benefitDrivers: true,
-                risks: true,
-                assumptions: true,
-                validationExperiments: true,
-                financialScenarios: {
-                  include: {
-                    annualProjections: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        scorecards: true,
-        evidenceLinks: true,
-      },
-    });
+      select: { id: true },
+    }).catch(() => null);
 
     if (opp) {
-      for (const rev of opp.revisions) {
-        const bp = rev.blueprint;
-        if (bp) {
-          for (const fs of bp.financialScenarios || []) {
-            await prisma.scenarioAnnualProjection.deleteMany({
-              where: { scenarioId: fs.id },
-            }).catch(() => {});
-          }
-          await prisma.blueprintFinancialScenario.deleteMany({
-            where: { blueprintId: bp.id },
-          }).catch(() => {});
-          await prisma.blueprintCustomerSegment.deleteMany({
-            where: { blueprintId: bp.id },
-          }).catch(() => {});
-          await prisma.blueprintMvpFeature.deleteMany({
-            where: { blueprintId: bp.id },
-          }).catch(() => {});
-          await prisma.blueprintCompetitor.deleteMany({
-            where: { blueprintId: bp.id },
-          }).catch(() => {});
-          await prisma.blueprintCostLineItem.deleteMany({
-            where: { blueprintId: bp.id },
-          }).catch(() => {});
-          await prisma.blueprintBenefitDriver.deleteMany({
-            where: { blueprintId: bp.id },
-          }).catch(() => {});
-          await prisma.blueprintRiskItem.deleteMany({
-            where: { blueprintId: bp.id },
-          }).catch(() => {});
-          await prisma.blueprintAssumptionItem.deleteMany({
-            where: { blueprintId: bp.id },
-          }).catch(() => {});
-          await prisma.blueprintValidationExperiment.deleteMany({
-            where: { blueprintId: bp.id },
-          }).catch(() => {});
-          await prisma.opportunityBlueprint.delete({
-            where: { id: bp.id },
-          }).catch(() => {});
-        }
-        await prisma.opportunityRevision.delete({
-          where: { id: rev.id },
-        }).catch(() => {});
-      }
-
+      // Clean child entities
       await prisma.evidenceLink.deleteMany({
-        where: { opportunityId: opp.id },
+        where: { OR: [{ opportunityId: opp.id }, { opportunityRevision: { opportunityId: opp.id } }] },
+      }).catch(() => {});
+
+      await prisma.scoreDimension.deleteMany({
+        where: { scorecard: { opportunityId: opp.id } },
       }).catch(() => {});
 
       await prisma.scorecard.deleteMany({
+        where: { opportunityId: opp.id },
+      }).catch(() => {});
+
+      await prisma.savedOpportunity.deleteMany({
+        where: { opportunityId: opp.id },
+      }).catch(() => {});
+
+      await prisma.opportunityChangeEvent.deleteMany({
+        where: { opportunityId: opp.id },
+      }).catch(() => {});
+
+      await prisma.opportunityBlueprint.deleteMany({
+        where: { revision: { opportunityId: opp.id } },
+      }).catch(() => {});
+
+      await prisma.opportunityRevision.deleteMany({
         where: { opportunityId: opp.id },
       }).catch(() => {});
 
