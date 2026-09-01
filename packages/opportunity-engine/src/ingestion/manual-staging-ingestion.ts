@@ -44,6 +44,7 @@ export interface ManualIngestionRunResult {
   idempotencyKey: string;
   status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
   failureCode?: string | null;
+  errorMessage?: string | null;
   isExisting?: boolean;
   counters: {
     fetched: number;
@@ -530,7 +531,7 @@ export async function executeManualStagingIngestion(
                   contentHash,
                   publishedAt: raw.publishedAt || new Date(),
                   authorFingerprint: raw.authorFingerprint || null,
-                  fetchedAt: new Date(),
+                  createdAt: new Date(),
                 },
               });
               rawSignalsCount++;
@@ -600,10 +601,10 @@ export async function executeManualStagingIngestion(
         await prisma.sourceRun.update({
           where: { id: sourceRun.id },
           data: {
-            status: srcErrorMsg ? "FAILED" : "COMPLETED",
+            status: srcErrorMsg ? "FAILED" : "SUCCESS",
             errorMessage: srcErrorMsg,
-            completedAt: new Date(),
-            itemsExtracted: srcIngestedCount,
+            finishedAt: new Date(),
+            signalsIngested: srcIngestedCount,
           },
         });
       }
@@ -1069,6 +1070,7 @@ export async function executeManualStagingIngestion(
       idempotencyKey,
       status: "FAILED",
       failureCode: sanitizedCode,
+      errorMessage: msg,
       counters: {
         fetched: totalFetched,
         deduplicated: totalDeduplicated,
