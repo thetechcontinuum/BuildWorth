@@ -70,53 +70,67 @@ export async function executeManualStagingIngestion(
   logger.info("Initiating staging manual ingestion claim...", { idempotencyKey, workerId });
 
   // 0. Ensure schema table exists if permitted
+  let hasIngestionRunsTable = false;
   try {
-    await prisma.$executeRawUnsafe(`
-      DO $$
-      BEGIN
-        CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
-      EXCEPTION
-        WHEN duplicate_object THEN null;
-      END $$;
+    const check = await prisma.$queryRawUnsafe(`
+      SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ingestion_runs';
     `);
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "ingestion_runs" (
-          "id" TEXT NOT NULL,
-          "idempotencyKey" TEXT NOT NULL,
-          "status" "IngestionRunStatus" NOT NULL DEFAULT 'PENDING'::"IngestionRunStatus",
-          "failureCode" TEXT,
-          "claimToken" TEXT,
-          "lockedBy" TEXT,
-          "lockedAt" TIMESTAMP(3),
-          "lockedUntil" TIMESTAMP(3),
-          "attemptCount" INTEGER NOT NULL DEFAULT 0,
-          "totalFetched" INTEGER NOT NULL DEFAULT 0,
-          "totalDeduplicated" INTEGER NOT NULL DEFAULT 0,
-          "rawSignalsCount" INTEGER NOT NULL DEFAULT 0,
-          "candidatesCount" INTEGER NOT NULL DEFAULT 0,
-          "publishedCount" INTEGER NOT NULL DEFAULT 0,
-          "publishedSlugs" TEXT[] DEFAULT ARRAY[]::TEXT[],
-          "summary" JSONB,
-          "startedAt" TIMESTAMP(3),
-          "completedAt" TIMESTAMP(3),
-          "failedAt" TIMESTAMP(3),
-          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    hasIngestionRunsTable = Array.isArray(check) && check.length > 0;
+  } catch {
+    hasIngestionRunsTable = false;
+  }
 
-          CONSTRAINT "ingestion_runs_pkey" PRIMARY KEY ("id")
-      );
-    `);
-    await prisma.$executeRawUnsafe(`
-      CREATE UNIQUE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_key" ON "ingestion_runs"("idempotencyKey");
-    `);
-    await prisma.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "ingestion_runs_status_lockedUntil_idx" ON "ingestion_runs"("status", "lockedUntil");
-    `);
-    await prisma.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_idx" ON "ingestion_runs"("idempotencyKey");
-    `);
-  } catch (err: any) {
-    logger.info("Database DDL handled / using schema tables or audit log store", { message: err?.message });
+  if (!hasIngestionRunsTable) {
+    try {
+      await prisma.$executeRawUnsafe(`
+        DO $$
+        BEGIN
+          CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+        EXCEPTION
+          WHEN duplicate_object THEN null;
+        END $$;
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ingestion_runs" (
+            "id" TEXT NOT NULL,
+            "idempotencyKey" TEXT NOT NULL,
+            "status" "IngestionRunStatus" NOT NULL DEFAULT 'PENDING'::"IngestionRunStatus",
+            "failureCode" TEXT,
+            "claimToken" TEXT,
+            "lockedBy" TEXT,
+            "lockedAt" TIMESTAMP(3),
+            "lockedUntil" TIMESTAMP(3),
+            "attemptCount" INTEGER NOT NULL DEFAULT 0,
+            "totalFetched" INTEGER NOT NULL DEFAULT 0,
+            "totalDeduplicated" INTEGER NOT NULL DEFAULT 0,
+            "rawSignalsCount" INTEGER NOT NULL DEFAULT 0,
+            "candidatesCount" INTEGER NOT NULL DEFAULT 0,
+            "publishedCount" INTEGER NOT NULL DEFAULT 0,
+            "publishedSlugs" TEXT[] DEFAULT ARRAY[]::TEXT[],
+            "summary" JSONB,
+            "startedAt" TIMESTAMP(3),
+            "completedAt" TIMESTAMP(3),
+            "failedAt" TIMESTAMP(3),
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+            CONSTRAINT "ingestion_runs_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_key" ON "ingestion_runs"("idempotencyKey");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "ingestion_runs_status_lockedUntil_idx" ON "ingestion_runs"("status", "lockedUntil");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_idx" ON "ingestion_runs"("idempotencyKey");
+      `);
+      hasIngestionRunsTable = true;
+    } catch (err: any) {
+      logger.info("Database DDL handled / using audit_logs persistence store", { message: err?.message });
+      hasIngestionRunsTable = false;
+    }
   }
 
   // 1. Durable Claim / Acquire Lease
@@ -124,7 +138,7 @@ export async function executeManualStagingIngestion(
 
   try {
     currentRun = await prisma.$transaction(async (tx: any) => {
-      const existing = await dbFindRunByIdempotencyKey(tx, idempotencyKey);
+      const existing = await dbFindRunByIdempotencyKey(tx, idempotencyKey, hasIngestionRunsTable);
 
       if (existing) {
         if (existing.status === "COMPLETED" || existing.status === "FAILED") {
@@ -144,11 +158,11 @@ export async function executeManualStagingIngestion(
           lockedUntil,
           attemptCount: (existing.attemptCount || 0) + 1,
           startedAt: existing.startedAt || now,
-        });
+        }, hasIngestionRunsTable);
         return { run: reclaimed, isExisting: false, action: "RECLAIMED" };
       }
 
-      const activeOtherRun = await dbFindActiveProcessingRun(tx, now);
+      const activeOtherRun = await dbFindActiveProcessingRun(tx, now, hasIngestionRunsTable);
 
       if (activeOtherRun) {
         throw new Error("CONCURRENT_RUN_IN_PROGRESS");
@@ -163,7 +177,7 @@ export async function executeManualStagingIngestion(
         lockedUntil,
         attemptCount: 1,
         startedAt: now,
-      });
+      }, hasIngestionRunsTable);
       return { run: created, isExisting: false, action: "CREATED" };
     });
   } catch (err: any) {
@@ -248,7 +262,7 @@ export async function executeManualStagingIngestion(
 
     if (!activeSources || activeSources.length === 0) {
       logger.warn("No active approved sources found for staging manual ingestion.");
-      await markRunFailed(prisma, runId, claimToken, idempotencyKey, "NO_ACTIVE_SOURCES");
+      await markRunFailed(prisma, runId, claimToken, idempotencyKey, "NO_ACTIVE_SOURCES", hasIngestionRunsTable);
       return {
         runId,
         idempotencyKey,
@@ -427,7 +441,7 @@ export async function executeManualStagingIngestion(
       } catch (aiErr: any) {
         logger.error("AI step encountered error", aiErr);
         if (aiErr.message?.includes("not configured")) {
-          await markRunFailed(prisma, runId, claimToken, idempotencyKey, "AI_PROVIDER_NOT_CONFIGURED");
+          await markRunFailed(prisma, runId, claimToken, idempotencyKey, "AI_PROVIDER_NOT_CONFIGURED", hasIngestionRunsTable);
           return {
             runId,
             idempotencyKey,
@@ -718,7 +732,7 @@ export async function executeManualStagingIngestion(
         sourcesProcessed: activeSources.length,
         clustersDiscovered: clusters.length,
       },
-    });
+    }, hasIngestionRunsTable);
 
     if (completeRes.count === 0) {
       logger.warn("Stale worker rejection: lease for run " + runId + " was claimed by another worker.");
@@ -752,7 +766,7 @@ export async function executeManualStagingIngestion(
         ? "AI_OUTPUT_INVALID"
         : "EXECUTION_ERROR";
 
-    await markRunFailed(prisma, runId, claimToken, idempotencyKey, sanitizedCode);
+    await markRunFailed(prisma, runId, claimToken, idempotencyKey, sanitizedCode, hasIngestionRunsTable);
 
     return {
       runId,
@@ -779,6 +793,7 @@ async function markRunFailed(
   claimToken: string,
   idempotencyKey: string,
   failureCode: string,
+  hasIngestionRunsTable: boolean = false,
 ) {
   try {
     await dbUpdateRunStatus(prisma, runId, claimToken, idempotencyKey, {
@@ -787,19 +802,17 @@ async function markRunFailed(
       failureCode,
       claimToken: null,
       lockedUntil: null,
-    });
+    }, hasIngestionRunsTable);
   } catch {}
 }
 
-async function dbFindRunByIdempotencyKey(db: any, idempotencyKey: string): Promise<any> {
-  try {
-    if (db.ingestionRun?.findUnique) {
-      return await db.ingestionRun.findUnique({ where: { idempotencyKey } });
-    }
-  } catch (err: any) {
-    if (err?.code !== "P2021" && !err?.message?.includes("does not exist")) {
-      throw err;
-    }
+async function dbFindRunByIdempotencyKey(db: any, idempotencyKey: string, hasTable: boolean): Promise<any> {
+  if (hasTable) {
+    try {
+      if (db.ingestionRun?.findUnique) {
+        return await db.ingestionRun.findUnique({ where: { idempotencyKey } });
+      }
+    } catch {}
   }
 
   if (db.auditLog?.findFirst) {
@@ -814,20 +827,18 @@ async function dbFindRunByIdempotencyKey(db: any, idempotencyKey: string): Promi
   return null;
 }
 
-async function dbFindActiveProcessingRun(db: any, now: Date): Promise<any> {
-  try {
-    if (db.ingestionRun?.findFirst) {
-      return await db.ingestionRun.findFirst({
-        where: {
-          status: "PROCESSING",
-          lockedUntil: { gt: now },
-        },
-      });
-    }
-  } catch (err: any) {
-    if (err?.code !== "P2021" && !err?.message?.includes("does not exist")) {
-      throw err;
-    }
+async function dbFindActiveProcessingRun(db: any, now: Date, hasTable: boolean): Promise<any> {
+  if (hasTable) {
+    try {
+      if (db.ingestionRun?.findFirst) {
+        return await db.ingestionRun.findFirst({
+          where: {
+            status: "PROCESSING",
+            lockedUntil: { gt: now },
+          },
+        });
+      }
+    } catch {}
   }
 
   if (db.auditLog?.findMany) {
@@ -848,18 +859,16 @@ async function dbFindActiveProcessingRun(db: any, now: Date): Promise<any> {
   return null;
 }
 
-async function dbCreateRun(db: any, data: any): Promise<any> {
+async function dbCreateRun(db: any, data: any, hasTable: boolean): Promise<any> {
   const id = data.id || crypto.randomUUID();
   const runObj = { ...data, id, createdAt: new Date(), updatedAt: new Date() };
 
-  try {
-    if (db.ingestionRun?.create) {
-      return await db.ingestionRun.create({ data: runObj });
-    }
-  } catch (err: any) {
-    if (err?.code !== "P2021" && !err?.message?.includes("does not exist")) {
-      throw err;
-    }
+  if (hasTable) {
+    try {
+      if (db.ingestionRun?.create) {
+        return await db.ingestionRun.create({ data: runObj });
+      }
+    } catch {}
   }
 
   if (db.auditLog?.create) {
@@ -875,21 +884,19 @@ async function dbCreateRun(db: any, data: any): Promise<any> {
   return runObj;
 }
 
-async function dbUpdateRunById(db: any, id: string, idempotencyKey: string, data: any): Promise<any> {
-  try {
-    if (db.ingestionRun?.update) {
-      return await db.ingestionRun.update({
-        where: { id },
-        data,
-      });
-    }
-  } catch (err: any) {
-    if (err?.code !== "P2021" && !err?.message?.includes("does not exist")) {
-      throw err;
-    }
+async function dbUpdateRunById(db: any, id: string, idempotencyKey: string, data: any, hasTable: boolean): Promise<any> {
+  if (hasTable) {
+    try {
+      if (db.ingestionRun?.update) {
+        return await db.ingestionRun.update({
+          where: { id },
+          data,
+        });
+      }
+    } catch {}
   }
 
-  const existing = await dbFindRunByIdempotencyKey(db, idempotencyKey);
+  const existing = await dbFindRunByIdempotencyKey(db, idempotencyKey, hasTable);
   const updated = { ...(existing || {}), ...data, id, idempotencyKey, updatedAt: new Date() };
   const action =
     data.status === "COMPLETED"
@@ -917,22 +924,21 @@ async function dbUpdateRunStatus(
   claimToken: string,
   idempotencyKey: string,
   data: any,
+  hasTable: boolean,
 ): Promise<{ count: number }> {
-  try {
-    if (db.ingestionRun?.updateMany) {
-      const res = await db.ingestionRun.updateMany({
-        where: { id: runId, claimToken },
-        data,
-      });
-      if (res && res.count > 0) return res;
-    }
-  } catch (err: any) {
-    if (err?.code !== "P2021" && !err?.message?.includes("does not exist")) {
-      throw err;
-    }
+  if (hasTable) {
+    try {
+      if (db.ingestionRun?.updateMany) {
+        const res = await db.ingestionRun.updateMany({
+          where: { id: runId, claimToken },
+          data,
+        });
+        if (res && res.count > 0) return res;
+      }
+    } catch {}
   }
 
-  const existing = await dbFindRunByIdempotencyKey(db, idempotencyKey);
+  const existing = await dbFindRunByIdempotencyKey(db, idempotencyKey, hasTable);
   const updated = { ...(existing || {}), ...data, id: runId, claimToken, idempotencyKey, updatedAt: new Date() };
   const action =
     data.status === "COMPLETED"
