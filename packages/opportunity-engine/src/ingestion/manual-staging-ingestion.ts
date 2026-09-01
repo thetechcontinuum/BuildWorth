@@ -72,44 +72,57 @@ export async function executeManualStagingIngestion(
   // 0. Ensure schema table exists
   try {
     await prisma.$executeRawUnsafe(`
-      DO $
+      DO $$
       BEGIN
           IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'IngestionRunStatus') THEN
               CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
           END IF;
-      END $;
+      END $$;
+    `);
+  } catch (err: any) {
+    logger.warn("Could not create IngestionRunStatus enum", { error: err.message });
+  }
 
+  try {
+    await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "ingestion_runs" (
           "id" TEXT NOT NULL,
-          "idempotency_key" TEXT NOT NULL,
+          "idempotencyKey" TEXT NOT NULL,
           "status" "IngestionRunStatus" NOT NULL DEFAULT 'PENDING',
-          "failure_code" TEXT,
-          "claim_token" TEXT,
-          "locked_by" TEXT,
-          "locked_at" TIMESTAMP(3),
-          "locked_until" TIMESTAMP(3),
-          "attempt_count" INTEGER NOT NULL DEFAULT 0,
-          "total_fetched" INTEGER NOT NULL DEFAULT 0,
-          "total_deduplicated" INTEGER NOT NULL DEFAULT 0,
-          "raw_signals_count" INTEGER NOT NULL DEFAULT 0,
-          "candidates_count" INTEGER NOT NULL DEFAULT 0,
-          "published_count" INTEGER NOT NULL DEFAULT 0,
-          "published_slugs" TEXT[] DEFAULT ARRAY[]::TEXT[],
+          "failureCode" TEXT,
+          "claimToken" TEXT,
+          "lockedBy" TEXT,
+          "lockedAt" TIMESTAMP(3),
+          "lockedUntil" TIMESTAMP(3),
+          "attemptCount" INTEGER NOT NULL DEFAULT 0,
+          "totalFetched" INTEGER NOT NULL DEFAULT 0,
+          "totalDeduplicated" INTEGER NOT NULL DEFAULT 0,
+          "rawSignalsCount" INTEGER NOT NULL DEFAULT 0,
+          "candidatesCount" INTEGER NOT NULL DEFAULT 0,
+          "publishedCount" INTEGER NOT NULL DEFAULT 0,
+          "publishedSlugs" TEXT[] DEFAULT ARRAY[]::TEXT[],
           "summary" JSONB,
-          "started_at" TIMESTAMP(3),
-          "completed_at" TIMESTAMP(3),
-          "failed_at" TIMESTAMP(3),
-          "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updated_at" TIMESTAMP(3) NOT NULL,
+          "startedAt" TIMESTAMP(3),
+          "completedAt" TIMESTAMP(3),
+          "failedAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
           CONSTRAINT "ingestion_runs_pkey" PRIMARY KEY ("id")
       );
-
-      CREATE UNIQUE INDEX IF NOT EXISTS "ingestion_runs_idempotency_key_key" ON "ingestion_runs"("idempotency_key");
-      CREATE INDEX IF NOT EXISTS "ingestion_runs_status_idx" ON "ingestion_runs"("status");
-      CREATE INDEX IF NOT EXISTS "ingestion_runs_locked_until_idx" ON "ingestion_runs"("locked_until");
     `);
-  } catch {}
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_key" ON "ingestion_runs"("idempotencyKey");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "ingestion_runs_status_lockedUntil_idx" ON "ingestion_runs"("status", "lockedUntil");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_idx" ON "ingestion_runs"("idempotencyKey");
+    `);
+  } catch (err: any) {
+    logger.warn("Could not create ingestion_runs table", { error: err.message });
+  }
 
   // 1. Durable Claim / Acquire Lease
   let currentRun: any = null;
