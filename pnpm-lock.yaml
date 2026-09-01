@@ -145,6 +145,9 @@ importers:
       '@buildworth/validation':
         specifier: workspace:*
         version: link:../../packages/validation
+      '@prisma/client':
+        specifier: ^5.16.1
+        version: 5.22.0(prisma@5.22.0)
       clsx:
         specifier: ^2.1.1
         version: 2.1.1

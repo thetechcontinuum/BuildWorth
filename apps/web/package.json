@@ -30,7 +30,8 @@
     "@buildworth/billing": "workspace:*",
     "@buildworth/entitlements": "workspace:*",
     "@buildworth/opportunity-engine": "workspace:*",
-    "@buildworth/source-connectors": "workspace:*"
+    "@buildworth/source-connectors": "workspace:*",
+    "@prisma/client": "^5.16.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",

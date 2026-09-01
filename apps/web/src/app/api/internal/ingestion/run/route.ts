@@ -55,7 +55,7 @@ function checkAuthorization(request: NextRequest): { authorized: boolean; reason
   return { authorized: true };
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   const auth = checkAuthorization(request);
   if (!auth.authorized) {
     if (auth.reason === "PRODUCTION_REJECTED") {

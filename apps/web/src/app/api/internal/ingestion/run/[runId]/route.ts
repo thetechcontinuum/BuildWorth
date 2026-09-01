@@ -52,7 +52,7 @@ function checkAuthorization(request: NextRequest): { authorized: boolean; reason
 export async function GET(
   request: NextRequest,
   { params }: { params: { runId: string } },
-) {
+): Promise<NextResponse> {
   const auth = checkAuthorization(request);
   if (!auth.authorized) {
     if (auth.reason === "PRODUCTION_REJECTED") {
