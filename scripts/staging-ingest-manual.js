@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-
+// BuildWorth Manual Staging Ingestion CLI v2.1.0
 const crypto = require("crypto");
 const readline = require("readline");
 
