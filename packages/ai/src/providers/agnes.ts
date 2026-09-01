@@ -40,32 +40,41 @@ export class AgnesAIProvider implements LLMProvider {
 
     logger.info(`Calling Agnes AI (${this.baseUrl}) model: ${model}`, { purpose });
 
-    // When API key is not yet configured, provide graceful deterministic structured data
+    // When API key is not configured, throw AI_PROVIDER_NOT_CONFIGURED
     if (!this.apiKey || this.apiKey.trim() === "") {
-      logger.warn(
-        "Agnes AI API Key not configured. Using deterministic offline fallback response.",
-      );
-      return this.generateFallbackStructured(messages, schema, model, purpose);
+      logger.warn("Agnes AI API Key not configured.");
+      throw new Error("AI_PROVIDER_NOT_CONFIGURED");
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: options?.temperature ?? 0.1,
-          max_tokens: options?.maxTokens ?? 2000,
-          response_format: { type: "json_object" },
-        }),
-      });
+      let response: Response;
+      try {
+        response = await fetch(`${this.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            temperature: options?.temperature ?? 0.1,
+            max_tokens: options?.maxTokens ?? 2000,
+            response_format: { type: "json_object" },
+          }),
+        });
+      } catch (netErr: any) {
+        throw new Error(`AI_PROVIDER_UNAVAILABLE: ${netErr.message}`);
+      }
 
       if (!response.ok) {
-        throw new Error(`Agnes AI API error ${response.status}: ${await response.text()}`);
+        if (response.status === 401 || response.status === 403) {
+          throw new Error("AI_PROVIDER_NOT_CONFIGURED: Invalid API key");
+        }
+        if (response.status === 429 || response.status >= 500) {
+          throw new Error(`AI_PROVIDER_UNAVAILABLE: HTTP ${response.status}`);
+        }
+        throw new Error(`AI_PROVIDER_UNAVAILABLE: HTTP ${response.status}`);
       }
 
       const json = (await response.json()) as {
@@ -73,8 +82,20 @@ export class AgnesAIProvider implements LLMProvider {
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
       const rawContent = json.choices?.[0]?.message?.content || "{}";
-      const parsedJson = JSON.parse(rawContent);
-      const data = schema.parse(parsedJson);
+      
+      let parsedJson: unknown;
+      try {
+        parsedJson = JSON.parse(rawContent);
+      } catch {
+        throw new Error("AI_OUTPUT_INVALID: JSON parse error");
+      }
+
+      let data: T;
+      try {
+        data = schema.parse(parsedJson);
+      } catch (parseErr: any) {
+        throw new Error(`AI_OUTPUT_INVALID: ${parseErr.message}`);
+      }
 
       const promptTokens = json.usage?.prompt_tokens || 100;
       const completionTokens = json.usage?.completion_tokens || 100;
@@ -97,12 +118,16 @@ export class AgnesAIProvider implements LLMProvider {
         costMinorUnits: costCents,
         model,
       };
-    } catch (err) {
-      logger.error(
-        "Agnes AI request failed, falling back to deterministic response",
-        err instanceof Error ? err : new Error(String(err)),
-      );
-      return this.generateFallbackStructured(messages, schema, model, purpose);
+    } catch (err: any) {
+      const msg = err.message || "";
+      if (
+        msg.startsWith("AI_PROVIDER_NOT_CONFIGURED") ||
+        msg.startsWith("AI_PROVIDER_UNAVAILABLE") ||
+        msg.startsWith("AI_OUTPUT_INVALID")
+      ) {
+        throw err;
+      }
+      throw new Error(`AI_PROVIDER_UNAVAILABLE: ${msg}`);
     }
   }
 
@@ -179,64 +204,6 @@ export class AgnesAIProvider implements LLMProvider {
     }
   }
 
-  private generateFallbackStructured<T>(
-    messages: ChatMessage[],
-    schema: z.ZodSchema<T>,
-    model: string,
-    purpose: string,
-  ): StructuredCompletionResult<T> {
-    const userMsg = messages.find((m) => m.role === "user")?.content || "";
-    let mockData: unknown;
-
-    if (userMsg.includes("Classify this signal") || purpose.includes("classification")) {
-      let signalType = "PAIN_COMPLAINT";
-      if (userMsg.toLowerCase().includes("would pay") || userMsg.toLowerCase().includes("budget")) {
-        signalType = "PURCHASE_INTENT";
-      } else if (
-        userMsg.toLowerCase().includes("workaround") ||
-        userMsg.toLowerCase().includes("csv")
-      ) {
-        signalType = "WORKAROUND_REQUEST";
-      }
-
-      mockData = {
-        signalType,
-        confidenceScore: 85,
-      };
-    } else {
-      mockData = {
-        signalType: "PAIN_COMPLAINT",
-        sanitizedExcerpt: "Extracted workflow friction excerpt.",
-        problemSummary: "Manual reconciliation process causing recurring quarterly delays.",
-        actorRole: "DevOps Engineer / Platform Lead",
-        workflowContext: "Continuous Integration & Cloud Compliance",
-        severityScore: 4,
-        frequencyScore: 4,
-        intentToPayScore: 3,
-        extractedEntities: ["Vercel", "GitHub Actions", "SOC2"],
-        confidenceScore: 88,
-      };
-    }
-
-    const costCents = 1;
-    aiSpendLedger.recordSpend({
-      model,
-      promptTokens: 120,
-      completionTokens: 85,
-      costMinorUnits: costCents,
-      purpose,
-      timestamp: new Date(),
-    });
-
-    return {
-      data: schema.parse(mockData),
-      rawResponse: JSON.stringify(mockData),
-      promptTokens: 120,
-      completionTokens: 85,
-      costMinorUnits: costCents,
-      model,
-    };
-  }
 
   private deterministicEmbedding(text: string, dims = 64): number[] {
     const vector = new Array(dims).fill(0);

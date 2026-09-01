@@ -220,7 +220,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         run: result,
       },
       {
-        status: result.status === "COMPLETED" ? 200 : 500,
+        status: 200,
         headers: NO_CACHE_HEADERS,
       },
     );
