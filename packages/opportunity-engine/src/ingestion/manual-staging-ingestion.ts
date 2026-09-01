@@ -256,13 +256,9 @@ export async function executeManualStagingIngestion(
   // 0. Ensure durable ingestion_runs table exists in target database
   try {
     await prisma.$executeRawUnsafe(`
-      DO $$
-      BEGIN
-        CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
-      EXCEPTION
-        WHEN duplicate_object THEN null;
-      END $$;
-    `);
+      CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+    `).catch(() => {});
+
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "ingestion_runs" (
           "id" TEXT NOT NULL,
@@ -288,16 +284,19 @@ export async function executeManualStagingIngestion(
           "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           CONSTRAINT "ingestion_runs_pkey" PRIMARY KEY ("id")
       );
-    `);
+    `).catch((err: any) => logger.warn("Table create warning", { err: err?.message }));
+
     await prisma.$executeRawUnsafe(`
       CREATE UNIQUE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_key" ON "ingestion_runs"("idempotencyKey");
-    `);
+    `).catch(() => {});
+
     await prisma.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "ingestion_runs_status_lockedUntil_idx" ON "ingestion_runs"("status", "lockedUntil");
-    `);
+    `).catch(() => {});
+
     await prisma.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_idx" ON "ingestion_runs"("idempotencyKey");
-    `);
+    `).catch(() => {});
   } catch (ddlErr: any) {
     logger.info("ingestion_runs table check/bootstrap", { message: ddlErr?.message });
   }
