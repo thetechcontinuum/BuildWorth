@@ -241,15 +241,69 @@ export async function executeManualStagingIngestion(
     if (!activeSources || activeSources.length === 0) {
       // Seed default approved staging sources if none exist
       try {
-        await prisma.source.createMany({
-          data: [
-            { key: "hackernews", name: "Hacker News", isEnabled: true, permittedExcerptLength: 280, pollIntervalMinutes: 60 },
-            { key: "github", name: "GitHub Issues & PRs", isEnabled: true, permittedExcerptLength: 280, pollIntervalMinutes: 60 },
-            { key: "reddit", name: "Reddit Tech Communities", isEnabled: true, permittedExcerptLength: 280, pollIntervalMinutes: 60 },
-            { key: "producthunt", name: "Product Hunt Launches", isEnabled: true, permittedExcerptLength: 280, pollIntervalMinutes: 60 },
-          ],
-          skipDuplicates: true,
-        });
+        const defaultSources = [
+          {
+            key: "hackernews",
+            name: "Hacker News",
+            description: "Hacker News community submissions and comments",
+            adapterType: "REST",
+            accessMethod: "PUBLIC_API",
+            sourceFamily: "COMMUNITY",
+            policyStatus: "APPROVED" as any,
+            credibilityTier: "TIER_1" as any,
+            isEnabled: true,
+            permittedExcerptLength: 280,
+            rateLimitPerMinute: 60,
+          },
+          {
+            key: "github",
+            name: "GitHub Issues & PRs",
+            description: "Public developer issues and pull requests",
+            adapterType: "REST",
+            accessMethod: "PUBLIC_API",
+            sourceFamily: "COMMUNITY",
+            policyStatus: "APPROVED" as any,
+            credibilityTier: "TIER_1" as any,
+            isEnabled: true,
+            permittedExcerptLength: 280,
+            rateLimitPerMinute: 60,
+          },
+          {
+            key: "reddit",
+            name: "Reddit Tech Communities",
+            description: "Reddit public technology discussions",
+            adapterType: "REST",
+            accessMethod: "PUBLIC_API",
+            sourceFamily: "COMMUNITY",
+            policyStatus: "APPROVED" as any,
+            credibilityTier: "TIER_2" as any,
+            isEnabled: true,
+            permittedExcerptLength: 280,
+            rateLimitPerMinute: 60,
+          },
+          {
+            key: "producthunt",
+            name: "Product Hunt Launches",
+            description: "Product Hunt product launches and maker comments",
+            adapterType: "REST",
+            accessMethod: "PUBLIC_API",
+            sourceFamily: "COMMUNITY",
+            policyStatus: "APPROVED" as any,
+            credibilityTier: "TIER_2" as any,
+            isEnabled: true,
+            permittedExcerptLength: 280,
+            rateLimitPerMinute: 60,
+          },
+        ];
+
+        for (const src of defaultSources) {
+          await prisma.source.upsert({
+            where: { key: src.key },
+            update: { isEnabled: true, policyStatus: "APPROVED" as any },
+            create: src,
+          });
+        }
+
         activeSources = await prisma.source.findMany({
           where: {
             isEnabled: true,
@@ -257,7 +311,9 @@ export async function executeManualStagingIngestion(
           },
           take: maxSources,
         });
-      } catch {}
+      } catch (seedErr: any) {
+        logger.warn("Could not seed default staging sources", { error: seedErr?.message });
+      }
     }
 
     if (!activeSources || activeSources.length === 0) {
