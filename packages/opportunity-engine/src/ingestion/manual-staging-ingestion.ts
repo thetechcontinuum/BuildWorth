@@ -113,7 +113,7 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
       include: {
         revisions: {
           include: {
-            blueprints: {
+            blueprint: {
               include: {
                 customerSegments: true,
                 mvpFeatures: true,
@@ -139,8 +139,9 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
 
     if (opp) {
       for (const rev of opp.revisions) {
-        for (const bp of rev.blueprints) {
-          for (const fs of bp.financialScenarios) {
+        const bp = rev.blueprint;
+        if (bp) {
+          for (const fs of bp.financialScenarios || []) {
             await prisma.scenarioAnnualProjection.deleteMany({
               where: { scenarioId: fs.id },
             }).catch(() => {});
