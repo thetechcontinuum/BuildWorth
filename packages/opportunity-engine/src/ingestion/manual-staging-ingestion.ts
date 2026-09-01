@@ -74,13 +74,13 @@ export async function executeManualStagingIngestion(
     await prisma.$executeRawUnsafe(`
       DO $$
       BEGIN
-          IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'IngestionRunStatus') THEN
-              CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
-          END IF;
+        CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+      EXCEPTION
+        WHEN duplicate_object THEN null;
       END $$;
     `);
   } catch (err: any) {
-    logger.warn("Could not create IngestionRunStatus enum", { error: err.message });
+    logger.warn("IngestionRunStatus enum check", { error: err?.message });
   }
 
   try {
@@ -88,7 +88,7 @@ export async function executeManualStagingIngestion(
       CREATE TABLE IF NOT EXISTS "ingestion_runs" (
           "id" TEXT NOT NULL,
           "idempotencyKey" TEXT NOT NULL,
-          "status" "IngestionRunStatus" NOT NULL DEFAULT 'PENDING',
+          "status" "IngestionRunStatus" NOT NULL DEFAULT 'PENDING'::"IngestionRunStatus",
           "failureCode" TEXT,
           "claimToken" TEXT,
           "lockedBy" TEXT,
@@ -121,7 +121,8 @@ export async function executeManualStagingIngestion(
       CREATE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_idx" ON "ingestion_runs"("idempotencyKey");
     `);
   } catch (err: any) {
-    logger.warn("Could not create ingestion_runs table", { error: err.message });
+    logger.error("Failed to create ingestion_runs table", err instanceof Error ? err : new Error(String(err)));
+    throw new Error(`Failed to ensure ingestion_runs table in staging database: ${err?.message}`);
   }
 
   // 1. Durable Claim / Acquire Lease
