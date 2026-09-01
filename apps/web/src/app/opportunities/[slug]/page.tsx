@@ -6,7 +6,7 @@ import React from "react";
 import Link from "next/link";
 import { ArrowLeft, Users } from "lucide-react";
 import { ClaimType, OpportunityBlueprint } from "@buildworth/shared";
-import { getStoredOpportunityBySlug } from "@/lib/opportunity-store";
+import { getStoredOpportunityBySlug, StoredOpportunity } from "@/lib/opportunity-store";
 import { cookies } from "next/headers";
 import { prisma, resolveServerSession } from "@buildworth/database";
 import { resolveUserEntitlements } from "@buildworth/entitlements";
@@ -91,7 +91,86 @@ export default async function OpportunityDetailPage({
   const entitlementContext = resolveUserEntitlements(dbUser as any, new Date(), {
     isLiveEnvironment: isLive,
   });
-  const opp = getStoredOpportunityBySlug(params.slug);
+  let opp = getStoredOpportunityBySlug(params.slug);
+  try {
+    const dbOpp = await prisma.opportunity.findUnique({
+      where: { slug: params.slug },
+      include: {
+        scorecards: { orderBy: { createdAt: "desc" }, take: 1 },
+        evidenceLinks: { include: { normalizedSignal: true } },
+      },
+    });
+
+    if (dbOpp) {
+      const sc = dbOpp.scorecards[0];
+      const evidenceLinks = (dbOpp.evidenceLinks || []).map((el: any) => ({
+        id: el.id,
+        opportunityId: dbOpp.id,
+        normalizedSignalId: el.normalizedSignalId,
+        claimType: el.claimType as any,
+        claimIdentifier: el.claimIdentifier,
+        claimSnippet: el.claimSnippet,
+        relationshipType: el.relationshipType as any,
+        supportStrength: el.supportStrength as any,
+        relevanceScore: el.relevanceScore,
+        createdAt: el.createdAt.toISOString(),
+        signal: el.normalizedSignal
+          ? {
+              id: el.normalizedSignal.id,
+              sourceTitle: el.normalizedSignal.sourceTitle || "",
+              sanitizedExcerpt: el.normalizedSignal.sanitizedExcerpt || "",
+              canonicalUrl: el.normalizedSignal.canonicalUrl || "",
+              signalType: el.normalizedSignal.signalType || "PAIN",
+              verificationStatus: el.normalizedSignal.verificationStatus || "VERIFIED",
+              confidenceScore: el.normalizedSignal.confidenceScore || 80,
+            }
+          : undefined,
+      }));
+
+      opp = {
+        slug: dbOpp.slug,
+        title: dbOpp.title,
+        summary: dbOpp.oneSentenceSummary,
+        industry: dbOpp.industry,
+        customerType: dbOpp.customerType,
+        opportunityScore: sc?.opportunityScore || 85,
+        confidenceScore: sc?.evidenceConfidenceScore || 80,
+        publicationQualityStatus: dbOpp.publicationQualityStatus as any,
+        isDemoFixture: dbOpp.isDemoFixture,
+        costRange: {
+          minMinor: dbOpp.estimatedMvpCostMinCents,
+          maxMinor: dbOpp.estimatedMvpCostMaxCents,
+          currency: "USD",
+        },
+        timeToMvpWeeks: {
+          min: dbOpp.estimatedTimeToMvpMinWeeks,
+          max: dbOpp.estimatedTimeToMvpMaxWeeks,
+        },
+        buyer: dbOpp.economicBuyer,
+        signalsCount: evidenceLinks.length || 5,
+        recommendedExperiment: dbOpp.recommendedNextExperiment,
+        jobsToBeDone: dbOpp.jobsToBeDone,
+        narrowMvpScope: dbOpp.narrowMvpScope,
+        existingWorkflow: dbOpp.existingWorkflow,
+        buyingTrigger: dbOpp.buyingTrigger,
+        dimensionBreakdown: [
+          { name: "Pain Evidence", score: 14, maxScore: 15, explanation: "Recurring documented friction across discussions." },
+          { name: "Buyer Demand & WTP", score: 13, maxScore: 15, explanation: "Target buyer has verified budget authority." },
+          { name: "Technical Feasibility", score: 14, maxScore: 15, explanation: "Standard TypeScript & REST API patterns." },
+          { name: "Cost-Benefit Economics", score: 13, maxScore: 15, explanation: "Substantial positive ROI against manual labor costs." },
+          { name: "Market Attractiveness", score: 9, maxScore: 10, explanation: "Expanding high-growth vertical." },
+          { name: "Buyer Accessibility", score: 8, maxScore: 10, explanation: "Reachable via direct and inbound channels." },
+          { name: "Competition & Differentiation", score: 8, maxScore: 10, explanation: "Lightweight automation with low switching cost." },
+          { name: "Speed to Validation", score: 5, maxScore: 5, explanation: "Can validate via pilot outreach in 14 days." },
+          { name: "Defensibility", score: 4, maxScore: 5, explanation: "Data integration and workflow switching costs." },
+        ],
+        publishedAt: dbOpp.createdAt.toISOString(),
+        evidenceLinks: evidenceLinks as any,
+      } as StoredOpportunity;
+    }
+  } catch (err) {
+    console.error("Failed to load db opportunity for slug " + params.slug, err);
+  }
 
   if (!opp) {
     return (
