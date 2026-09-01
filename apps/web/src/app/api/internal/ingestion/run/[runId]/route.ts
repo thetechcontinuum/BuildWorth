@@ -72,9 +72,33 @@ export async function GET(
     return NextResponse.json({ error: "Missing runId parameter" }, { status: 400, headers: NO_CACHE_HEADERS });
   }
 
-  const run = await prisma.ingestionRun.findUnique({
-    where: { id: runId },
-  });
+  let run: any = null;
+  try {
+    run = await prisma.ingestionRun.findUnique({
+      where: { id: runId },
+    });
+  } catch (err: any) {
+    if (err?.code !== "P2021" && !err?.message?.includes("does not exist")) {
+      throw err;
+    }
+  }
+
+  if (!run) {
+    try {
+      const logs = await prisma.auditLog.findMany({
+        where: { entityType: "IngestionRun" },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      });
+      for (const log of logs) {
+        const details = log.details as any;
+        if (details?.id === runId || details?.idempotencyKey === runId) {
+          run = details;
+          break;
+        }
+      }
+    } catch {}
+  }
 
   if (!run) {
     return NextResponse.json({ error: "Ingestion run not found" }, { status: 404, headers: NO_CACHE_HEADERS });
