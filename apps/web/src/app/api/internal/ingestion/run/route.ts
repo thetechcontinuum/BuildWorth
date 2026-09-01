@@ -81,6 +81,49 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   logger.info("Executing staging manual ingestion endpoint", { idempotencyKey });
 
+  // Direct table bootstrap on Staging DB
+  try {
+    await prisma.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'IngestionRunStatus') THEN
+          CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+        END IF;
+      END$$;
+    `).catch(() => {});
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "ingestion_runs" (
+          "id" TEXT NOT NULL,
+          "idempotencyKey" TEXT NOT NULL,
+          "status" "IngestionRunStatus" NOT NULL DEFAULT 'PENDING'::"IngestionRunStatus",
+          "failureCode" TEXT,
+          "claimToken" TEXT,
+          "lockedBy" TEXT,
+          "lockedAt" TIMESTAMP(3),
+          "lockedUntil" TIMESTAMP(3),
+          "attemptCount" INTEGER NOT NULL DEFAULT 0,
+          "totalFetched" INTEGER NOT NULL DEFAULT 0,
+          "totalDeduplicated" INTEGER NOT NULL DEFAULT 0,
+          "rawSignalsCount" INTEGER NOT NULL DEFAULT 0,
+          "candidatesCount" INTEGER NOT NULL DEFAULT 0,
+          "publishedCount" INTEGER NOT NULL DEFAULT 0,
+          "publishedSlugs" TEXT[] DEFAULT ARRAY[]::TEXT[],
+          "summary" JSONB,
+          "startedAt" TIMESTAMP(3),
+          "completedAt" TIMESTAMP(3),
+          "failedAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "ingestion_runs_pkey" PRIMARY KEY ("id")
+      );
+    `).catch(() => {});
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_key" ON "ingestion_runs"("idempotencyKey");
+    `).catch(() => {});
+  } catch (err: any) {
+    logger.warn("Route bootstrap error", { message: err?.message });
+  }
+
   // Parse request body for options
   let cleanSyntheticPrior = false;
   try {
