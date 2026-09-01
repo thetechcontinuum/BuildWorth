@@ -126,6 +126,25 @@ function createMockPrisma() {
         if (take) list = list.slice(0, take);
         return list;
       },
+      findFirst: async ({ where }: any) => {
+        return store.normalizedSignals.find((n) => {
+          if (where.rawSignalId && n.rawSignalId !== where.rawSignalId) return false;
+          return true;
+        }) || null;
+      },
+      findUnique: async ({ where, include }: any) => {
+        const item = store.normalizedSignals.find((n) => n.id === where.id);
+        if (!item) return null;
+        if (include?.rawSignal) {
+          const raw = store.rawSignals.find((r) => r.id === item.rawSignalId);
+          const src = raw ? store.sources.find((s) => s.id === raw.sourceId) : null;
+          return {
+            ...item,
+            rawSignal: raw ? { ...raw, source: src } : null,
+          };
+        }
+        return item;
+      },
       create: async ({ data }: any) => {
         const rec = { id: "norm-" + (store.normalizedSignals.length + 1), ...data };
         store.normalizedSignals.push(rec);

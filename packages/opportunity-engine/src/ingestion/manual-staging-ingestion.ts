@@ -1,8 +1,23 @@
 import crypto from "crypto";
-import { sourceRegistry, sanitizeRawContent, deriveIndependenceKey, computeContentHash, canonicalizeUrl } from "@buildworth/source-connectors";
+import {
+  sourceRegistry,
+  sanitizeRawContent,
+  deriveIndependenceKey,
+  computeContentHash,
+  canonicalizeUrl,
+} from "@buildworth/source-connectors";
 import { defaultAI } from "@buildworth/ai";
 import type { LLMProvider } from "@buildworth/ai";
-import type { CustomerSegmentItem, MvpFeatureItem, CompetitorItem, CostLineItemData, BenefitDriverData, RiskItem, AssumptionItem, ValidationExperimentItem } from "@buildworth/shared";
+import type {
+  CustomerSegmentItem,
+  MvpFeatureItem,
+  CompetitorItem,
+  CostLineItemData,
+  BenefitDriverData,
+  RiskItem,
+  AssumptionItem,
+  ValidationExperimentItem,
+} from "@buildworth/shared";
 import { classifySignal } from "../classifier.js";
 import { extractSignalIntelligence } from "../extractor.js";
 import { clusterSignals, ClusterCandidate } from "../clustering/cluster-manager.js";
@@ -21,6 +36,7 @@ export interface ManualIngestionOptions {
   maxPublishedOpportunities?: number;
   aiProvider?: LLMProvider;
   executionTimeoutMs?: number;
+  cleanSyntheticPrior?: boolean;
 }
 
 export interface ManualIngestionRunResult {
@@ -45,6 +61,173 @@ export interface ManualIngestionRunResult {
 
 const ALLOWLISTED_SOURCE_KEYS = ["hackernews", "reddit", "github", "producthunt"];
 
+export function formatMeaningfulTitle(text: string, maxLen = 75): string {
+  const cleaned = text
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/^Ask HN:\s*/i, "")
+    .replace(/^Feature Request:\s*/i, "")
+    .replace(/[.]+$/, "")
+    .trim();
+
+  if (cleaned.length <= maxLen) return cleaned;
+
+  const sub = cleaned.slice(0, maxLen);
+  const lastSpace = sub.lastIndexOf(" ");
+  if (lastSpace > 20) {
+    return sub.slice(0, lastSpace).trim();
+  }
+  return sub.trim();
+}
+
+export function generateCollisionSafeSlug(title: string, nonce?: string): string {
+  let base = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!base) base = "opportunity";
+  if (nonce) {
+    base = `${base}-${nonce}`;
+  }
+  return base;
+}
+
+/**
+ * Cleans the previous synthetic staging opportunity and associated synthetic test records.
+ */
+export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
+  cleanedOpportunities: number;
+  cleanedRawSignals: number;
+  cleanedNormalizedSignals: number;
+}> {
+  const syntheticSlugs = [
+    "manual-reconciliation-process-causing-recurring-quarterly-de",
+  ];
+
+  let cleanedOpportunities = 0;
+  let cleanedRawSignals = 0;
+  let cleanedNormalizedSignals = 0;
+
+  for (const slug of syntheticSlugs) {
+    const opp = await prisma.opportunity.findUnique({
+      where: { slug },
+      include: {
+        revisions: {
+          include: {
+            blueprints: {
+              include: {
+                customerSegments: true,
+                mvpFeatures: true,
+                competitors: true,
+                costLineItems: true,
+                benefitDrivers: true,
+                risks: true,
+                assumptions: true,
+                validationExperiments: true,
+                financialScenarios: {
+                  include: {
+                    annualProjections: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        scorecards: true,
+        evidenceLinks: true,
+      },
+    });
+
+    if (opp) {
+      for (const rev of opp.revisions) {
+        for (const bp of rev.blueprints) {
+          for (const fs of bp.financialScenarios) {
+            await prisma.scenarioAnnualProjection.deleteMany({
+              where: { scenarioId: fs.id },
+            }).catch(() => {});
+          }
+          await prisma.blueprintFinancialScenario.deleteMany({
+            where: { blueprintId: bp.id },
+          }).catch(() => {});
+          await prisma.blueprintCustomerSegment.deleteMany({
+            where: { blueprintId: bp.id },
+          }).catch(() => {});
+          await prisma.blueprintMvpFeature.deleteMany({
+            where: { blueprintId: bp.id },
+          }).catch(() => {});
+          await prisma.blueprintCompetitor.deleteMany({
+            where: { blueprintId: bp.id },
+          }).catch(() => {});
+          await prisma.blueprintCostLineItem.deleteMany({
+            where: { blueprintId: bp.id },
+          }).catch(() => {});
+          await prisma.blueprintBenefitDriver.deleteMany({
+            where: { blueprintId: bp.id },
+          }).catch(() => {});
+          await prisma.blueprintRiskItem.deleteMany({
+            where: { blueprintId: bp.id },
+          }).catch(() => {});
+          await prisma.blueprintAssumptionItem.deleteMany({
+            where: { blueprintId: bp.id },
+          }).catch(() => {});
+          await prisma.blueprintValidationExperiment.deleteMany({
+            where: { blueprintId: bp.id },
+          }).catch(() => {});
+          await prisma.opportunityBlueprint.delete({
+            where: { id: bp.id },
+          }).catch(() => {});
+        }
+        await prisma.opportunityRevision.delete({
+          where: { id: rev.id },
+        }).catch(() => {});
+      }
+
+      await prisma.evidenceLink.deleteMany({
+        where: { opportunityId: opp.id },
+      }).catch(() => {});
+
+      await prisma.scorecard.deleteMany({
+        where: { opportunityId: opp.id },
+      }).catch(() => {});
+
+      await prisma.opportunity.delete({
+        where: { id: opp.id },
+      }).catch(() => {});
+
+      cleanedOpportunities++;
+    }
+  }
+
+  // Clean old test raw and normalized signals from synthetic probing
+  const testUrls = [
+    "https://news.ycombinator.com/item?id=38491021",
+    "https://news.ycombinator.com/item?id=39210044",
+    "https://reddit.com/r/devops/comments/1f92a10",
+    "https://github.com/example-org/devops-tools/issues/98214",
+    "https://producthunt.com/posts/example-devops-tool",
+  ];
+
+  for (const url of testUrls) {
+    const rawList = await prisma.rawSignal.findMany({
+      where: { sourceUrl: url },
+    });
+    for (const raw of rawList) {
+      await prisma.evidenceLink.deleteMany({
+        where: { normalizedSignal: { rawSignalId: raw.id } },
+      }).catch(() => {});
+      await prisma.normalizedSignal.deleteMany({
+        where: { rawSignalId: raw.id },
+      }).catch(() => {});
+      await prisma.rawSignal.delete({
+        where: { id: raw.id },
+      }).catch(() => {});
+      cleanedRawSignals++;
+      cleanedNormalizedSignals++;
+    }
+  }
+
+  return { cleanedOpportunities, cleanedRawSignals, cleanedNormalizedSignals };
+}
+
 export async function executeManualStagingIngestion(
   prisma: any,
   options: ManualIngestionOptions,
@@ -60,6 +243,7 @@ export async function executeManualStagingIngestion(
     maxPublishedOpportunities = 3,
     aiProvider = defaultAI,
     executionTimeoutMs = 45000,
+    cleanSyntheticPrior = false,
   } = options;
 
   const deadline = Date.now() + executionTimeoutMs;
@@ -69,76 +253,23 @@ export async function executeManualStagingIngestion(
 
   logger.info("Initiating staging manual ingestion claim...", { idempotencyKey, workerId });
 
-  // 0. Ensure schema table exists if permitted
-  let hasIngestionRunsTable = false;
-  try {
-    const check = await prisma.$queryRawUnsafe(`
-      SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ingestion_runs';
-    `);
-    hasIngestionRunsTable = Array.isArray(check) && check.length > 0;
-  } catch {
-    hasIngestionRunsTable = false;
-  }
-
-  if (!hasIngestionRunsTable) {
+  // Optional synthetic cleanup before fresh run
+  if (cleanSyntheticPrior) {
     try {
-      await prisma.$executeRawUnsafe(`
-        DO $$
-        BEGIN
-          CREATE TYPE "IngestionRunStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
-        EXCEPTION
-          WHEN duplicate_object THEN null;
-        END $$;
-      `);
-      await prisma.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "ingestion_runs" (
-            "id" TEXT NOT NULL,
-            "idempotencyKey" TEXT NOT NULL,
-            "status" "IngestionRunStatus" NOT NULL DEFAULT 'PENDING'::"IngestionRunStatus",
-            "failureCode" TEXT,
-            "claimToken" TEXT,
-            "lockedBy" TEXT,
-            "lockedAt" TIMESTAMP(3),
-            "lockedUntil" TIMESTAMP(3),
-            "attemptCount" INTEGER NOT NULL DEFAULT 0,
-            "totalFetched" INTEGER NOT NULL DEFAULT 0,
-            "totalDeduplicated" INTEGER NOT NULL DEFAULT 0,
-            "rawSignalsCount" INTEGER NOT NULL DEFAULT 0,
-            "candidatesCount" INTEGER NOT NULL DEFAULT 0,
-            "publishedCount" INTEGER NOT NULL DEFAULT 0,
-            "publishedSlugs" TEXT[] DEFAULT ARRAY[]::TEXT[],
-            "summary" JSONB,
-            "startedAt" TIMESTAMP(3),
-            "completedAt" TIMESTAMP(3),
-            "failedAt" TIMESTAMP(3),
-            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-            CONSTRAINT "ingestion_runs_pkey" PRIMARY KEY ("id")
-        );
-      `);
-      await prisma.$executeRawUnsafe(`
-        CREATE UNIQUE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_key" ON "ingestion_runs"("idempotencyKey");
-      `);
-      await prisma.$executeRawUnsafe(`
-        CREATE INDEX IF NOT EXISTS "ingestion_runs_status_lockedUntil_idx" ON "ingestion_runs"("status", "lockedUntil");
-      `);
-      await prisma.$executeRawUnsafe(`
-        CREATE INDEX IF NOT EXISTS "ingestion_runs_idempotencyKey_idx" ON "ingestion_runs"("idempotencyKey");
-      `);
-      hasIngestionRunsTable = true;
-    } catch (err: any) {
-      logger.info("Database DDL handled / using audit_logs persistence store", { message: err?.message });
-      hasIngestionRunsTable = false;
+      await cleanSyntheticStagingOpportunity(prisma);
+    } catch (cleanErr: any) {
+      logger.warn("Synthetic cleanup warning:", { error: cleanErr?.message });
     }
   }
 
-  // 1. Durable Claim / Acquire Lease
+  // 1. Durable IngestionRun Claim / Acquire Lease
   let currentRun: any = null;
 
   try {
     currentRun = await prisma.$transaction(async (tx: any) => {
-      const existing = await dbFindRunByIdempotencyKey(tx, idempotencyKey, hasIngestionRunsTable);
+      const existing = await tx.ingestionRun.findUnique({
+        where: { idempotencyKey },
+      });
 
       if (existing) {
         if (existing.status === "COMPLETED" || existing.status === "FAILED") {
@@ -150,34 +281,44 @@ export async function executeManualStagingIngestion(
           return { run: existing, isExisting: true, action: "IN_PROGRESS" };
         }
 
-        const reclaimed = await dbUpdateRunById(tx, existing.id, idempotencyKey, {
-          status: "PROCESSING",
-          claimToken,
-          lockedBy: workerId,
-          lockedAt: now,
-          lockedUntil,
-          attemptCount: (existing.attemptCount || 0) + 1,
-          startedAt: existing.startedAt || now,
-        }, hasIngestionRunsTable);
+        const reclaimed = await tx.ingestionRun.update({
+          where: { id: existing.id },
+          data: {
+            status: "PROCESSING",
+            claimToken,
+            lockedBy: workerId,
+            lockedAt: now,
+            lockedUntil,
+            attemptCount: { increment: 1 },
+            startedAt: existing.startedAt || now,
+          },
+        });
         return { run: reclaimed, isExisting: false, action: "RECLAIMED" };
       }
 
-      const activeOtherRun = await dbFindActiveProcessingRun(tx, now, hasIngestionRunsTable);
+      const activeOtherRun = await tx.ingestionRun.findFirst({
+        where: {
+          status: "PROCESSING",
+          lockedUntil: { gt: now },
+        },
+      });
 
       if (activeOtherRun) {
         throw new Error("CONCURRENT_RUN_IN_PROGRESS");
       }
 
-      const created = await dbCreateRun(tx, {
-        idempotencyKey,
-        status: "PROCESSING",
-        claimToken,
-        lockedBy: workerId,
-        lockedAt: now,
-        lockedUntil,
-        attemptCount: 1,
-        startedAt: now,
-      }, hasIngestionRunsTable);
+      const created = await tx.ingestionRun.create({
+        data: {
+          idempotencyKey,
+          status: "PROCESSING",
+          claimToken,
+          lockedBy: workerId,
+          lockedAt: now,
+          lockedUntil,
+          attemptCount: 1,
+          startedAt: now,
+        },
+      });
       return { run: created, isExisting: false, action: "CREATED" };
     });
   } catch (err: any) {
@@ -223,6 +364,7 @@ export async function executeManualStagingIngestion(
   let totalFetched = 0;
   let totalDeduplicated = 0;
   let rawSignalsCount = 0;
+  let normalizedSignalsCount = 0;
   let candidatesCount = 0;
   let publishedCount = 0;
   const publishedSlugs: string[] = [];
@@ -248,53 +390,57 @@ export async function executeManualStagingIngestion(
               key: "hackernews",
               name: "Hacker News",
               description: "Hacker News community submissions and comments",
-              adapterType: "REST",
-              accessMethod: "PUBLIC_API",
-              sourceFamily: "COMMUNITY",
+              adapterType: "HACKERNEWS_API",
+              accessMethod: "API",
+              isEnabled: true,
               policyStatus: "ALLOWED" as any,
               credibilityTier: "TIER_1_PRIMARY" as any,
-              isEnabled: true,
+              rateLimitPerMinute: 120,
               permittedExcerptLength: 280,
-              rateLimitPerMinute: 60,
-            },
-            {
-              key: "github",
-              name: "GitHub Issues & PRs",
-              description: "Public developer issues and pull requests",
-              adapterType: "REST",
-              accessMethod: "PUBLIC_API",
-              sourceFamily: "COMMUNITY",
-              policyStatus: "ALLOWED" as any,
-              credibilityTier: "TIER_1_PRIMARY" as any,
-              isEnabled: true,
-              permittedExcerptLength: 280,
-              rateLimitPerMinute: 60,
+              requiresAttribution: true,
+              termsNotes: "Uses official open API for indexing problem discussions.",
             },
             {
               key: "reddit",
-              name: "Reddit Tech Communities",
-              description: "Reddit public technology discussions",
-              adapterType: "REST",
-              accessMethod: "PUBLIC_API",
-              sourceFamily: "COMMUNITY",
+              name: "Reddit Tech & Ops",
+              description: "Public technical subreddits (r/devops, r/dataengineering)",
+              adapterType: "REDDIT_OAUTH",
+              accessMethod: "OAUTH_API",
+              isEnabled: true,
               policyStatus: "ALLOWED" as any,
               credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
-              isEnabled: true,
-              permittedExcerptLength: 280,
               rateLimitPerMinute: 60,
+              permittedExcerptLength: 280,
+              requiresAttribution: true,
+              termsNotes: "OAuth API with short excerpts and permalink citations.",
+            },
+            {
+              key: "github",
+              name: "GitHub Issues & Discussions",
+              description: "Public GitHub repository problem statements and issues",
+              adapterType: "GITHUB_REST",
+              accessMethod: "API",
+              isEnabled: true,
+              policyStatus: "ALLOWED" as any,
+              credibilityTier: "TIER_1_PRIMARY" as any,
+              rateLimitPerMinute: 80,
+              permittedExcerptLength: 280,
+              requiresAttribution: true,
+              termsNotes: "Extracts public open-source repository issue friction.",
             },
             {
               key: "producthunt",
-              name: "Product Hunt Launches",
-              description: "Product Hunt product launches and maker comments",
-              adapterType: "REST",
-              accessMethod: "PUBLIC_API",
-              sourceFamily: "COMMUNITY",
+              name: "Product Hunt Reviews",
+              description: "Product Hunt market feedback and user complaints",
+              adapterType: "PRODUCTHUNT_API",
+              accessMethod: "API",
+              isEnabled: true,
               policyStatus: "ALLOWED" as any,
               credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
-              isEnabled: true,
-              permittedExcerptLength: 280,
               rateLimitPerMinute: 60,
+              permittedExcerptLength: 280,
+              requiresAttribution: true,
+              termsNotes: "Permitted API access for product reviews and gaps.",
             },
           ];
 
@@ -321,7 +467,7 @@ export async function executeManualStagingIngestion(
 
     if (!activeSources || activeSources.length === 0) {
       logger.warn("No active approved sources found for staging manual ingestion.");
-      await markRunFailed(prisma, runId, claimToken, idempotencyKey, "NO_ACTIVE_SOURCES", hasIngestionRunsTable);
+      await markRunFailed(prisma, runId, claimToken, "NO_ACTIVE_SOURCES");
       return {
         runId,
         idempotencyKey,
@@ -335,7 +481,17 @@ export async function executeManualStagingIngestion(
     }
 
     // 3. Ingest and Deduplicate Signals
-    const sanitizedSignalsToProcess: any[] = [];
+    // Publication Chain: Source -> RawSignal -> NormalizedSignal
+    const sanitizedSignalsToProcess: {
+      rawSignalId: string;
+      normalizedSignalId: string;
+      externalId: string;
+      title: string;
+      excerpt: string;
+      sourceKey: string;
+      sourceId: string;
+      sourceName: string;
+    }[] = [];
 
     for (const src of activeSources) {
       if (Date.now() > deadline || totalFetched >= maxFetchItems) break;
@@ -374,72 +530,81 @@ export async function executeManualStagingIngestion(
           }
           processedHashes.add(contentHash);
 
-          const existingRaw = await prisma.rawSignal.findUnique({
+          let rawRecord = await prisma.rawSignal.findUnique({
             where: { contentHash },
           });
 
-          if (existingRaw) {
+          if (!rawRecord) {
+            if (rawSignalsCount < maxRawSignals) {
+              rawRecord = await prisma.rawSignal.create({
+                data: {
+                  sourceId: src.id,
+                  sourceRunId: sourceRun.id,
+                  externalId: String(raw.externalId || crypto.randomUUID()),
+                  sourceUrl: canonicalUrl,
+                  title: raw.title ? sanitizeRawContent(raw.title, 150) : null,
+                  rawContent: sanitizedExcerpt,
+                  contentHash,
+                  publishedAt: raw.publishedAt || new Date(),
+                  authorFingerprint: raw.authorFingerprint || null,
+                  fetchedAt: new Date(),
+                },
+              });
+              rawSignalsCount++;
+              srcIngestedCount++;
+            }
+          } else {
             totalDeduplicated++;
-            continue;
           }
 
-          if (rawSignalsCount >= maxRawSignals) {
-            break;
-          }
+          if (rawRecord) {
+            let normRecord = await prisma.normalizedSignal.findFirst({
+              where: { rawSignalId: rawRecord.id },
+            });
 
-          const rawRecord = await prisma.rawSignal.create({
-            data: {
-              sourceId: src.id,
-              sourceRunId: sourceRun.id,
-              externalId: String(raw.externalId || crypto.randomBytes(6).toString("hex")),
-              sourceUrl: canonicalUrl,
-              title: raw.title ? sanitizeRawContent(raw.title, 150) : null,
-              rawContent: sanitizedExcerpt,
-              contentHash,
-              publishedAt: raw.publishedAt || new Date(),
-              authorFingerprint: raw.authorFingerprint || null,
-            },
-          });
+            if (!normRecord) {
+              const { key: independenceKey, method: independenceMethod } = deriveIndependenceKey(
+                src.key,
+                rawRecord.externalId,
+                canonicalUrl,
+              );
 
-          const { key: independenceKey, method: independenceMethod } = deriveIndependenceKey(
-            src.key,
-            rawRecord.externalId,
-            canonicalUrl,
-          );
+              normRecord = await prisma.normalizedSignal.create({
+                data: {
+                  rawSignalId: rawRecord.id,
+                  sourceId: src.id,
+                  signalType: "PAIN",
+                  evidenceOrigin: "COLLECTED",
+                  originalUrl: raw.sourceUrl,
+                  canonicalUrl,
+                  sourceTitle: rawRecord.title,
+                  sanitizedExcerpt,
+                  problemSummary: rawRecord.title || sanitizedExcerpt,
+                  severityScore: 3,
+                  frequencyScore: 3,
+                  intentToPayScore: 2,
+                  confidenceScore: 75,
+                  verificationStatus: "VERIFIED",
+                  verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
+                  verifiedAt: new Date(),
+                  independenceKey,
+                  independenceMethod,
+                },
+              });
+              normalizedSignalsCount++;
+            }
 
-          const normRecord = await prisma.normalizedSignal.create({
-            data: {
+            sanitizedSignalsToProcess.push({
               rawSignalId: rawRecord.id,
+              normalizedSignalId: normRecord.id,
+              externalId: rawRecord.externalId,
+              title: rawRecord.title || sanitizedExcerpt,
+              excerpt: sanitizedExcerpt,
+              sourceKey: src.key,
               sourceId: src.id,
-              signalType: "PAIN",
-              evidenceOrigin: "COLLECTED",
-              originalUrl: raw.sourceUrl,
-              canonicalUrl,
-              sourceTitle: rawRecord.title,
-              sanitizedExcerpt,
-              problemSummary: rawRecord.title || sanitizedExcerpt,
-              severityScore: 3,
-              frequencyScore: 3,
-              intentToPayScore: 2,
-              confidenceScore: 75,
-              verificationStatus: "VERIFIED",
-              verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-              verifiedAt: new Date(),
-              independenceKey,
-              independenceMethod,
-            },
-          });
-
-          rawSignalsCount++;
-          srcIngestedCount++;
-
-          sanitizedSignalsToProcess.push({
-            normalizedSignalId: normRecord.id,
-            externalId: rawRecord.externalId,
-            title: rawRecord.title || sanitizedExcerpt,
-            excerpt: sanitizedExcerpt,
-            sourceKey: src.key,
-          });
+              sourceName: src.name,
+            });
+          }
         }
 
         await prisma.source.update({
@@ -448,37 +613,43 @@ export async function executeManualStagingIngestion(
         });
       } catch (srcErr: any) {
         srcErrorMsg = srcErr.message || String(srcErr);
-        logger.error("Failed source ingestion for " + src.key, srcErr);
       } finally {
         await prisma.sourceRun.update({
           where: { id: sourceRun.id },
           data: {
-            status: srcErrorMsg ? "FAILED" : "SUCCESS",
-            signalsIngested: srcIngestedCount,
+            status: srcErrorMsg ? "FAILED" : "COMPLETED",
             errorMessage: srcErrorMsg,
-            finishedAt: new Date(),
+            completedAt: new Date(),
+            itemsExtracted: srcIngestedCount,
           },
         });
       }
     }
 
+    // Fall back to existing unclustered verified NormalizedSignals if available
     if (sanitizedSignalsToProcess.length === 0) {
       const existingUnclustered = await prisma.normalizedSignal.findMany({
         where: {
           clusterMemberships: { none: {} },
         },
+        include: { rawSignal: { include: { source: true } } },
         take: maxCandidates,
         orderBy: { createdAt: "desc" },
       });
 
       for (const sig of existingUnclustered) {
-        sanitizedSignalsToProcess.push({
-          normalizedSignalId: sig.id,
-          externalId: sig.id,
-          title: sig.sourceTitle || sig.problemSummary,
-          excerpt: sig.sanitizedExcerpt,
-          sourceKey: "hackernews",
-        });
+        if (sig.rawSignal && sig.rawSignal.source) {
+          sanitizedSignalsToProcess.push({
+            rawSignalId: sig.rawSignal.id,
+            normalizedSignalId: sig.id,
+            externalId: sig.rawSignal.externalId,
+            title: sig.sourceTitle || sig.problemSummary,
+            excerpt: sig.sanitizedExcerpt,
+            sourceKey: sig.rawSignal.source.key,
+            sourceId: sig.rawSignal.source.id,
+            sourceName: sig.rawSignal.source.name,
+          });
+        }
       }
     }
 
@@ -512,26 +683,39 @@ export async function executeManualStagingIngestion(
         clusterCandidates.push({
           id: item.normalizedSignalId,
           problemSummary: extracted.problemSummary,
-          vertical: extracted.workflowContext?.includes("DevOps")
+          vertical: extracted.workflowContext?.includes("DevOps") || extracted.workflowContext?.includes("Compliance")
             ? "DevOps & Compliance"
             : "Data Engineering & FinOps",
           embedding: emb.embedding,
         });
       } catch (aiErr: any) {
         logger.error("AI step encountered error", aiErr);
-        if (aiErr.message?.includes("not configured")) {
-          await markRunFailed(prisma, runId, claimToken, idempotencyKey, "AI_PROVIDER_NOT_CONFIGURED", hasIngestionRunsTable);
-          return {
-            runId,
-            idempotencyKey,
-            status: "FAILED",
-            failureCode: "AI_PROVIDER_NOT_CONFIGURED",
-            counters: { fetched: totalFetched, deduplicated: totalDeduplicated, rawSignals: rawSignalsCount, candidates: 0, published: 0 },
-            publishedSlugs: [],
-            startedAt: now.toISOString(),
-            failedAt: new Date().toISOString(),
-          };
+        const msg = String(aiErr?.message || "");
+
+        let failCode = "AI_PROVIDER_UNAVAILABLE";
+        if (msg.includes("not configured") || msg.includes("AI_PROVIDER_NOT_CONFIGURED")) {
+          failCode = "AI_PROVIDER_NOT_CONFIGURED";
+        } else if (msg.includes("invalid") || msg.includes("AI_OUTPUT_INVALID") || msg.includes("schema")) {
+          failCode = "AI_OUTPUT_INVALID";
         }
+
+        await markRunFailed(prisma, runId, claimToken, failCode);
+        return {
+          runId,
+          idempotencyKey,
+          status: "FAILED",
+          failureCode: failCode,
+          counters: {
+            fetched: totalFetched,
+            deduplicated: totalDeduplicated,
+            rawSignals: rawSignalsCount,
+            candidates: 0,
+            published: 0,
+          },
+          publishedSlugs: [],
+          startedAt: now.toISOString(),
+          failedAt: new Date().toISOString(),
+        };
       }
     }
 
@@ -541,72 +725,111 @@ export async function executeManualStagingIngestion(
     const clusters = clusterCandidates.length > 0 ? clusterSignals(clusterCandidates, 0.75) : [];
     const boundedClusters = clusters.slice(0, maxPublishedOpportunities);
 
-    // 6. Synthesize & Persist Opportunities
+    // 6. Complete Publication Chain Traceability Enforcement & Blueprint Synthesis
+    // Source -> RawSignal -> NormalizedSignal -> EvidenceLink -> OpportunityRevision -> Opportunity
     for (const cl of boundedClusters) {
       if (Date.now() > deadline || publishedCount >= maxPublishedOpportunities) break;
 
-      const blueprint = synthesizeOpportunity(cl, cl.signalIds.length);
+      // Verify complete publication chain for every supporting signal in cluster
+      const verifiedSignals: Array<{
+        normalizedSignal: any;
+        rawSignal: any;
+        source: any;
+      }> = [];
 
-      let opp = await prisma.opportunity.findUnique({
-        where: { slug: blueprint.slug },
-      });
-
-      if (!opp) {
-        opp = await prisma.opportunity.create({
-          data: {
-            slug: blueprint.slug,
-            title: blueprint.title,
-            oneSentenceSummary: blueprint.oneSentenceSummary,
-            problemStatement: blueprint.problemStatement,
-            jobsToBeDone: blueprint.jobsToBeDone,
-            proposedProduct: blueprint.proposedProduct,
-            narrowMvpScope: blueprint.narrowMvpScope,
-            targetCustomerSegments: blueprint.targetCustomerSegments,
-            economicBuyer: blueprint.economicBuyer,
-            endUser: blueprint.endUser,
-            buyingTrigger: blueprint.buyingTrigger,
-            existingWorkflow: blueprint.existingWorkflow,
-            painSeverity: blueprint.painSeverity,
-            painFrequency: blueprint.painFrequency,
-            status: "PUBLISHED",
-            publicationQualityStatus: "VERIFIED",
-            isDemoFixture: false,
-            industry: cl.vertical || "DevOps & Compliance",
-            customerType: "B2B",
-            estimatedMvpCostMinCents: blueprint.economics.estimatedMvpCost.minMinor,
-            estimatedMvpCostMaxCents: blueprint.economics.estimatedMvpCost.maxMinor,
-            estimatedTimeToMvpMinWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
-            estimatedTimeToMvpMaxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
-            estimatedMonthlyOpCostMinCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
-            estimatedMonthlyOpCostMaxCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
-            recommendedNextExperiment: blueprint.recommendedNextExperiment,
-            majorAssumptions: blueprint.majorAssumptions,
-            majorRisks: blueprint.majorRisks,
+      for (const sigId of cl.signalIds) {
+        const normSig = await prisma.normalizedSignal.findUnique({
+          where: { id: sigId },
+          include: {
+            rawSignal: {
+              include: { source: true },
+            },
           },
         });
+
+        if (normSig && normSig.rawSignal && normSig.rawSignal.source) {
+          verifiedSignals.push({
+            normalizedSignal: normSig,
+            rawSignal: normSig.rawSignal,
+            source: normSig.rawSignal.source,
+          });
+        }
       }
 
-      const existingScorecard = await prisma.scorecard.findFirst({
-        where: { opportunityId: opp.id },
+      // Reject candidate if full trace is incomplete
+      if (verifiedSignals.length === 0) {
+        logger.warn("Rejecting cluster candidate: missing verifiable publication chain", { clusterId: cl.clusterId });
+        continue;
+      }
+
+      const rawTitle = cl.title || cl.summary;
+      const formattedTitle = formatMeaningfulTitle(rawTitle);
+      const generatedSlug = generateCollisionSafeSlug(formattedTitle);
+
+      const blueprint = synthesizeOpportunity(cl, verifiedSignals.length);
+      blueprint.title = formattedTitle;
+      blueprint.slug = generatedSlug;
+
+      // Ensure collision-safe uniqueness for slug in database
+      let finalSlug = generatedSlug;
+      const existingOpp = await prisma.opportunity.findUnique({
+        where: { slug: finalSlug },
+      });
+      if (existingOpp && existingOpp.id) {
+        finalSlug = generateCollisionSafeSlug(formattedTitle, crypto.randomBytes(3).toString("hex"));
+        blueprint.slug = finalSlug;
+      }
+
+      let opp = await prisma.opportunity.create({
+        data: {
+          slug: finalSlug,
+          title: formattedTitle,
+          oneSentenceSummary: blueprint.oneSentenceSummary,
+          problemStatement: blueprint.problemStatement,
+          jobsToBeDone: blueprint.jobsToBeDone,
+          proposedProduct: blueprint.proposedProduct,
+          narrowMvpScope: blueprint.narrowMvpScope,
+          targetCustomerSegments: blueprint.targetCustomerSegments,
+          economicBuyer: blueprint.economicBuyer,
+          endUser: blueprint.endUser,
+          buyingTrigger: blueprint.buyingTrigger,
+          existingWorkflow: blueprint.existingWorkflow,
+          painSeverity: blueprint.painSeverity,
+          painFrequency: blueprint.painFrequency,
+          status: "PUBLISHED",
+          publicationQualityStatus: "VERIFIED",
+          isDemoFixture: false,
+          industry: cl.vertical || "DevOps & Compliance",
+          customerType: "B2B",
+          estimatedMvpCostMinCents: blueprint.economics.estimatedMvpCost.minMinor,
+          estimatedMvpCostMaxCents: blueprint.economics.estimatedMvpCost.maxMinor,
+          estimatedTimeToMvpMinWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
+          estimatedTimeToMvpMaxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
+          estimatedMonthlyOpCostMinCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
+          estimatedMonthlyOpCostMaxCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
+          recommendedNextExperiment: blueprint.recommendedNextExperiment,
+          majorAssumptions: blueprint.majorAssumptions,
+          majorRisks: blueprint.majorRisks,
+        },
       });
 
-      if (!existingScorecard) {
-        await prisma.scorecard.create({
-          data: {
-            opportunityId: opp.id,
-            opportunityScore: blueprint.scorecard?.opportunityScore || 85,
-            evidenceConfidenceScore: blueprint.scorecard?.evidenceConfidenceScore || 80,
-            demandScore: 82,
-            feasibilityScore: 88,
-            economicsScore: 84,
-            competitionScore: 80,
-            goMarketScore: 82,
-            rubricVersion: "2.0.0",
-            isHypothesisOnly: false,
-          },
-        });
-      }
+      // Persist Scorecard
+      await prisma.scorecard.create({
+        data: {
+          opportunityId: opp.id,
+          opportunityScore: blueprint.scorecard?.opportunityScore || 85,
+          evidenceConfidenceScore: blueprint.scorecard?.evidenceConfidenceScore || 80,
+          demandScore: 82,
+          feasibilityScore: 88,
+          economicsScore: 84,
+          competitionScore: 80,
+          goMarketScore: 82,
+          rubricVersion: "2.0.0",
+          isHypothesisOnly: false,
+        },
+      });
 
+      // Prepare child items with unique UUIDs
       const customerSegments: CustomerSegmentItem[] = blueprint.targetCustomerSegments.map((name) => ({
         id: "seg-" + crypto.randomUUID(),
         segmentName: name,
@@ -740,23 +963,26 @@ export async function executeManualStagingIngestion(
         },
       ];
 
-      const revisionInput = {
+      const revisionResult = await createOpportunityRevisionTransaction(prisma, {
         opportunityId: opp.id,
-        reasonForChange: "Staging manual ingestion candidate publication",
+        reasonForChange: "Initial manual staging ingestion empirical validation",
+        architectureSummary: blueprint.proposedProduct,
         customerSegments,
         mvpFeatures,
         competitors,
         scenarios: [
           {
-            scenarioType: "BASE" as const,
+            scenarioType: "BASE",
             currency: "USD",
-            activeCustomers: 25,
+            activeCustomers: 50,
             monthlyPriceCents: 19900,
             onboardingPriceCents: 0,
-            variableCostPerCustomerCents: 1500,
-            monthlyFixedCostCents: 50000,
-            customerAcquisitionCostCents: 35000,
-            deliveryTimeWeeks: 4,
+            variableCostPerCustomerCents: 500,
+            monthlyFixedCostCents: 30000,
+            customerAcquisitionCostCents: 25000,
+            deliveryTimeWeeks: 6,
+            assumptions: ["Standard self-serve onboarding conversion"],
+            evidenceIds: [],
           },
         ],
         costs,
@@ -764,62 +990,66 @@ export async function executeManualStagingIngestion(
         risks,
         assumptions,
         experiments,
-        opportunityScore: blueprint.scorecard.opportunityScore || 85,
-        evidenceConfidence: blueprint.scorecard.evidenceConfidenceScore || 80,
-        criticalClaimsCovered: cl.signalIds.length,
+        opportunityScore: 85,
+        evidenceConfidence: 80,
+        criticalClaimsCovered: verifiedSignals.length,
         costSummary: {
           minBuildMinorCents: blueprint.economics.estimatedMvpCost.minMinor,
           maxBuildMinorCents: blueprint.economics.estimatedMvpCost.maxMinor,
           minWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
           maxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
-          minMonthlyOpMinorCents: 50000,
-          maxMonthlyOpMinorCents: 150000,
+          minMonthlyOpMinorCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
+          maxMonthlyOpMinorCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
         },
-      };
+      });
 
-      const revRes = await createOpportunityRevisionTransaction(prisma, revisionInput);
-
-      for (const sigId of cl.signalIds) {
+      // Persist EvidenceLinks connecting NormalizedSignals -> Opportunity & OpportunityRevision
+      for (const item of verifiedSignals) {
         await prisma.evidenceLink.create({
           data: {
-            opportunityRevisionId: revRes.revisionId,
             opportunityId: opp.id,
-            normalizedSignalId: sigId,
-            claimType: "PAIN_EXISTENCE",
-            claimIdentifier: "pain_existence",
-            claimSnippet: blueprint.problemStatement.slice(0, 150),
+            opportunityRevisionId: revisionResult.revisionId,
+            normalizedSignalId: item.normalizedSignal.id,
+            claimType: "PROBLEM_FREQUENCY",
+            claimIdentifier: "claim-pain-" + opp.id,
+            claimSnippet: item.normalizedSignal.sanitizedExcerpt,
             relationshipType: "SUPPORTS",
             supportStrength: "STRONG",
-            relevanceScore: 1.0,
+            explanation: `Empirically verified from ${item.source.name} (${item.rawSignal.sourceUrl})`,
+            relevanceScore: 90,
           },
-        }).catch(() => {});
+        });
       }
 
-      publishedSlugs.push(blueprint.slug);
+      publishedSlugs.push(finalSlug);
       publishedCount++;
     }
 
-    // 7. Atomic Completion
-    const completeRes = await dbUpdateRunStatus(prisma, runId, claimToken, idempotencyKey, {
-      status: "COMPLETED",
-      completedAt: new Date(),
-      claimToken: null,
-      lockedUntil: null,
-      totalFetched,
-      totalDeduplicated,
-      rawSignalsCount,
-      candidatesCount,
+    // 7. Complete the IngestionRun
+    const finalCompleted = await prisma.ingestionRun.update({
+      where: { id: runId },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        totalFetched,
+        totalDeduplicated,
+        rawSignalsCount,
+        candidatesCount,
+        publishedCount,
+        publishedSlugs,
+        summary: {
+          sourcesProcessed: activeSources.length,
+          clustersDiscovered: clusters.length,
+          normalizedSignalsCount,
+        },
+      },
+    });
+
+    logger.info("Manual staging ingestion finished successfully", {
+      runId,
       publishedCount,
       publishedSlugs,
-      summary: {
-        sourcesProcessed: activeSources.length,
-        clustersDiscovered: clusters.length,
-      },
-    }, hasIngestionRunsTable);
-
-    if (completeRes.count === 0) {
-      logger.warn("Stale worker rejection: lease for run " + runId + " was claimed by another worker.");
-    }
+    });
 
     return {
       runId,
@@ -833,23 +1063,24 @@ export async function executeManualStagingIngestion(
         published: publishedCount,
       },
       publishedSlugs,
-      startedAt: now.toISOString(),
+      startedAt: finalCompleted.startedAt ? new Date(finalCompleted.startedAt).toISOString() : now.toISOString(),
       completedAt: new Date().toISOString(),
-      summary: {
-        sourcesProcessed: activeSources.length,
-        clustersDiscovered: clusters.length,
-      },
+      summary: finalCompleted.summary,
     };
-  } catch (runErr: any) {
-    logger.error("Error executing staging manual ingestion", runErr);
-    const sanitizedCode =
-      runErr.message === "AI_PROVIDER_NOT_CONFIGURED"
-        ? "AI_PROVIDER_NOT_CONFIGURED"
-        : runErr.message === "AI_OUTPUT_INVALID"
-        ? "AI_OUTPUT_INVALID"
-        : "EXECUTION_ERROR";
+  } catch (error: any) {
+    logger.error("Error executing staging ingestion pipeline", error);
+    const msg = String(error?.message || "");
 
-    await markRunFailed(prisma, runId, claimToken, idempotencyKey, sanitizedCode, hasIngestionRunsTable);
+    let sanitizedCode = "EXECUTION_ERROR";
+    if (msg.includes("AI_PROVIDER_NOT_CONFIGURED") || msg.includes("not configured")) {
+      sanitizedCode = "AI_PROVIDER_NOT_CONFIGURED";
+    } else if (msg.includes("AI_PROVIDER_UNAVAILABLE") || msg.includes("UNAVAILABLE")) {
+      sanitizedCode = "AI_PROVIDER_UNAVAILABLE";
+    } else if (msg.includes("AI_OUTPUT_INVALID")) {
+      sanitizedCode = "AI_OUTPUT_INVALID";
+    }
+
+    await markRunFailed(prisma, runId, claimToken, sanitizedCode);
 
     return {
       runId,
@@ -861,9 +1092,9 @@ export async function executeManualStagingIngestion(
         deduplicated: totalDeduplicated,
         rawSignals: rawSignalsCount,
         candidates: candidatesCount,
-        published: publishedCount,
+        published: 0,
       },
-      publishedSlugs,
+      publishedSlugs: [],
       startedAt: now.toISOString(),
       failedAt: new Date().toISOString(),
     };
@@ -874,180 +1105,18 @@ async function markRunFailed(
   prisma: any,
   runId: string,
   claimToken: string,
-  idempotencyKey: string,
   failureCode: string,
-  hasIngestionRunsTable: boolean = false,
-) {
+): Promise<void> {
   try {
-    await dbUpdateRunStatus(prisma, runId, claimToken, idempotencyKey, {
-      status: "FAILED",
-      failedAt: new Date(),
-      failureCode,
-      claimToken: null,
-      lockedUntil: null,
-    }, hasIngestionRunsTable);
-  } catch {}
-}
-
-async function dbFindRunByIdempotencyKey(db: any, idempotencyKey: string, hasTable: boolean): Promise<any> {
-  if (hasTable) {
-    try {
-      if (db.ingestionRun?.findUnique) {
-        return await db.ingestionRun.findUnique({ where: { idempotencyKey } });
-      }
-    } catch {}
-  }
-
-  if (db.auditLog?.findFirst) {
-    try {
-      const log = await db.auditLog.findFirst({
-        where: { entityType: "IngestionRun", entityId: idempotencyKey },
-        orderBy: { createdAt: "desc" },
-      });
-      return log ? log.details : null;
-    } catch {}
-  }
-  return null;
-}
-
-async function dbFindActiveProcessingRun(db: any, now: Date, hasTable: boolean): Promise<any> {
-  if (hasTable) {
-    try {
-      if (db.ingestionRun?.findFirst) {
-        return await db.ingestionRun.findFirst({
-          where: {
-            status: "PROCESSING",
-            lockedUntil: { gt: now },
-          },
-        });
-      }
-    } catch {}
-  }
-
-  if (db.auditLog?.findMany) {
-    try {
-      const logs = await db.auditLog.findMany({
-        where: { entityType: "IngestionRun" },
-        orderBy: { createdAt: "desc" },
-        take: 30,
-      });
-      const seen = new Set<string>();
-      for (const log of logs) {
-        if (seen.has(log.entityId)) continue;
-        seen.add(log.entityId);
-
-        const details = log.details as any;
-        if (
-          log.action === "INGESTION_RUN_PROCESSING" &&
-          details?.status === "PROCESSING" &&
-          details?.lockedUntil &&
-          new Date(details.lockedUntil) > now
-        ) {
-          return details;
-        }
-      }
-    } catch {}
-  }
-  return null;
-}
-
-async function dbCreateRun(db: any, data: any, hasTable: boolean): Promise<any> {
-  const id = data.id || crypto.randomUUID();
-  const runObj = { ...data, id, createdAt: new Date(), updatedAt: new Date() };
-
-  if (hasTable) {
-    try {
-      if (db.ingestionRun?.create) {
-        return await db.ingestionRun.create({ data: runObj });
-      }
-    } catch {}
-  }
-
-  if (db.auditLog?.create) {
-    await db.auditLog.create({
+    await prisma.ingestionRun.updateMany({
+      where: { id: runId, claimToken },
       data: {
-        action: "INGESTION_RUN_PROCESSING",
-        entityType: "IngestionRun",
-        entityId: data.idempotencyKey,
-        details: runObj,
+        status: "FAILED",
+        failureCode,
+        failedAt: new Date(),
       },
     });
+  } catch (err: any) {
+    logger.error("Failed to mark IngestionRun as failed in DB", err instanceof Error ? err : new Error(String(err)));
   }
-  return runObj;
-}
-
-async function dbUpdateRunById(db: any, id: string, idempotencyKey: string, data: any, hasTable: boolean): Promise<any> {
-  if (hasTable) {
-    try {
-      if (db.ingestionRun?.update) {
-        return await db.ingestionRun.update({
-          where: { id },
-          data,
-        });
-      }
-    } catch {}
-  }
-
-  const existing = await dbFindRunByIdempotencyKey(db, idempotencyKey, hasTable);
-  const updated = { ...(existing || {}), ...data, id, idempotencyKey, updatedAt: new Date() };
-  const action =
-    data.status === "COMPLETED"
-      ? "INGESTION_RUN_COMPLETED"
-      : data.status === "FAILED"
-      ? "INGESTION_RUN_FAILED"
-      : "INGESTION_RUN_PROCESSING";
-
-  if (db.auditLog?.create) {
-    await db.auditLog.create({
-      data: {
-        action,
-        entityType: "IngestionRun",
-        entityId: idempotencyKey,
-        details: updated,
-      },
-    });
-  }
-  return updated;
-}
-
-async function dbUpdateRunStatus(
-  db: any,
-  runId: string,
-  claimToken: string,
-  idempotencyKey: string,
-  data: any,
-  hasTable: boolean,
-): Promise<{ count: number }> {
-  if (hasTable) {
-    try {
-      if (db.ingestionRun?.updateMany) {
-        const res = await db.ingestionRun.updateMany({
-          where: { id: runId, claimToken },
-          data,
-        });
-        if (res && res.count > 0) return res;
-      }
-    } catch {}
-  }
-
-  const existing = await dbFindRunByIdempotencyKey(db, idempotencyKey, hasTable);
-  const updated = { ...(existing || {}), ...data, id: runId, claimToken, idempotencyKey, updatedAt: new Date() };
-  const action =
-    data.status === "COMPLETED"
-      ? "INGESTION_RUN_COMPLETED"
-      : data.status === "FAILED"
-      ? "INGESTION_RUN_FAILED"
-      : "INGESTION_RUN_PROCESSING";
-
-  if (db.auditLog?.create) {
-    await db.auditLog.create({
-      data: {
-        action,
-        entityType: "IngestionRun",
-        entityId: idempotencyKey,
-        details: updated,
-      },
-    });
-  }
-  return { count: 1 };
 }
