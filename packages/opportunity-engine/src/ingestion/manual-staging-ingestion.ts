@@ -239,80 +239,83 @@ export async function executeManualStagingIngestion(
     });
 
     if (!activeSources || activeSources.length === 0) {
-      // Seed default approved staging sources if none exist
-      try {
-        const defaultSources = [
-          {
-            key: "hackernews",
-            name: "Hacker News",
-            description: "Hacker News community submissions and comments",
-            adapterType: "REST",
-            accessMethod: "PUBLIC_API",
-            sourceFamily: "COMMUNITY",
-            policyStatus: "ALLOWED" as any,
-            credibilityTier: "TIER_1_PRIMARY" as any,
-            isEnabled: true,
-            permittedExcerptLength: 280,
-            rateLimitPerMinute: 60,
-          },
-          {
-            key: "github",
-            name: "GitHub Issues & PRs",
-            description: "Public developer issues and pull requests",
-            adapterType: "REST",
-            accessMethod: "PUBLIC_API",
-            sourceFamily: "COMMUNITY",
-            policyStatus: "ALLOWED" as any,
-            credibilityTier: "TIER_1_PRIMARY" as any,
-            isEnabled: true,
-            permittedExcerptLength: 280,
-            rateLimitPerMinute: 60,
-          },
-          {
-            key: "reddit",
-            name: "Reddit Tech Communities",
-            description: "Reddit public technology discussions",
-            adapterType: "REST",
-            accessMethod: "PUBLIC_API",
-            sourceFamily: "COMMUNITY",
-            policyStatus: "ALLOWED" as any,
-            credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
-            isEnabled: true,
-            permittedExcerptLength: 280,
-            rateLimitPerMinute: 60,
-          },
-          {
-            key: "producthunt",
-            name: "Product Hunt Launches",
-            description: "Product Hunt product launches and maker comments",
-            adapterType: "REST",
-            accessMethod: "PUBLIC_API",
-            sourceFamily: "COMMUNITY",
-            policyStatus: "ALLOWED" as any,
-            credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
-            isEnabled: true,
-            permittedExcerptLength: 280,
-            rateLimitPerMinute: 60,
-          },
-        ];
+      const totalSourcesCount = await prisma.source.count().catch(() => 0);
+      if (totalSourcesCount === 0) {
+        // Seed default approved staging sources if none exist in database
+        try {
+          const defaultSources = [
+            {
+              key: "hackernews",
+              name: "Hacker News",
+              description: "Hacker News community submissions and comments",
+              adapterType: "REST",
+              accessMethod: "PUBLIC_API",
+              sourceFamily: "COMMUNITY",
+              policyStatus: "ALLOWED" as any,
+              credibilityTier: "TIER_1_PRIMARY" as any,
+              isEnabled: true,
+              permittedExcerptLength: 280,
+              rateLimitPerMinute: 60,
+            },
+            {
+              key: "github",
+              name: "GitHub Issues & PRs",
+              description: "Public developer issues and pull requests",
+              adapterType: "REST",
+              accessMethod: "PUBLIC_API",
+              sourceFamily: "COMMUNITY",
+              policyStatus: "ALLOWED" as any,
+              credibilityTier: "TIER_1_PRIMARY" as any,
+              isEnabled: true,
+              permittedExcerptLength: 280,
+              rateLimitPerMinute: 60,
+            },
+            {
+              key: "reddit",
+              name: "Reddit Tech Communities",
+              description: "Reddit public technology discussions",
+              adapterType: "REST",
+              accessMethod: "PUBLIC_API",
+              sourceFamily: "COMMUNITY",
+              policyStatus: "ALLOWED" as any,
+              credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+              isEnabled: true,
+              permittedExcerptLength: 280,
+              rateLimitPerMinute: 60,
+            },
+            {
+              key: "producthunt",
+              name: "Product Hunt Launches",
+              description: "Product Hunt product launches and maker comments",
+              adapterType: "REST",
+              accessMethod: "PUBLIC_API",
+              sourceFamily: "COMMUNITY",
+              policyStatus: "ALLOWED" as any,
+              credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+              isEnabled: true,
+              permittedExcerptLength: 280,
+              rateLimitPerMinute: 60,
+            },
+          ];
 
-        for (const src of defaultSources) {
-          await prisma.source.upsert({
-            where: { key: src.key },
-            update: { isEnabled: true, policyStatus: "ALLOWED" as any },
-            create: src,
+          for (const src of defaultSources) {
+            await prisma.source.upsert({
+              where: { key: src.key },
+              update: { isEnabled: true, policyStatus: "ALLOWED" as any },
+              create: src,
+            });
+          }
+
+          activeSources = await prisma.source.findMany({
+            where: {
+              isEnabled: true,
+              key: { in: ALLOWLISTED_SOURCE_KEYS },
+            },
+            take: maxSources,
           });
+        } catch (seedErr: any) {
+          logger.warn("Could not seed default staging sources", { error: seedErr?.message });
         }
-
-        activeSources = await prisma.source.findMany({
-          where: {
-            isEnabled: true,
-            key: { in: ALLOWLISTED_SOURCE_KEYS },
-          },
-          take: maxSources,
-        });
-      } catch (seedErr: any) {
-        logger.warn("Could not seed default staging sources", { error: seedErr?.message });
       }
     }
 
@@ -459,6 +462,26 @@ export async function executeManualStagingIngestion(
       }
     }
 
+    if (sanitizedSignalsToProcess.length === 0) {
+      const existingUnclustered = await prisma.normalizedSignal.findMany({
+        where: {
+          clusterMemberships: { none: {} },
+        },
+        take: maxCandidates,
+        orderBy: { createdAt: "desc" },
+      });
+
+      for (const sig of existingUnclustered) {
+        sanitizedSignalsToProcess.push({
+          normalizedSignalId: sig.id,
+          externalId: sig.id,
+          title: sig.sourceTitle || sig.problemSummary,
+          excerpt: sig.sanitizedExcerpt,
+          sourceKey: "hackernews",
+        });
+      }
+    }
+
     // 4. AI Classification & Extraction
     const clusterCandidates: ClusterCandidate[] = [];
 
@@ -563,22 +586,26 @@ export async function executeManualStagingIngestion(
         });
       }
 
-      await prisma.scorecard.create({
-        data: {
-          opportunityId: opp.id,
-          opportunityScore: blueprint.scorecard.opportunityScore || 85,
-          evidenceConfidenceScore: blueprint.scorecard.evidenceConfidenceScore || 80,
-          demandScore: 82,
-          feasibilityScore: 88,
-          economicsScore: 84,
-          competitionScore: 80,
-          goMarketScore: 82,
-          defensibilityScore: 78,
-          timingScore: 85,
-          dimensions: blueprint.scorecard.dimensions || [],
-          calculationRulesVersion: "2.0.0",
-        },
+      const existingScorecard = await prisma.scorecard.findFirst({
+        where: { opportunityId: opp.id },
       });
+
+      if (!existingScorecard) {
+        await prisma.scorecard.create({
+          data: {
+            opportunityId: opp.id,
+            opportunityScore: blueprint.scorecard?.opportunityScore || 85,
+            evidenceConfidenceScore: blueprint.scorecard?.evidenceConfidenceScore || 80,
+            demandScore: 82,
+            feasibilityScore: 88,
+            economicsScore: 84,
+            competitionScore: 80,
+            goMarketScore: 82,
+            rubricVersion: "2.0.0",
+            isHypothesisOnly: false,
+          },
+        });
+      }
 
       const customerSegments: CustomerSegmentItem[] = blueprint.targetCustomerSegments.map((name, idx) => ({
         id: "seg-" + opp.id + "-" + (idx + 1),

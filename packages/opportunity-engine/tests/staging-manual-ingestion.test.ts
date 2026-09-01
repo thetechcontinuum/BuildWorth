@@ -83,6 +83,17 @@ function createMockPrisma() {
         if (item) Object.assign(item, data);
         return item;
       },
+      count: async () => store.sources.length,
+      upsert: async ({ where, update, create }: any) => {
+        const item = store.sources.find((s) => s.key === where.key || s.id === where.id);
+        if (item) {
+          Object.assign(item, update);
+          return item;
+        }
+        const rec = { id: "src-" + (store.sources.length + 1), ...create };
+        store.sources.push(rec);
+        return rec;
+      },
     },
     sourceRun: {
       create: async ({ data }: any) => {
@@ -110,6 +121,11 @@ function createMockPrisma() {
       },
     },
     normalizedSignal: {
+      findMany: async ({ take }: any) => {
+        let list = [...store.normalizedSignals];
+        if (take) list = list.slice(0, take);
+        return list;
+      },
       create: async ({ data }: any) => {
         const rec = { id: "norm-" + (store.normalizedSignals.length + 1), ...data };
         store.normalizedSignals.push(rec);
@@ -142,6 +158,9 @@ function createMockPrisma() {
       },
     },
     scorecard: {
+      findFirst: async ({ where }: any) => {
+        return store.scorecards.find((s) => s.opportunityId === where.opportunityId) || null;
+      },
       create: async ({ data }: any) => {
         const rec = { id: "sc-" + (store.scorecards.length + 1), ...data };
         store.scorecards.push(rec);
