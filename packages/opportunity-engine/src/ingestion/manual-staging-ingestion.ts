@@ -190,7 +190,7 @@ export async function executeManualStagingIngestion(
   const {
     idempotencyKey,
     workerId = "worker-" + crypto.randomBytes(4).toString("hex"),
-    leaseDurationMs = 5 * 60 * 1000,
+    leaseDurationMs = 30000,
     maxSources = 5,
     maxFetchItems = 30,
     maxRawSignals = 20,
@@ -1174,22 +1174,32 @@ async function acquireIngestionLease(
     const logs = await tx.auditLog.findMany({
       where: { entityType: "IngestionRun" },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 50,
     });
+
+    // Resolve latest state for each run by its entityId / details.id
+    const latestStateByRunId = new Map<string, any>();
+    for (const l of logs) {
+      const details = l.details as any;
+      const rId = details?.id || l.entityId;
+      if (rId && !latestStateByRunId.has(rId)) {
+        latestStateByRunId.set(rId, { log: l, details });
+      }
+    }
 
     let existingLog: any = null;
     let concurrentLog: any = null;
 
-    for (const l of logs) {
-      const details = l.details as any;
+    for (const entry of latestStateByRunId.values()) {
+      const details = entry.details;
       if (details?.idempotencyKey === idempotencyKey) {
-        existingLog = { log: l, details };
+        existingLog = entry;
       } else if (
         details?.status === "PROCESSING" &&
         details?.lockedUntil &&
         new Date(details.lockedUntil) > now
       ) {
-        concurrentLog = { log: l, details };
+        concurrentLog = entry;
       }
     }
 
