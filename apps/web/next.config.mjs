@@ -13,6 +13,16 @@ const nextConfig = {
     "@buildworth/source-connectors",
     "@buildworth/opportunity-engine"
   ],
+  experimental: {
+    outputFileTracingIncludes: {
+      "/**": [
+        "./node_modules/.prisma/client/**/*",
+        "../../node_modules/.prisma/client/**/*",
+        "node_modules/.pnpm/@prisma+client*/**/*",
+        "node_modules/.pnpm/@prisma+engines*/**/*"
+      ]
+    }
+  }
 };
 
 export default nextConfig;

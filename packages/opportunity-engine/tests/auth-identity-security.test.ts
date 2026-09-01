@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  hashToken,
-  isValidEmail,
-  normalizeEmail,
-} from "../../database/src/auth-identity.js";
+import { hashToken, isValidEmail, normalizeEmail } from "../../database/src/auth-identity.js";
 
 describe("Mandatory Phase 3 Authentication & Security Suite", () => {
   it("normalizes and validates email addresses correctly", () => {

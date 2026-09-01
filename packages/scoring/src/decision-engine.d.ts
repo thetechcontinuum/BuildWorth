@@ -1,14 +1,20 @@
-import { DecisionRecommendation, PublicationQualityStatus, FinancialMetricOutputs, RiskItem, AssumptionItem } from "@buildworth/shared";
+import {
+  DecisionRecommendation,
+  PublicationQualityStatus,
+  FinancialMetricOutputs,
+  RiskItem,
+  AssumptionItem,
+} from "@buildworth/shared";
 export interface DecisionEngineInput {
-    opportunityScore: number;
-    evidenceConfidence: number;
-    publicationStatus: PublicationQualityStatus;
-    criticalClaimsCoveredCount: number;
-    baseScenarioMetrics: FinancialMetricOutputs;
-    risks: RiskItem[];
-    assumptions: AssumptionItem[];
-    buyerAccessibilityScore?: number;
-    hasSufficientWtpEvidence?: boolean;
+  opportunityScore: number;
+  evidenceConfidence: number;
+  publicationStatus: PublicationQualityStatus;
+  criticalClaimsCoveredCount: number;
+  baseScenarioMetrics: FinancialMetricOutputs;
+  risks: RiskItem[];
+  assumptions: AssumptionItem[];
+  buyerAccessibilityScore?: number;
+  hasSufficientWtpEvidence?: boolean;
 }
 /**
  * Deterministic Decision Recommendation Engine under Rule Rubric v1.0.0.
@@ -20,12 +26,12 @@ export interface DecisionEngineInput {
  * 5. BUILD_CANDIDATE: Every single build gate passed (Verified publication status, 4/4 critical claims, healthy margin, 0 unresolved critical risks).
  */
 export declare function evaluateDecisionRecommendation(input: DecisionEngineInput): {
-    recommendation: DecisionRecommendation;
-    reasonCodes: string[];
-    blockingConditions: string[];
-    economicsStatus: string;
-    feasibilityStatus: string;
-    criticalRiskIds: string[];
-    invalidatedAssumptionIds: string[];
+  recommendation: DecisionRecommendation;
+  reasonCodes: string[];
+  blockingConditions: string[];
+  economicsStatus: string;
+  feasibilityStatus: string;
+  criticalRiskIds: string[];
+  invalidatedAssumptionIds: string[];
 };
 //# sourceMappingURL=decision-engine.d.ts.map

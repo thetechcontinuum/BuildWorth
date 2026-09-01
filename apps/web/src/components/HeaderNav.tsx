@@ -55,6 +55,9 @@ export function HeaderNav() {
               <Link href="/opportunities" className="hover:text-zinc-100 transition-colors">
                 Opportunities
               </Link>
+              <Link href="/watchlist" className="hover:text-zinc-100 transition-colors">
+                Watchlist
+              </Link>
               <Link href="/compare" className="hover:text-zinc-100 transition-colors">
                 Compare
               </Link>

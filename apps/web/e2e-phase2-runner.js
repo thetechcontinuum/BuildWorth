@@ -1,4 +1,3 @@
-
 import { chromium } from "playwright";
 import { spawn } from "child_process";
 import http from "http";
@@ -9,15 +8,17 @@ function waitForServer(url, timeout = 45000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const check = () => {
-      http.get(url, (res) => {
-        if (res.statusCode === 200) {
-          resolve();
-        } else {
+      http
+        .get(url, (res) => {
+          if (res.statusCode === 200) {
+            resolve();
+          } else {
+            retry();
+          }
+        })
+        .on("error", () => {
           retry();
-        }
-      }).on("error", () => {
-        retry();
-      });
+        });
     };
     const retry = () => {
       if (Date.now() - start > timeout) {
@@ -42,7 +43,7 @@ async function run() {
     console.log("Server is healthy! Launching Playwright browser suite...");
 
     const browser = await chromium.launch({ headless: true });
-    
+
     // 1. Desktop Suite (1280x800)
     console.log("Running Desktop Browser Suite...");
     const desktopContext = await browser.newContext({
@@ -53,9 +54,12 @@ async function run() {
     fs.mkdirSync("docs/design/implementation/phase-2", { recursive: true });
 
     // Navigate to opportunity detail
-    await desktopPage.goto("http://localhost:3000/opportunities/b2b-saas-audit-readiness-automation", {
-      waitUntil: "networkidle",
-    });
+    await desktopPage.goto(
+      "http://localhost:3000/opportunities/b2b-saas-audit-readiness-automation",
+      {
+        waitUntil: "networkidle",
+      },
+    );
 
     await desktopPage.screenshot({
       path: "docs/design/implementation/phase-2/01_desktop_executive_decision_summary.png",
@@ -110,9 +114,12 @@ async function run() {
     });
     const mobilePage = await mobileContext.newPage();
 
-    await mobilePage.goto("http://localhost:3000/opportunities/b2b-saas-audit-readiness-automation", {
-      waitUntil: "networkidle",
-    });
+    await mobilePage.goto(
+      "http://localhost:3000/opportunities/b2b-saas-audit-readiness-automation",
+      {
+        waitUntil: "networkidle",
+      },
+    );
 
     await mobilePage.screenshot({
       path: "docs/design/implementation/phase-2/07_mobile_decision_blueprint.png",

@@ -16,16 +16,16 @@ export async function checkAndIncrementRateLimit(
   prisma: PrismaClient,
   key: string,
   maxPoints: number = 5,
-  windowSeconds: number = 60
+  windowSeconds: number = 60,
 ): Promise<RateLimitResult> {
   const now = new Date();
   const expireAt = new Date(now.getTime() + windowSeconds * 1000);
 
   return await prisma.$transaction(async (tx) => {
     // Advisory lock key derived from rate limit key
-    const lockKey = Math.abs(
-      key.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)
-    ) % 2147483647;
+    const lockKey =
+      Math.abs(key.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)) %
+      2147483647;
     await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`);
 
     const record = await tx.rateLimitBucket.findUnique({ where: { key } });
@@ -41,7 +41,10 @@ export async function checkAndIncrementRateLimit(
     }
 
     if (record.points >= maxPoints) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((record.expireAt.getTime() - now.getTime()) / 1000));
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((record.expireAt.getTime() - now.getTime()) / 1000),
+      );
       return { allowed: false, remaining: 0, retryAfterSeconds };
     }
 

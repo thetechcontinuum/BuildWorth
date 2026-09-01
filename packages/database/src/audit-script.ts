@@ -19,6 +19,10 @@ export interface AuditResult {
 }
 
 export async function auditEvidenceDataQuality(reportOnly: boolean = false): Promise<AuditResult> {
+  if (!process.env.DATABASE_URL) {
+    console.error("[FATAL] Missing required environment variable: DATABASE_URL");
+    process.exit(2);
+  }
   console.log("=== BuildWorth Data Quality & Evidence Audit ===");
   if (reportOnly) {
     console.log("Mode: --report-only (Defects will not trigger non-zero exit code)");
@@ -95,7 +99,7 @@ export async function auditEvidenceDataQuality(reportOnly: boolean = false): Pro
         (l) =>
           l.normalizedSignal.verificationStatus === "VERIFIED" &&
           l.normalizedSignal.evidenceOrigin !== "LEGACY_UNCLASSIFIED" &&
-          l.normalizedSignal.evidenceOrigin !== "SYNTHETIC_FIXTURE"
+          l.normalizedSignal.evidenceOrigin !== "SYNTHETIC_FIXTURE",
       );
       if (qualifyingLinks.length === 0) {
         unsupportedHighConfidenceOpps++;
@@ -106,7 +110,10 @@ export async function auditEvidenceDataQuality(reportOnly: boolean = false): Pro
     const signals = await prisma.normalizedSignal.findMany();
     for (const sig of signals) {
       if (sig.verificationStatus === "VERIFIED") {
-        if (!sig.canonicalUrl || (!sig.canonicalUrl.startsWith("http://") && !sig.canonicalUrl.startsWith("https://"))) {
+        if (
+          !sig.canonicalUrl ||
+          (!sig.canonicalUrl.startsWith("http://") && !sig.canonicalUrl.startsWith("https://"))
+        ) {
           unsafeOrMissingUrls++;
         }
       }
@@ -134,12 +141,35 @@ export async function auditEvidenceDataQuality(reportOnly: boolean = false): Pro
 
   console.log("1. Legacy-Unclassified Signals:", legacyUnclassifiedSignals);
   console.log("2. Synthetic Fixtures in Production Data:", syntheticFixturesInProd);
-  console.log("3. Verified Signals Without Valid Evidence Links:", verifiedSignalsWithoutValidLinks);
-  console.log("4. Opportunities With Mismatched Evidence Counts:", opportunitiesWithMismatchedEvidence);
-  console.log("5. Unsupported High-Confidence Scores in Production:", unsupportedHighConfidenceOpps);
+  console.log(
+    "3. Verified Signals Without Valid Evidence Links:",
+    verifiedSignalsWithoutValidLinks,
+  );
+  console.log(
+    "4. Opportunities With Mismatched Evidence Counts:",
+    opportunitiesWithMismatchedEvidence,
+  );
+  console.log(
+    "5. Unsupported High-Confidence Scores in Production:",
+    unsupportedHighConfidenceOpps,
+  );
   console.log("6. Unsafe or Missing URLs in Production Evidence:", unsafeOrMissingUrls);
-  console.log("7. Total Sources Audited:", totalSources, "('UNKNOWN' policy status:", unauditedSources, ")");
-  console.log("8. Total Opportunities:", totalOpportunities, "(VERIFIED:", verifiedOpps, ", HYPOTHESIS:", hypothesisOpps, ")");
+  console.log(
+    "7. Total Sources Audited:",
+    totalSources,
+    "('UNKNOWN' policy status:",
+    unauditedSources,
+    ")",
+  );
+  console.log(
+    "8. Total Opportunities:",
+    totalOpportunities,
+    "(VERIFIED:",
+    verifiedOpps,
+    ", HYPOTHESIS:",
+    hypothesisOpps,
+    ")",
+  );
 
   const hasDefects =
     legacyUnclassifiedSignals > 0 ||
