@@ -900,13 +900,22 @@ async function dbFindActiveProcessingRun(db: any, now: Date, hasTable: boolean):
   if (db.auditLog?.findMany) {
     try {
       const logs = await db.auditLog.findMany({
-        where: { entityType: "IngestionRun", action: "INGESTION_RUN_PROCESSING" },
+        where: { entityType: "IngestionRun" },
         orderBy: { createdAt: "desc" },
-        take: 10,
+        take: 30,
       });
+      const seen = new Set<string>();
       for (const log of logs) {
+        if (seen.has(log.entityId)) continue;
+        seen.add(log.entityId);
+
         const details = log.details as any;
-        if (details?.status === "PROCESSING" && details?.lockedUntil && new Date(details.lockedUntil) > now) {
+        if (
+          log.action === "INGESTION_RUN_PROCESSING" &&
+          details?.status === "PROCESSING" &&
+          details?.lockedUntil &&
+          new Date(details.lockedUntil) > now
+        ) {
           return details;
         }
       }
