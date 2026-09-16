@@ -687,6 +687,10 @@ export async function executeManualStagingIngestion(
           failCode = "AI_PROVIDER_ENDPOINT_INVALID";
         } else if (msg.includes("AI_PROVIDER_RATE_LIMITED")) {
           failCode = "AI_PROVIDER_RATE_LIMITED";
+        } else if (msg.includes("AI_OUTPUT_TRUNCATED")) {
+          failCode = "AI_OUTPUT_TRUNCATED";
+        } else if (msg.includes("AI_OUTPUT_EMPTY")) {
+          failCode = "AI_OUTPUT_EMPTY";
         } else if (msg.includes("AI_OUTPUT_INVALID") || msg.includes("invalid") || msg.includes("schema")) {
           failCode = "AI_OUTPUT_INVALID";
         }
@@ -1073,6 +1077,10 @@ export async function executeManualStagingIngestion(
       sanitizedCode = "AI_PROVIDER_ENDPOINT_INVALID";
     } else if (msg.includes("AI_PROVIDER_RATE_LIMITED")) {
       sanitizedCode = "AI_PROVIDER_RATE_LIMITED";
+    } else if (msg.includes("AI_OUTPUT_TRUNCATED")) {
+      sanitizedCode = "AI_OUTPUT_TRUNCATED";
+    } else if (msg.includes("AI_OUTPUT_EMPTY")) {
+      sanitizedCode = "AI_OUTPUT_EMPTY";
     } else if (msg.includes("AI_OUTPUT_INVALID")) {
       sanitizedCode = "AI_OUTPUT_INVALID";
     } else if (msg.includes("AI_PROVIDER_UNAVAILABLE") || msg.includes("UNAVAILABLE")) {

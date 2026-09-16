@@ -31,6 +31,61 @@ export function normalizeApiKey(rawKey?: string): string {
   return key;
 }
 
+export function extractContentString(rawMsgContent: unknown): string {
+  if (typeof rawMsgContent === "string") {
+    return rawMsgContent;
+  }
+  if (Array.isArray(rawMsgContent)) {
+    return rawMsgContent
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+          return part.text;
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
+export function parseModelOutput<T>(
+  choice: { message?: { content?: unknown }; finish_reason?: string } | undefined,
+  schema: z.ZodSchema<T>,
+): T {
+  if (!choice) {
+    throw new Error("AI_OUTPUT_EMPTY");
+  }
+
+  if (choice.finish_reason === "length") {
+    throw new Error("AI_OUTPUT_TRUNCATED");
+  }
+
+  const rawContent = extractContentString(choice.message?.content).trim();
+  if (!rawContent) {
+    throw new Error("AI_OUTPUT_EMPTY");
+  }
+
+  let jsonStr = rawContent;
+  const fenceMatch = rawContent.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/i);
+  if (fenceMatch && fenceMatch[1]) {
+    jsonStr = fenceMatch[1].trim();
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch (err: any) {
+    throw new Error(`AI_OUTPUT_INVALID: JSON parse error: ${err?.message || "Invalid JSON"}`);
+  }
+
+  try {
+    return schema.parse(parsed);
+  } catch (err: any) {
+    throw new Error(`AI_OUTPUT_INVALID: Schema validation error: ${err?.message || "Invalid schema"}`);
+  }
+}
+
 export class AgnesAIProvider implements LLMProvider {
   public readonly name = "agnes-ai";
   private apiKey: string;
@@ -67,130 +122,160 @@ export class AgnesAIProvider implements LLMProvider {
 
     const endpoint = `${this.baseUrl}/chat/completions`;
 
-    // Ensure system prompt requests valid JSON output
-    const formattedMessages = [...messages];
-    const systemPromptIndex = formattedMessages.findIndex((m) => m.role === "system");
-    const jsonInstruction =
-      "Respond strictly with a valid JSON object matching the requested schema. Do not wrap with markdown code blocks or add explanatory text outside JSON.";
-    if (systemPromptIndex >= 0 && formattedMessages[systemPromptIndex]) {
-      const existing = formattedMessages[systemPromptIndex];
-      formattedMessages[systemPromptIndex] = {
-        role: "system",
-        content: `${existing?.content || ""}\n\n${jsonInstruction}`,
-      };
-    } else {
-      formattedMessages.unshift({
-        role: "system",
-        content: jsonInstruction,
-      });
-    }
+    const formatMessages = (msgs: ChatMessage[]): ChatMessage[] => {
+      const formatted = [...msgs];
+      const systemPromptIndex = formatted.findIndex((m) => m.role === "system");
+      const jsonInstruction =
+        "Respond strictly with a single valid JSON object matching the requested schema. Do not wrap with markdown code blocks or add any explanatory text outside JSON.";
+      if (systemPromptIndex >= 0 && formatted[systemPromptIndex]) {
+        const existing = formatted[systemPromptIndex];
+        formatted[systemPromptIndex] = {
+          role: "system",
+          content: `${existing?.content || ""}\n\n${jsonInstruction}`,
+        };
+      } else {
+        formatted.unshift({
+          role: "system",
+          content: jsonInstruction,
+        });
+      }
+      return formatted;
+    };
 
-    let response: Response;
-    try {
-      response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: formattedMessages,
-          temperature: options?.temperature ?? 0.1,
-          max_tokens: options?.maxTokens ?? 2000,
-          response_format: { type: "json_object" },
-        }),
-      });
-    } catch (netErr: any) {
-      logger.error(
-        "Agnes AI fetch failed",
-        netErr instanceof Error ? netErr : new Error(String(netErr)),
-      );
-      throw new Error(`AI_PROVIDER_UNAVAILABLE: ${netErr?.message || "Network error"}`);
-    }
-
-    if (!response.ok) {
-      const status = response.status;
-      const requestId =
-        response.headers.get("x-request-id") ||
-        response.headers.get("request-id") ||
-        undefined;
-
-      let errorBodyText = "";
+    const callApi = async (reqMessages: ChatMessage[], isRetry = false): Promise<any> => {
+      let response: Response;
       try {
-        errorBodyText = await response.text();
-      } catch {
-        // ignore
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: reqMessages,
+            temperature: options?.temperature ?? 0.1,
+            max_tokens: isRetry ? 2500 : (options?.maxTokens ?? 2000),
+            response_format: { type: "json_object" },
+          }),
+        });
+      } catch (netErr: any) {
+        logger.error(
+          "Agnes AI fetch failed",
+          netErr instanceof Error ? netErr : new Error(String(netErr)),
+        );
+        throw new Error(`AI_PROVIDER_UNAVAILABLE: ${netErr?.message || "Network error"}`);
       }
 
-      let providerCode = "";
-      try {
-        const errJson = JSON.parse(errorBodyText);
-        providerCode = errJson?.error?.code || errJson?.code || errJson?.error?.type || "";
-      } catch {
-        // not json
-      }
+      if (!response.ok) {
+        const status = response.status;
+        const requestId =
+          response.headers.get("x-request-id") ||
+          response.headers.get("request-id") ||
+          undefined;
 
-      // Log only HTTP status, provider code and request ID
-      logger.error("Agnes AI request error", undefined, {
-        status,
-        providerCode,
-        requestId,
-      });
-
-      if (status === 401 || status === 403) {
-        throw new Error("AI_PROVIDER_AUTHENTICATION_FAILED");
-      }
-
-      if (status === 404) {
-        const lowerBody = errorBodyText.toLowerCase();
-        if (lowerBody.includes("model") || providerCode.toLowerCase().includes("model")) {
-          throw new Error("AI_MODEL_NOT_FOUND");
+        let errorBodyText = "";
+        try {
+          errorBodyText = await response.text();
+        } catch {
+          // ignore
         }
-        throw new Error("AI_PROVIDER_ENDPOINT_INVALID");
-      }
 
-      if (status === 429) {
-        throw new Error("AI_PROVIDER_RATE_LIMITED");
-      }
+        let providerCode = "";
+        try {
+          const errJson = JSON.parse(errorBodyText);
+          providerCode = errJson?.error?.code || errJson?.code || errJson?.error?.type || "";
+        } catch {
+          // not json
+        }
 
-      if (status >= 500) {
+        logger.error("Agnes AI request error", undefined, {
+          status,
+          providerCode,
+          requestId,
+        });
+
+        if (status === 401 || status === 403) {
+          throw new Error("AI_PROVIDER_AUTHENTICATION_FAILED");
+        }
+
+        if (status === 404) {
+          const lowerBody = errorBodyText.toLowerCase();
+          if (lowerBody.includes("model") || providerCode.toLowerCase().includes("model")) {
+            throw new Error("AI_MODEL_NOT_FOUND");
+          }
+          throw new Error("AI_PROVIDER_ENDPOINT_INVALID");
+        }
+
+        if (status === 429) {
+          throw new Error("AI_PROVIDER_RATE_LIMITED");
+        }
+
+        if (status >= 500) {
+          throw new Error(`AI_PROVIDER_UNAVAILABLE: HTTP ${status}`);
+        }
+
         throw new Error(`AI_PROVIDER_UNAVAILABLE: HTTP ${status}`);
       }
 
-      throw new Error(`AI_PROVIDER_UNAVAILABLE: HTTP ${status}`);
-    }
+      try {
+        return await response.json();
+      } catch {
+        throw new Error("AI_OUTPUT_INVALID: Invalid JSON response from provider");
+      }
+    };
 
-    let json: any;
-    try {
-      json = await response.json();
-    } catch {
-      throw new Error("AI_OUTPUT_INVALID: Invalid JSON response from provider");
-    }
-
-    let rawContent = json?.choices?.[0]?.message?.content || "";
-    if (rawContent.startsWith("```json")) {
-      rawContent = rawContent.slice(7);
-    } else if (rawContent.startsWith("```")) {
-      rawContent = rawContent.slice(3);
-    }
-    if (rawContent.endsWith("```")) {
-      rawContent = rawContent.slice(0, -3);
-    }
-    rawContent = rawContent.trim();
-
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(rawContent);
-    } catch {
-      throw new Error("AI_OUTPUT_INVALID: JSON parse error");
-    }
+    const initialMessages = formatMessages(messages);
+    let json = await callApi(initialMessages, false);
 
     let data: T;
+    let rawResponse = extractContentString(json?.choices?.[0]?.message?.content);
+
     try {
-      data = schema.parse(parsedJson);
-    } catch (parseErr: any) {
-      throw new Error(`AI_OUTPUT_INVALID: ${parseErr?.message || "Schema validation failed"}`);
+      data = parseModelOutput(json?.choices?.[0], schema);
+    } catch (firstErr: any) {
+      const errMsg = firstErr?.message || "";
+      const isRetryable =
+        errMsg.startsWith("AI_OUTPUT_TRUNCATED") ||
+        errMsg.startsWith("AI_OUTPUT_INVALID") ||
+        errMsg.startsWith("AI_OUTPUT_EMPTY");
+
+      if (!isRetryable) {
+        throw firstErr;
+      }
+
+      logger.warn("First AI structured output attempt failed, performing bounded retry", {
+        reason: errMsg,
+        model,
+        purpose,
+      });
+
+      const retryMessages: ChatMessage[] = [
+        ...initialMessages,
+        ...(rawResponse ? [{ role: "assistant" as const, content: rawResponse }] : []),
+        {
+          role: "user",
+          content:
+            "Your previous response was malformed, truncated, or failed JSON schema validation. Return strictly a single valid JSON object conforming directly to the required schema. Do NOT wrap in markdown fencing. Do NOT include any explanations outside JSON.",
+        },
+      ];
+
+      json = await callApi(retryMessages, true);
+      rawResponse = extractContentString(json?.choices?.[0]?.message?.content);
+
+      try {
+        data = parseModelOutput(json?.choices?.[0], schema);
+      } catch (retryErr: any) {
+        logger.error(
+          "Bounded AI retry failed",
+          retryErr instanceof Error ? retryErr : new Error(String(retryErr)),
+          {
+            model,
+            purpose,
+          },
+        );
+        throw retryErr;
+      }
     }
 
     const promptTokens = json?.usage?.prompt_tokens || 100;
@@ -208,7 +293,7 @@ export class AgnesAIProvider implements LLMProvider {
 
     return {
       data,
-      rawResponse: rawContent,
+      rawResponse,
       promptTokens,
       completionTokens,
       costMinorUnits: costCents,

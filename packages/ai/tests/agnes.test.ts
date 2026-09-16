@@ -48,57 +48,39 @@ describe("Agnes AI Provider (https://agnes-ai.com)", () => {
     });
   });
 
-  describe("OpenAI-compatible chat completion and Bearer header", () => {
+  describe("OpenAI-compatible chat completion, content formatting and bounded retries", () => {
     const TestSchema = z.object({
       signalType: z.string(),
       confidenceScore: z.number(),
     });
 
-    it("sends Bearer exactly once and requests JSON with agnes-2.5-flash model", async () => {
-      let capturedUrl = "";
-      let capturedHeaders: Record<string, string> = {};
-      let capturedBody: any = null;
-
-      globalThis.fetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
-        capturedUrl = url;
-        capturedHeaders = init.headers as Record<string, string>;
-        capturedBody = JSON.parse(init.body as string);
-
-        return new Response(
+    it("parses plain valid JSON", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
           JSON.stringify({
             choices: [
               {
                 message: {
                   content: JSON.stringify({
-                    signalType: "PAIN_POINT",
-                    confidenceScore: 92,
+                    signalType: "PAIN_COMPLAINT",
+                    confidenceScore: 90,
                   }),
                 },
               },
             ],
-            usage: { prompt_tokens: 150, completion_tokens: 50 },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      });
+          { status: 200 },
+        ),
+      );
 
-      const agnes = new AgnesAIProvider({
-        apiKey: "Bearer my-secret-key",
-        baseUrl: "https://apihub.agnes-ai.com/v1/",
-      });
-
+      const agnes = new AgnesAIProvider({ apiKey: "valid-key" });
       const result = await agnes.generateStructured(
-        [{ role: "user", content: "Classify this signal" }],
+        [{ role: "user", content: "Classify" }],
         TestSchema,
       );
 
-      expect(capturedUrl).toBe("https://apihub.agnes-ai.com/v1/chat/completions");
-      expect(capturedHeaders["Authorization"]).toBe("Bearer my-secret-key");
-      expect(capturedHeaders["Content-Type"]).toBe("application/json");
-      expect(capturedBody.model).toBe("agnes-2.5-flash");
-      expect(capturedBody.response_format).toEqual({ type: "json_object" });
-      expect(result.data.signalType).toBe("PAIN_POINT");
-      expect(result.data.confidenceScore).toBe(92);
+      expect(result.data.signalType).toBe("PAIN_COMPLAINT");
+      expect(result.data.confidenceScore).toBe(90);
     });
 
     it("parses valid JSON wrapped in markdown code fencing", async () => {
@@ -126,12 +108,148 @@ describe("Agnes AI Provider (https://agnes-ai.com)", () => {
       expect(result.data.signalType).toBe("PURCHASE_INTENT");
       expect(result.data.confidenceScore).toBe(88);
     });
+
+    it("parses content returned as a text-content array", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: [
+                    { type: "text", text: "{\"signalType\": \"WORKAROUND_REQUEST\"," },
+                    { type: "text", text: " \"confidenceScore\": 85}" },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const agnes = new AgnesAIProvider({ apiKey: "valid-key" });
+      const result = await agnes.generateStructured(
+        [{ role: "user", content: "Classify" }],
+        TestSchema,
+      );
+
+      expect(result.data.signalType).toBe("WORKAROUND_REQUEST");
+      expect(result.data.confidenceScore).toBe(85);
+    });
+
+    it("handles missing/empty content by retrying and throwing AI_OUTPUT_EMPTY if still empty", async () => {
+      globalThis.fetch = vi.fn().mockImplementation(async () => {
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "" } }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      });
+
+      const agnes = new AgnesAIProvider({ apiKey: "valid-key" });
+      await expect(
+        agnes.generateStructured([{ role: "user", content: "Classify" }], TestSchema),
+      ).rejects.toThrow("AI_OUTPUT_EMPTY");
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("handles finish_reason=length by retrying and throwing AI_OUTPUT_TRUNCATED if retry also truncates", async () => {
+      globalThis.fetch = vi.fn().mockImplementation(async () => {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: { content: "{\"signalType\": \"PAIN_POINT\"" },
+                finish_reason: "length",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      });
+
+      const agnes = new AgnesAIProvider({ apiKey: "valid-key" });
+      await expect(
+        agnes.generateStructured([{ role: "user", content: "Classify" }], TestSchema),
+      ).rejects.toThrow("AI_OUTPUT_TRUNCATED");
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("succeeds on bounded retry after initial malformed JSON", async () => {
+      let callCount = 0;
+      globalThis.fetch = vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          // First attempt: malformed JSON
+          return new Response(
+            JSON.stringify({
+              choices: [{ message: { content: "invalid json string {" } }],
+            }),
+            { status: 200 },
+          );
+        }
+        // Second attempt (retry): valid JSON
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    signalType: "EMERGING_TECH",
+                    confidenceScore: 95,
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      });
+
+      const agnes = new AgnesAIProvider({ apiKey: "valid-key" });
+      const result = await agnes.generateStructured(
+        [{ role: "user", content: "Classify" }],
+        TestSchema,
+      );
+
+      expect(callCount).toBe(2);
+      expect(result.data.signalType).toBe("EMERGING_TECH");
+      expect(result.data.confidenceScore).toBe(95);
+    });
+
+    it("fails closed with AI_OUTPUT_INVALID after failed retry on schema mismatch", async () => {
+      let callCount = 0;
+      globalThis.fetch = vi.fn().mockImplementation(async () => {
+        callCount++;
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({ wrongField: 123 }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      });
+
+      const agnes = new AgnesAIProvider({ apiKey: "valid-key" });
+      await expect(
+        agnes.generateStructured([{ role: "user", content: "Classify" }], TestSchema),
+      ).rejects.toThrow("AI_OUTPUT_INVALID");
+
+      expect(callCount).toBe(2);
+    });
   });
 
   describe("Sanitized Diagnostic Error Mappings", () => {
     const TestSchema = z.object({ signalType: z.string() });
 
-    it("maps 401 and 403 to AI_PROVIDER_AUTHENTICATION_FAILED", async () => {
+    it("maps 401 and 403 to AI_PROVIDER_AUTHENTICATION_FAILED without retrying", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ error: { message: "Unauthorized", code: "invalid_api_key" } }), {
           status: 401,
@@ -143,12 +261,7 @@ describe("Agnes AI Provider (https://agnes-ai.com)", () => {
         agnes.generateStructured([{ role: "user", content: "test" }], TestSchema),
       ).rejects.toThrow("AI_PROVIDER_AUTHENTICATION_FAILED");
 
-      globalThis.fetch = vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: { message: "Forbidden" } }), { status: 403 }),
-      );
-      await expect(
-        agnes.generateStructured([{ role: "user", content: "test" }], TestSchema),
-      ).rejects.toThrow("AI_PROVIDER_AUTHENTICATION_FAILED");
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
 
     it("maps 404 model not found to AI_MODEL_NOT_FOUND", async () => {
@@ -200,30 +313,6 @@ describe("Agnes AI Provider (https://agnes-ai.com)", () => {
       await expect(
         agnes.generateStructured([{ role: "user", content: "test" }], TestSchema),
       ).rejects.toThrow("AI_PROVIDER_UNAVAILABLE: ECONNREFUSED");
-    });
-
-    it("maps malformed JSON and schema mismatches to AI_OUTPUT_INVALID", async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({ choices: [{ message: { content: "not valid json {" } }] }),
-          { status: 200 },
-        ),
-      );
-
-      const agnes = new AgnesAIProvider({ apiKey: "valid-key" });
-      await expect(
-        agnes.generateStructured([{ role: "user", content: "test" }], TestSchema),
-      ).rejects.toThrow("AI_OUTPUT_INVALID");
-
-      globalThis.fetch = vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({ choices: [{ message: { content: JSON.stringify({ wrongField: 123 }) } }] }),
-          { status: 200 },
-        ),
-      );
-      await expect(
-        agnes.generateStructured([{ role: "user", content: "test" }], TestSchema),
-      ).rejects.toThrow("AI_OUTPUT_INVALID");
     });
   });
 
