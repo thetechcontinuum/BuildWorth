@@ -677,9 +677,17 @@ export async function executeManualStagingIngestion(
         const msg = String(aiErr?.message || "");
 
         let failCode = "AI_PROVIDER_UNAVAILABLE";
-        if (msg.includes("not configured") || msg.includes("AI_PROVIDER_NOT_CONFIGURED")) {
+        if (msg.includes("AI_PROVIDER_NOT_CONFIGURED") || msg.includes("not configured")) {
           failCode = "AI_PROVIDER_NOT_CONFIGURED";
-        } else if (msg.includes("invalid") || msg.includes("AI_OUTPUT_INVALID") || msg.includes("schema")) {
+        } else if (msg.includes("AI_PROVIDER_AUTHENTICATION_FAILED")) {
+          failCode = "AI_PROVIDER_AUTHENTICATION_FAILED";
+        } else if (msg.includes("AI_MODEL_NOT_FOUND")) {
+          failCode = "AI_MODEL_NOT_FOUND";
+        } else if (msg.includes("AI_PROVIDER_ENDPOINT_INVALID")) {
+          failCode = "AI_PROVIDER_ENDPOINT_INVALID";
+        } else if (msg.includes("AI_PROVIDER_RATE_LIMITED")) {
+          failCode = "AI_PROVIDER_RATE_LIMITED";
+        } else if (msg.includes("AI_OUTPUT_INVALID") || msg.includes("invalid") || msg.includes("schema")) {
           failCode = "AI_OUTPUT_INVALID";
         }
 
@@ -1057,10 +1065,18 @@ export async function executeManualStagingIngestion(
     let sanitizedCode = "EXECUTION_ERROR";
     if (msg.includes("AI_PROVIDER_NOT_CONFIGURED") || msg.includes("not configured")) {
       sanitizedCode = "AI_PROVIDER_NOT_CONFIGURED";
-    } else if (msg.includes("AI_PROVIDER_UNAVAILABLE") || msg.includes("UNAVAILABLE")) {
-      sanitizedCode = "AI_PROVIDER_UNAVAILABLE";
+    } else if (msg.includes("AI_PROVIDER_AUTHENTICATION_FAILED")) {
+      sanitizedCode = "AI_PROVIDER_AUTHENTICATION_FAILED";
+    } else if (msg.includes("AI_MODEL_NOT_FOUND")) {
+      sanitizedCode = "AI_MODEL_NOT_FOUND";
+    } else if (msg.includes("AI_PROVIDER_ENDPOINT_INVALID")) {
+      sanitizedCode = "AI_PROVIDER_ENDPOINT_INVALID";
+    } else if (msg.includes("AI_PROVIDER_RATE_LIMITED")) {
+      sanitizedCode = "AI_PROVIDER_RATE_LIMITED";
     } else if (msg.includes("AI_OUTPUT_INVALID")) {
       sanitizedCode = "AI_OUTPUT_INVALID";
+    } else if (msg.includes("AI_PROVIDER_UNAVAILABLE") || msg.includes("UNAVAILABLE")) {
+      sanitizedCode = "AI_PROVIDER_UNAVAILABLE";
     }
 
     await markRunFailed(prisma, runId, claimToken, sanitizedCode);
