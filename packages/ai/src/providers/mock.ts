@@ -24,7 +24,7 @@ export class MockDeterministicProvider implements LLMProvider {
     // Deterministic mock generation based on keywords
     let mockData: unknown;
 
-    if (userMsg.includes("Classify this signal")) {
+    if (userMsg.includes("Classify this market signal") || userMsg.includes("Classify this signal")) {
       let signalType = "PAIN_COMPLAINT";
       if (userMsg.toLowerCase().includes("would pay") || userMsg.toLowerCase().includes("budget")) {
         signalType = "PURCHASE_INTENT";
