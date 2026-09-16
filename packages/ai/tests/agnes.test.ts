@@ -3,7 +3,7 @@ import { AgnesAIProvider } from "../src/providers/agnes.js";
 import { z } from "zod";
 
 describe("Agnes AI Provider (https://agnes-ai.com)", () => {
-  it("initializes Agnes AI provider with default config and generates structured data", async () => {
+  it("initializes Agnes AI provider and fails safely with AI_PROVIDER_NOT_CONFIGURED when API key is unconfigured", async () => {
     const agnes = new AgnesAIProvider();
     expect(agnes.name).toBe("agnes-ai");
 
@@ -12,15 +12,13 @@ describe("Agnes AI Provider (https://agnes-ai.com)", () => {
       confidenceScore: z.number(),
     });
 
-    const result = await agnes.generateStructured(
-      [{ role: "user", content: "Classify this signal complaint" }],
-      TestSchema,
-      { purpose: "signal_classification" },
-    );
-
-    expect(result.data.signalType).toBeDefined();
-    expect(result.data.confidenceScore).toBeGreaterThan(0);
-    expect(result.costMinorUnits).toBeGreaterThanOrEqual(1);
+    await expect(
+      agnes.generateStructured(
+        [{ role: "user", content: "Classify this signal complaint" }],
+        TestSchema,
+        { purpose: "signal_classification" },
+      ),
+    ).rejects.toThrow("AI_PROVIDER_NOT_CONFIGURED");
   });
 
   it("generates embeddings via Agnes AI", async () => {

@@ -24,7 +24,7 @@ export class AgnesAIProvider implements LLMProvider {
   }) {
     const env = getEnv();
     this.apiKey = config?.apiKey || env.AGNES_AI_API_KEY || "";
-    this.baseUrl = config?.baseUrl || env.AGNES_AI_BASE_URL || "https://api.agnes-ai.com/v1";
+    this.baseUrl = config?.baseUrl || env.AGNES_AI_BASE_URL || "https://apihub.agnes-ai.com/v1";
     this.defaultModel = config?.model || env.AGNES_AI_MODEL || "agnes-default";
     this.defaultEmbeddingModel =
       config?.embeddingModel || env.AGNES_AI_EMBEDDING_MODEL || "agnes-embed-default";
