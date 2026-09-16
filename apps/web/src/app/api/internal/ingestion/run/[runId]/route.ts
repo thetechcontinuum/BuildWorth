@@ -9,8 +9,8 @@ const NO_CACHE_HEADERS = {
 };
 
 function timingSafeEqualStr(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
+  const bufA = Buffer.from(a.trim());
+  const bufB = Buffer.from(b.trim());
   if (bufA.length !== bufB.length) {
     crypto.timingSafeEqual(bufA, bufA);
     return false;

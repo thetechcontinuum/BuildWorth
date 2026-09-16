@@ -25,6 +25,16 @@ import { synthesizeOpportunity } from "../synthesizer.js";
 import { createOpportunityRevisionTransaction } from "../revision/revision-service.js";
 import { logger } from "@buildworth/observability";
 
+export function timingSafeEqualStr(a: string, b: string): boolean {
+  const bufA = Buffer.from(a.trim());
+  const bufB = Buffer.from(b.trim());
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 export interface ManualIngestionOptions {
   idempotencyKey: string;
   workerId?: string;
