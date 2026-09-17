@@ -1196,20 +1196,33 @@ export async function executeManualStagingIngestion(
 
       // Persist EvidenceLinks connecting NormalizedSignals -> Opportunity & OpportunityRevision
       for (const item of verifiedSignals) {
-        await prisma.evidenceLink.create({
-          data: {
-            opportunityId: opp.id,
-            opportunityRevisionId: revisionResult.revisionId,
-            normalizedSignalId: item.normalizedSignal.id,
-            claimType: "PROBLEM_FREQUENCY",
-            claimIdentifier: "claim-pain-" + opp.id,
-            claimSnippet: item.normalizedSignal.sanitizedExcerpt,
-            relationshipType: "SUPPORTS",
-            supportStrength: "STRONG",
-            explanation: `Empirically verified from ${item.source.name} (${item.rawSignal.sourceUrl})`,
-            relevanceScore: 90,
-          },
-        });
+        let evClaimType: any = "PAIN_EXISTENCE";
+        if (item.normalizedSignal.signalType === "PURCHASE_INTENT") {
+          evClaimType = "BUYER_DEMAND";
+        } else if (item.normalizedSignal.signalType === "WILLINGNESS_TO_PAY") {
+          evClaimType = "WILLINGNESS_TO_PAY";
+        } else if (item.normalizedSignal.signalType === "WORKAROUND") {
+          evClaimType = "CURRENT_WORKAROUND";
+        }
+
+        try {
+          await prisma.evidenceLink.create({
+            data: {
+              opportunityId: opp.id,
+              opportunityRevisionId: revisionResult.revisionId,
+              normalizedSignalId: item.normalizedSignal.id,
+              claimType: evClaimType,
+              claimIdentifier: "claim-pain-" + opp.id,
+              claimSnippet: item.normalizedSignal.sanitizedExcerpt || item.normalizedSignal.problemSummary || "Empirical signal evidence",
+              relationshipType: "SUPPORTS",
+              supportStrength: "STRONG",
+              explanation: `Empirically verified from ${item.source.name} (${item.rawSignal.sourceUrl})`,
+              relevanceScore: 0.9,
+            },
+          });
+        } catch (linkErr: any) {
+          logger.warn("Failed creating EvidenceLink", { message: linkErr?.message });
+        }
       }
 
       candidateEvaluations.push({
@@ -1300,7 +1313,16 @@ export async function executeManualStagingIngestion(
       sanitizedCode = "AI_PROVIDER_UNAVAILABLE";
     }
 
-    await markRunFailed(prisma, runId, claimToken, sanitizedCode);
+    await markRunFailed(prisma, runId, claimToken, sanitizedCode, {
+      totalFetched,
+      totalDeduplicated,
+      rawSignalsCount,
+      candidatesCount,
+      publishedCount: 0,
+      summary: {
+        errorMessage: msg,
+      },
+    });
 
     return {
       runId,
@@ -1546,6 +1568,7 @@ async function markRunFailed(
   runId: string,
   claimToken: string,
   failureCode: string,
+  data?: any,
 ): Promise<void> {
   try {
     await prisma.ingestionRun.updateMany({
@@ -1554,6 +1577,12 @@ async function markRunFailed(
         status: "FAILED",
         failureCode,
         failedAt: new Date(),
+        ...(data?.totalFetched !== undefined ? { totalFetched: data.totalFetched } : {}),
+        ...(data?.totalDeduplicated !== undefined ? { totalDeduplicated: data.totalDeduplicated } : {}),
+        ...(data?.rawSignalsCount !== undefined ? { rawSignalsCount: data.rawSignalsCount } : {}),
+        ...(data?.candidatesCount !== undefined ? { candidatesCount: data.candidatesCount } : {}),
+        ...(data?.publishedCount !== undefined ? { publishedCount: data.publishedCount } : {}),
+        ...(data?.summary !== undefined ? { summary: data.summary } : {}),
       },
     });
   } catch (err: any) {
@@ -1569,6 +1598,7 @@ async function markRunFailed(
           status: "FAILED",
           failureCode,
           failedAt: new Date().toISOString(),
+          ...data,
         },
       },
     }).catch(() => {});
