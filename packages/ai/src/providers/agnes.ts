@@ -143,28 +143,45 @@ export class AgnesAIProvider implements LLMProvider {
     };
 
     const callApi = async (reqMessages: ChatMessage[], isRetry = false): Promise<any> => {
-      let response: Response;
-      try {
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.apiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            messages: reqMessages,
-            temperature: options?.temperature ?? 0.1,
-            max_tokens: isRetry ? 2500 : (options?.maxTokens ?? 2000),
-            response_format: { type: "json_object" },
-          }),
-        });
-      } catch (netErr: any) {
+      let response: Response | null = null;
+      let lastNetErr: any = null;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages: reqMessages,
+              temperature: options?.temperature ?? 0.1,
+              max_tokens: isRetry ? 2500 : (options?.maxTokens ?? 2000),
+              response_format: { type: "json_object" },
+            }),
+          });
+          if (response.ok || (response.status !== 429 && response.status < 500)) {
+            break;
+          }
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 1200));
+          }
+        } catch (netErr: any) {
+          lastNetErr = netErr;
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 1200));
+          }
+        }
+      }
+
+      if (!response) {
         logger.error(
           "Agnes AI fetch failed",
-          netErr instanceof Error ? netErr : new Error(String(netErr)),
+          lastNetErr instanceof Error ? lastNetErr : new Error(String(lastNetErr)),
         );
-        throw new Error(`AI_PROVIDER_UNAVAILABLE: ${netErr?.message || "Network error"}`);
+        throw new Error(`AI_PROVIDER_UNAVAILABLE: ${lastNetErr?.message || "Network error"}`);
       }
 
       if (!response.ok) {
