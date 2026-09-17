@@ -114,7 +114,14 @@ async function main() {
       body: JSON.stringify({ cleanSyntheticPrior: true }),
     });
 
-    const postData = await postRes.json();
+    const rawText = await postRes.text();
+    let postData;
+    try {
+      postData = JSON.parse(rawText);
+    } catch {
+      console.error(`Ingestion trigger response was not JSON (HTTP ${postRes.status}): ${rawText.slice(0, 200)}`);
+      process.exit(1);
+    }
 
     if (!postRes.ok && postRes.status !== 409) {
       console.error(`Ingestion trigger failed with HTTP ${postRes.status}`);
@@ -157,7 +164,14 @@ async function main() {
         continue;
       }
 
-      const pollData = await pollRes.json();
+      const pollText = await pollRes.text();
+      let pollData;
+      try {
+        pollData = JSON.parse(pollText);
+      } catch {
+        continue;
+      }
+
       const current = pollData.run || pollData;
 
       if (current.status === "COMPLETED" || current.status === "FAILED") {
@@ -188,7 +202,24 @@ function printSummary(run) {
   
   const slugs = run.publishedSlugs || [];
   console.log(`Published Slugs: ${slugs.length > 0 ? slugs.join(", ") : "(none)"}`);
-  if (run.startedAt) console.log(`Started At     : ${run.startedAt}`);
+
+  const evals = run.summary?.candidateEvaluations || [];
+  if (evals.length > 0) {
+    console.log("\n--- Candidate Quality Gate Evaluations ---");
+    evals.forEach((ev, idx) => {
+      console.log(`[Candidate ${idx + 1}] ${ev.title}`);
+      console.log(`  Publication Quality Status : ${ev.publicationQualityStatus}`);
+      console.log(`  Database Status            : ${ev.status}`);
+      console.log(`  Supporting URLs (${ev.supportingUrls?.length || 0}):`);
+      (ev.supportingUrls || []).forEach((u) => console.log(`    - ${u}`));
+      if (ev.blockers && ev.blockers.length > 0) {
+        console.log(`  Gate Blockers (${ev.blockers.length}):`);
+        ev.blockers.forEach((b) => console.log(`    * ${b}`));
+      }
+    });
+  }
+
+  if (run.startedAt) console.log(`\nStarted At     : ${run.startedAt}`);
   if (run.completedAt) console.log(`Completed At   : ${run.completedAt}`);
   if (run.failedAt) console.log(`Failed At      : ${run.failedAt}`);
   console.log("==================================\n");

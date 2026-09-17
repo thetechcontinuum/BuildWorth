@@ -255,7 +255,7 @@ export async function executeManualStagingIngestion(
     maxHistoricalSignals = 20,
     maxPublishedOpportunities = 3,
     aiProvider = defaultAI,
-    executionTimeoutMs = 45000,
+    executionTimeoutMs = 35000,
     cleanSyntheticPrior = false,
   } = options;
 
@@ -751,7 +751,7 @@ export async function executeManualStagingIngestion(
     const clusterCandidates: ClusterCandidate[] = [];
 
     for (const item of sanitizedSignalsToProcess) {
-      if (Date.now() > deadline || clusterCandidates.length >= maxCandidates) break;
+      if (Date.now() > deadline - 10000 || clusterCandidates.length >= maxCandidates) break;
 
       try {
         const classification = await classifySignal(aiProvider, item.excerpt, item.title);
