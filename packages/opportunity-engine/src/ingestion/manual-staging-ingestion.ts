@@ -591,7 +591,7 @@ export async function executeManualStagingIngestion(
     maxHistoricalSignals = 20,
     maxPublishedOpportunities = 3,
     aiProvider = defaultAI,
-    executionTimeoutMs = 35000,
+    executionTimeoutMs = 50000,
     cleanSyntheticPrior = false,
   } = options;
 
@@ -916,11 +916,12 @@ export async function executeManualStagingIngestion(
         const srcSlots = Math.min(slotsAvailable, maxPerSource);
 
         if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github")) {
-          for (const query of targetQueries) {
-            if (rawSignals.length >= srcSlots) break;
-            const remaining = srcSlots - rawSignals.length;
-            const targeted = await adapter.fetchSignals(Math.min(5, remaining), query);
-            rawSignals.push(...targeted);
+          const queriesToRun = targetQueries.slice(0, 2);
+          const perQuery = Math.max(3, Math.floor(srcSlots / queriesToRun.length));
+          const fetchPromises = queriesToRun.map((q) => adapter.fetchSignals(perQuery, q));
+          const results = await Promise.all(fetchPromises);
+          for (const list of results) {
+            rawSignals.push(...list);
           }
 
           if (rawSignals.length < srcSlots) {
@@ -1092,7 +1093,7 @@ export async function executeManualStagingIngestion(
     const clusterCandidates: ClusterCandidate[] = [];
 
     for (const item of sanitizedSignalsToProcess) {
-      if (Date.now() > deadline - 10000 || clusterCandidates.length >= maxCandidates) break;
+      if (Date.now() > deadline - 4000 || clusterCandidates.length >= maxCandidates) break;
 
       try {
         const classification = await classifySignal(aiProvider, item.excerpt, item.title);

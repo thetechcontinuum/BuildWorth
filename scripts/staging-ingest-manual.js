@@ -111,7 +111,7 @@ async function main() {
         ...(process.env.VERCEL_OIDC_TOKEN ? { "x-vercel-protection-bypass": process.env.VERCEL_OIDC_TOKEN } : {}),
         ...(process.env.VERCEL_PROTECTION_BYPASS ? { "x-vercel-protection-bypass": process.env.VERCEL_PROTECTION_BYPASS } : {}),
       },
-      body: JSON.stringify({ cleanSyntheticPrior: true }),
+      body: JSON.stringify({ cleanSyntheticPrior: false }),
     });
 
     const rawText = await postRes.text();
