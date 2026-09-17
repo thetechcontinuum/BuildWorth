@@ -74,7 +74,13 @@ export function evaluatePublicationQuality(
     );
   });
 
-  const verifiedSignals = verifiedLinks.map((l) => l.signal as EvidenceSignalItem);
+  const verifiedSignalsMap = new Map<string, EvidenceSignalItem>();
+  for (const l of verifiedLinks) {
+    if (l.signal && !verifiedSignalsMap.has(l.signal.id)) {
+      verifiedSignalsMap.set(l.signal.id, l.signal as EvidenceSignalItem);
+    }
+  }
+  const verifiedSignals = Array.from(verifiedSignalsMap.values());
   const hasSyntheticFixture = links.some((l) => l.signal?.evidenceOrigin === "SYNTHETIC_FIXTURE");
 
   if (hasSyntheticFixture) {

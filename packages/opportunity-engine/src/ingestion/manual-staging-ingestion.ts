@@ -116,24 +116,30 @@ export function extractTargetQueries(problemTexts: string[]): string[] {
     "can", "could", "should", "would", "do", "does", "did", "have", "has", "had", "be", "been",
     "being", "their", "them", "they", "our", "we", "us", "you", "your", "my", "me", "i", "it", "its",
     "this", "that", "these", "those", "tool", "tools", "using", "use", "process", "manual", "causing",
-    "recurring", "issues", "problem", "bottlenecks", "challenges", "friction", "without", "complex",
+    "recurring", "issues", "problem", "challenges", "friction", "without", "complex",
     "custom", "scripts", "delays"
   ]);
 
   for (const text of problemTexts) {
     if (!text || typeof text !== "string") continue;
     const cleaned = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ");
-    const words = cleaned.split(/\s+/).filter((w) => w.length > 3 && !stopWords.has(w));
-    if (words.length > 0) {
+    const words = cleaned.split(/\s+/).filter((w) => w.length > 2 && !stopWords.has(w));
+    if (words.length >= 2) {
       const distinctWords = Array.from(new Set(words));
-      const query = distinctWords.slice(0, 3).join(" ");
-      if (query && !queries.includes(query)) {
-        queries.push(query);
+      for (let i = 0; i < distinctWords.length - 1 && queries.length < 5; i += 2) {
+        const pair = distinctWords.slice(i, i + 2).join(" ");
+        if (pair && !queries.includes(pair)) {
+          queries.push(pair);
+        }
+      }
+      const fullQuery = distinctWords.slice(0, 3).join(" ");
+      if (fullQuery && !queries.includes(fullQuery) && queries.length < 5) {
+        queries.push(fullQuery);
       }
     }
   }
 
-  return queries.slice(0, 3);
+  return queries.slice(0, 4);
 }
 
 export const KNOWN_SYNTHETIC_FIXTURE_EXTERNAL_IDS = [
@@ -932,10 +938,16 @@ export async function executeManualStagingIngestion(
         };
 
         let claimType: ClaimType = "PAIN_EXISTENCE";
-        if (norm.signalType === "PURCHASE_INTENT") {
-          claimType = "BUYER_DEMAND";
-        } else if (norm.signalType === "WILLINGNESS_TO_PAY") {
+        const excerptLower = (norm.sanitizedExcerpt || "").toLowerCase();
+        const hasExplicitDemandText =
+          /\b(budget|buy|purchase|procure|licensed?|rfp|vendor|paying|willing to pay|\$\d+|\d+\s*dollars|cost per)\b/i.test(excerptLower);
+        const hasExplicitPayText =
+          /\b(willing to pay|\$\d+|\d+\s*dollars|subscription|price|pricing|\/mo|\/month|\/year|budget of)\b/i.test(excerptLower);
+
+        if (norm.signalType === "WILLINGNESS_TO_PAY" && hasExplicitPayText) {
           claimType = "WILLINGNESS_TO_PAY";
+        } else if (norm.signalType === "PURCHASE_INTENT" && hasExplicitDemandText) {
+          claimType = "BUYER_DEMAND";
         } else if (norm.signalType === "WORKAROUND") {
           claimType = "CURRENT_WORKAROUND";
         }
@@ -978,38 +990,73 @@ export async function executeManualStagingIngestion(
       const finalStatus = isVerified ? "PUBLISHED" : "DRAFT";
       const pubQualityStatus = qualityResult.status;
 
-      let opp = await prisma.opportunity.create({
-        data: {
-          slug: finalSlug,
-          title: formattedTitle,
-          oneSentenceSummary: blueprint.oneSentenceSummary,
-          problemStatement: blueprint.problemStatement,
-          jobsToBeDone: blueprint.jobsToBeDone,
-          proposedProduct: blueprint.proposedProduct,
-          narrowMvpScope: blueprint.narrowMvpScope,
-          targetCustomerSegments: blueprint.targetCustomerSegments,
-          economicBuyer: blueprint.economicBuyer,
-          endUser: blueprint.endUser,
-          buyingTrigger: blueprint.buyingTrigger,
-          existingWorkflow: blueprint.existingWorkflow,
-          painSeverity: blueprint.painSeverity,
-          painFrequency: blueprint.painFrequency,
-          status: finalStatus,
-          publicationQualityStatus: pubQualityStatus,
-          isDemoFixture: false,
-          industry: cl.vertical || "DevOps & Compliance",
-          customerType: "B2B",
-          estimatedMvpCostMinCents: blueprint.economics.estimatedMvpCost.minMinor,
-          estimatedMvpCostMaxCents: blueprint.economics.estimatedMvpCost.maxMinor,
-          estimatedTimeToMvpMinWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
-          estimatedTimeToMvpMaxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
-          estimatedMonthlyOpCostMinCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
-          estimatedMonthlyOpCostMaxCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
-          recommendedNextExperiment: blueprint.recommendedNextExperiment,
-          majorAssumptions: blueprint.majorAssumptions,
-          majorRisks: blueprint.majorRisks,
-        },
-      });
+      let opp: any;
+      if (existingOpp && existingOpp.id) {
+        opp = await prisma.opportunity.update({
+          where: { id: existingOpp.id },
+          data: {
+            title: formattedTitle,
+            oneSentenceSummary: blueprint.oneSentenceSummary,
+            problemStatement: blueprint.problemStatement,
+            jobsToBeDone: blueprint.jobsToBeDone,
+            proposedProduct: blueprint.proposedProduct,
+            narrowMvpScope: blueprint.narrowMvpScope,
+            targetCustomerSegments: blueprint.targetCustomerSegments,
+            economicBuyer: blueprint.economicBuyer,
+            endUser: blueprint.endUser,
+            buyingTrigger: blueprint.buyingTrigger,
+            existingWorkflow: blueprint.existingWorkflow,
+            painSeverity: blueprint.painSeverity,
+            painFrequency: blueprint.painFrequency,
+            status: finalStatus,
+            publicationQualityStatus: pubQualityStatus,
+            industry: cl.vertical || "DevOps & Compliance",
+            customerType: "B2B",
+            estimatedMvpCostMinCents: blueprint.economics.estimatedMvpCost.minMinor,
+            estimatedMvpCostMaxCents: blueprint.economics.estimatedMvpCost.maxMinor,
+            estimatedTimeToMvpMinWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
+            estimatedTimeToMvpMaxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
+            estimatedMonthlyOpCostMinCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
+            estimatedMonthlyOpCostMaxCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
+            recommendedNextExperiment: blueprint.recommendedNextExperiment,
+            majorAssumptions: blueprint.majorAssumptions,
+            majorRisks: blueprint.majorRisks,
+          },
+        });
+      } else {
+        opp = await prisma.opportunity.create({
+          data: {
+            slug: finalSlug,
+            title: formattedTitle,
+            oneSentenceSummary: blueprint.oneSentenceSummary,
+            problemStatement: blueprint.problemStatement,
+            jobsToBeDone: blueprint.jobsToBeDone,
+            proposedProduct: blueprint.proposedProduct,
+            narrowMvpScope: blueprint.narrowMvpScope,
+            targetCustomerSegments: blueprint.targetCustomerSegments,
+            economicBuyer: blueprint.economicBuyer,
+            endUser: blueprint.endUser,
+            buyingTrigger: blueprint.buyingTrigger,
+            existingWorkflow: blueprint.existingWorkflow,
+            painSeverity: blueprint.painSeverity,
+            painFrequency: blueprint.painFrequency,
+            status: finalStatus,
+            publicationQualityStatus: pubQualityStatus,
+            isDemoFixture: false,
+            industry: cl.vertical || "DevOps & Compliance",
+            customerType: "B2B",
+            estimatedMvpCostMinCents: blueprint.economics.estimatedMvpCost.minMinor,
+            estimatedMvpCostMaxCents: blueprint.economics.estimatedMvpCost.maxMinor,
+            estimatedTimeToMvpMinWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
+            estimatedTimeToMvpMaxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
+            estimatedMonthlyOpCostMinCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
+            estimatedMonthlyOpCostMaxCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
+            recommendedNextExperiment: blueprint.recommendedNextExperiment,
+            majorAssumptions: blueprint.majorAssumptions,
+            majorRisks: blueprint.majorRisks,
+          },
+        });
+      }
 
       // Persist Scorecard
       await prisma.scorecard.create({
@@ -1233,14 +1280,27 @@ export async function executeManualStagingIngestion(
       }
 
       candidateEvaluations.push({
+        id: opp.id,
         title: formattedTitle,
-        slug: finalSlug,
+        slug: opp.slug,
         status: finalStatus,
         publicationQualityStatus: pubQualityStatus,
         blockers: qualityResult.blockers,
         warnings: qualityResult.warnings,
         metrics: qualityResult.metrics,
-        supportingUrls: verifiedSignals.map((vs) => vs.rawSignal.sourceUrl),
+        supportingUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
+        independenceKeys: Array.from(
+          new Set(
+            verifiedSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`),
+          ),
+        ),
+        sourceFamilies: Array.from(
+          new Set(
+            verifiedSignals
+              .map((vs) => vs.source.sourceFamily || (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY"))
+              .filter(Boolean),
+          ),
+        ),
       });
 
       if (isVerified) {

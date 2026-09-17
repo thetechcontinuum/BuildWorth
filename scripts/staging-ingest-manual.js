@@ -208,10 +208,18 @@ function printSummary(run) {
     console.log("\n--- Candidate Quality Gate Evaluations ---");
     evals.forEach((ev, idx) => {
       console.log(`[Candidate ${idx + 1}] ${ev.title}`);
+      if (ev.id) console.log(`  Candidate ID               : ${ev.id}`);
       console.log(`  Publication Quality Status : ${ev.publicationQualityStatus}`);
       console.log(`  Database Status            : ${ev.status}`);
       console.log(`  Supporting URLs (${ev.supportingUrls?.length || 0}):`);
       (ev.supportingUrls || []).forEach((u) => console.log(`    - ${u}`));
+      if (ev.independenceKeys && ev.independenceKeys.length > 0) {
+        console.log(`  Independence Keys (${ev.independenceKeys.length}):`);
+        ev.independenceKeys.forEach((k) => console.log(`    * ${k}`));
+      }
+      if (ev.sourceFamilies && ev.sourceFamilies.length > 0) {
+        console.log(`  Source Families (${ev.sourceFamilies.length}): ${ev.sourceFamilies.join(", ")}`);
+      }
       if (ev.blockers && ev.blockers.length > 0) {
         console.log(`  Gate Blockers (${ev.blockers.length}):`);
         ev.blockers.forEach((b) => console.log(`    * ${b}`));

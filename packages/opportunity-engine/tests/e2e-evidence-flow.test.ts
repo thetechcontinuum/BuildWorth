@@ -272,7 +272,8 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
     const gate = evaluatePublicationQuality(claimLinks, 82, false);
     expect(gate.status).toBe("VERIFIED");
     expect(gate.isEligibleForVerified).toBe(true);
-    expect(gate.metrics.verifiedSignals).toBe(6);
+    expect(gate.metrics.verifiedSignals).toBe(5);
+    expect(gate.metrics.totalSignals).toBe(6);
     expect(gate.metrics.criticalClaimsCoveredCount).toBe(4);
   });
 
