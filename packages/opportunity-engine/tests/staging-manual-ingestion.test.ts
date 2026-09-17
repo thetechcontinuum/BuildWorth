@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { MockDeterministicProvider } from "@buildworth/ai";
 import { executeManualStagingIngestion } from "../src/index.js";
 
 function createMockPrisma() {
@@ -235,31 +236,81 @@ function createMockPrisma() {
 
 describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
   let prisma: any;
+  let fetchSpy: any;
 
   beforeEach(() => {
     prisma = createMockPrisma();
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes("algolia")) {
+        return {
+          ok: true,
+          json: async () => ({
+            hits: [
+              {
+                objectID: "999901",
+                title: "Ask HN: Handling multi-cloud reconciliation drift",
+                story_text: "Manual reconciliation process causing recurring delays in multi-cloud infrastructure.",
+                author: "devops_lead",
+                created_at: new Date().toISOString(),
+                points: 80,
+                num_comments: 25,
+              },
+            ],
+          }),
+        } as any;
+      }
+      if (urlStr.includes("github.com")) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                id: 888801,
+                html_url: "https://github.com/org/repo/issues/888801",
+                title: "Reconciliation process bottleneck in pipeline",
+                body: "Engineering teams experience recurring delays due to lack of automated reconciliation tooling.",
+                user: { login: "gh_lead" },
+                created_at: new Date().toISOString(),
+                comments: 10,
+              },
+            ],
+          }),
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ hits: [], items: [] }),
+      } as any;
+    });
   });
+
+  afterEach(() => {
+    fetchSpy?.mockRestore();
+  });
+
+  const mockAi = new MockDeterministicProvider();
 
   describe("Durable Claim, Lease Recovery & Concurrency Semantics", () => {
     it("atomically claims a new run and transitions status to COMPLETED upon successful ingestion", async () => {
       const key = "run-test-success-001";
       const result = await executeManualStagingIngestion(prisma, {
         idempotencyKey: key,
+        aiProvider: mockAi,
       });
 
       expect(result.status).toBe("COMPLETED");
       expect(result.idempotencyKey).toBe(key);
       expect(result.counters.fetched).toBeGreaterThan(0);
-      expect(result.counters.published).toBeGreaterThan(0);
-      expect(result.publishedSlugs.length).toBeGreaterThan(0);
+      expect(result.counters.candidates).toBeGreaterThan(0);
     });
 
     it("returns existing completed run when called with duplicate Idempotency-Key", async () => {
       const key = "run-test-idempotent-002";
-      const run1 = await executeManualStagingIngestion(prisma, { idempotencyKey: key });
+      const run1 = await executeManualStagingIngestion(prisma, { idempotencyKey: key, aiProvider: mockAi });
       expect(run1.status).toBe("COMPLETED");
 
-      const run2 = await executeManualStagingIngestion(prisma, { idempotencyKey: key });
+      const run2 = await executeManualStagingIngestion(prisma, { idempotencyKey: key, aiProvider: mockAi });
       expect(run2.status).toBe("COMPLETED");
       expect(run2.runId).toBe(run1.runId);
       expect(run2.isExisting).toBe(true);
@@ -281,7 +332,7 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       });
 
       const key2 = "run-test-active-004";
-      const result2 = await executeManualStagingIngestion(prisma, { idempotencyKey: key2 });
+      const result2 = await executeManualStagingIngestion(prisma, { idempotencyKey: key2, aiProvider: mockAi });
       expect(result2.status).toBe("FAILED");
       expect(result2.failureCode).toBe("CONCURRENT_RUN_IN_PROGRESS");
     });
@@ -301,7 +352,7 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
         },
       });
 
-      const result = await executeManualStagingIngestion(prisma, { idempotencyKey: key });
+      const result = await executeManualStagingIngestion(prisma, { idempotencyKey: key, aiProvider: mockAi });
       expect(result.status).toBe("COMPLETED");
       expect(result.runId).toBe(expiredRun.id);
 
@@ -318,6 +369,7 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
 
       const result = await executeManualStagingIngestion(prisma, {
         idempotencyKey: "run-no-sources-006",
+        aiProvider: mockAi,
       });
 
       expect(result.status).toBe("FAILED");
@@ -333,6 +385,7 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
         maxRawSignals: 20,
         maxCandidates: 5,
         maxPublishedOpportunities: 3,
+        aiProvider: mockAi,
       });
 
       expect(result.status).toBe("COMPLETED");
@@ -345,11 +398,13 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
     it("deduplicates identical content hashes without duplicating RawSignals or Opportunities", async () => {
       const run1 = await executeManualStagingIngestion(prisma, {
         idempotencyKey: "run-dedup-008",
+        aiProvider: mockAi,
       });
       const initialRawCount = prisma._store.rawSignals.length;
 
       const run2 = await executeManualStagingIngestion(prisma, {
         idempotencyKey: "run-dedup-009",
+        aiProvider: mockAi,
       });
 
       expect(run2.counters.deduplicated).toBeGreaterThan(0);
@@ -359,6 +414,7 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
     it("stores only short excerpts and never stores full articles (> 280 chars)", async () => {
       await executeManualStagingIngestion(prisma, {
         idempotencyKey: "run-copyright-010",
+        aiProvider: mockAi,
       });
 
       for (const raw of prisma._store.rawSignals) {
@@ -394,6 +450,7 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
     it("contains no secrets, passwords, or database URLs in returned report", async () => {
       const result = await executeManualStagingIngestion(prisma, {
         idempotencyKey: "run-hygiene-012",
+        aiProvider: mockAi,
       });
 
       const json = JSON.stringify(result);

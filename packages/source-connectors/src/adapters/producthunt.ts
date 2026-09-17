@@ -12,7 +12,7 @@ export class ProductHuntAdapter extends BaseSourceAdapter {
     "Uses Product Hunt GraphQL API and public launch feeds. Collects launch feedback and competitor gap observations.";
   public readonly attributionRequired = true;
 
-  public async fetchSignals(limit = 20): Promise<RawIngestSignal[]> {
+  public async fetchSignals(limit = 20, _query?: string): Promise<RawIngestSignal[]> {
     logger.info(`Fetching Product Hunt launch feedback signals (limit ${limit})...`);
     // Unconfigured without GraphQL API credentials - produce zero items safely
     return [];

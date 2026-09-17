@@ -12,10 +12,15 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
     "Uses Algolia HN search API and Firebase official open APIs. Permitted non-commercial and commercial indexing.";
   public readonly attributionRequired = true;
 
-  public async fetchSignals(limit = 20): Promise<RawIngestSignal[]> {
-    logger.info(`Fetching HN market signals (limit ${limit})...`);
+  public async fetchSignals(limit = 20, query?: string): Promise<RawIngestSignal[]> {
+    logger.info(`Fetching HN market signals (limit ${limit}${query ? `, query: ${query}` : ""})...`);
     try {
-      const res = await fetch(`https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${Math.min(limit, 20)}`, {
+      const url =
+        query && query.trim().length > 0
+          ? `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query.trim())}&tags=story&hitsPerPage=${Math.min(limit, 20)}`
+          : `https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${Math.min(limit, 20)}`;
+
+      const res = await fetch(url, {
         headers: { "User-Agent": "BuildWorth-Staging/1.0" },
       });
       if (res.ok) {

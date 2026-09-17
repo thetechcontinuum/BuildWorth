@@ -17,7 +17,11 @@ import type {
   RiskItem,
   AssumptionItem,
   ValidationExperimentItem,
+  ClaimEvidenceLinkItem,
+  EvidenceSignalItem,
+  ClaimType,
 } from "@buildworth/shared";
+import { evaluatePublicationQuality } from "@buildworth/validation";
 import { classifySignal } from "../classifier.js";
 import { extractSignalIntelligence } from "../extractor.js";
 import { clusterSignals, ClusterCandidate } from "../clustering/cluster-manager.js";
@@ -102,6 +106,34 @@ export function generateCollisionSafeSlug(title: string, nonce?: string): string
     base = `${base}-${nonce}`;
   }
   return base;
+}
+
+export function extractTargetQueries(problemTexts: string[]): string[] {
+  const queries: string[] = [];
+  const stopWords = new Set([
+    "the", "and", "or", "to", "in", "of", "a", "an", "is", "for", "with", "on", "at", "by", "from",
+    "up", "about", "into", "over", "after", "how", "what", "why", "when", "where", "which", "who",
+    "can", "could", "should", "would", "do", "does", "did", "have", "has", "had", "be", "been",
+    "being", "their", "them", "they", "our", "we", "us", "you", "your", "my", "me", "i", "it", "its",
+    "this", "that", "these", "those", "tool", "tools", "using", "use", "process", "manual", "causing",
+    "recurring", "issues", "problem", "bottlenecks", "challenges", "friction", "without", "complex",
+    "custom", "scripts", "delays"
+  ]);
+
+  for (const text of problemTexts) {
+    if (!text || typeof text !== "string") continue;
+    const cleaned = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ");
+    const words = cleaned.split(/\s+/).filter((w) => w.length > 3 && !stopWords.has(w));
+    if (words.length > 0) {
+      const distinctWords = Array.from(new Set(words));
+      const query = distinctWords.slice(0, 3).join(" ");
+      if (query && !queries.includes(query)) {
+        queries.push(query);
+      }
+    }
+  }
+
+  return queries.slice(0, 3);
 }
 
 export const KNOWN_SYNTHETIC_FIXTURE_EXTERNAL_IDS = [
@@ -504,6 +536,26 @@ export async function executeManualStagingIngestion(
       sourceName: string;
     }[] = [];
 
+    // Extract search keywords from existing unverified candidate problem statements
+    let targetQueries: string[] = [];
+    try {
+      const priorCandidates = await prisma.opportunity.findMany({
+        where: {
+          isDemoFixture: false,
+        },
+        select: { title: true, problemStatement: true },
+        take: 5,
+        orderBy: { createdAt: "desc" },
+      });
+      const texts = priorCandidates.map((c: any) => `${c.title || ""} ${c.problemStatement || ""}`);
+      targetQueries = extractTargetQueries(texts);
+      if (targetQueries.length > 0) {
+        logger.info("Targeting live searches for candidate keywords", { targetQueries });
+      }
+    } catch (qErr: any) {
+      logger.warn("Could not extract candidate target queries", { error: qErr?.message });
+    }
+
     for (const src of activeSources) {
       if (Date.now() > deadline || totalFetched >= maxFetchItems) break;
 
@@ -522,9 +574,25 @@ export async function executeManualStagingIngestion(
       let srcErrorMsg: string | null = null;
 
       try {
-        const rawSignals = await adapter.fetchSignals();
-        const availableSlots = maxFetchItems - totalFetched;
-        const boundedRawSignals = rawSignals.slice(0, Math.max(0, availableSlots));
+        const rawSignals: any[] = [];
+        const slotsAvailable = maxFetchItems - totalFetched;
+
+        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github")) {
+          const generalSignals = await adapter.fetchSignals(Math.min(10, slotsAvailable));
+          rawSignals.push(...generalSignals);
+
+          for (const query of targetQueries) {
+            if (totalFetched + rawSignals.length >= maxFetchItems) break;
+            const remaining = maxFetchItems - (totalFetched + rawSignals.length);
+            const targeted = await adapter.fetchSignals(Math.min(5, remaining), query);
+            rawSignals.push(...targeted);
+          }
+        } else {
+          const generalSignals = await adapter.fetchSignals(Math.min(20, slotsAvailable));
+          rawSignals.push(...generalSignals);
+        }
+
+        const boundedRawSignals = rawSignals.slice(0, Math.max(0, slotsAvailable));
         totalFetched += boundedRawSignals.length;
 
         for (const raw of boundedRawSignals) {
@@ -762,6 +830,7 @@ export async function executeManualStagingIngestion(
     // 5. Semantic Clustering
     const clusters = clusterCandidates.length > 0 ? clusterSignals(clusterCandidates, 0.75) : [];
     const boundedClusters = clusters.slice(0, maxPublishedOpportunities);
+    const candidateEvaluations: any[] = [];
 
     // 6. Complete Publication Chain Traceability Enforcement & Blueprint Synthesis
     // Source -> RawSignal -> NormalizedSignal -> EvidenceLink -> OpportunityRevision -> Opportunity
@@ -818,6 +887,90 @@ export async function executeManualStagingIngestion(
         blueprint.slug = finalSlug;
       }
 
+      // Evaluate publication quality gate v2.0.0
+      const claimLinks: ClaimEvidenceLinkItem[] = [];
+      for (const item of verifiedSignals) {
+        const norm = item.normalizedSignal;
+        const raw = item.rawSignal;
+        const src = item.source;
+
+        const evidenceItem: EvidenceSignalItem = {
+          id: norm.id,
+          sourceId: src.id,
+          sourceName: src.name,
+          sourceFamily: src.sourceFamily || (src.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY"),
+          credibilityTier: src.credibilityTier || "TIER_1_PRIMARY",
+          policyStatus: src.policyStatus || "ALLOWED",
+          signalType: norm.signalType,
+          evidenceOrigin: norm.evidenceOrigin || "COLLECTED",
+          originalUrl: norm.originalUrl || raw.sourceUrl,
+          canonicalUrl: norm.canonicalUrl || raw.sourceUrl,
+          sourceTitle: norm.sourceTitle || raw.title,
+          publishedAt: raw.publishedAt || norm.publishedAt || norm.createdAt,
+          publishedAtPrecision: norm.publishedAtPrecision || "EXACT_TIMESTAMP",
+          collectedAt: norm.collectedAt || norm.createdAt,
+          language: norm.language || "en",
+          sanitizedExcerpt: norm.sanitizedExcerpt,
+          problemSummary: norm.problemSummary,
+          actorRole: norm.actorRole,
+          workflowContext: norm.workflowContext,
+          purchaseIntent: norm.purchaseIntent || false,
+          evidenceQuality: norm.evidenceQuality || 0.8,
+          recencyScore: norm.recencyScore || 1.0,
+          credibilityScore: norm.credibilityScore || 0.8,
+          independenceKey: norm.independenceKey,
+          independenceMethod: norm.independenceMethod,
+          independenceConfidence: norm.independenceConfidence || 1.0,
+          verificationStatus: norm.verificationStatus || "VERIFIED",
+        };
+
+        let claimType: ClaimType = "PAIN_EXISTENCE";
+        if (norm.signalType === "PURCHASE_INTENT") {
+          claimType = "BUYER_DEMAND";
+        } else if (norm.signalType === "WILLINGNESS_TO_PAY") {
+          claimType = "WILLINGNESS_TO_PAY";
+        } else if (norm.signalType === "WORKAROUND") {
+          claimType = "CURRENT_WORKAROUND";
+        }
+
+        claimLinks.push({
+          id: "claim-link-" + crypto.randomUUID(),
+          normalizedSignalId: norm.id,
+          signal: evidenceItem,
+          claimType,
+          claimIdentifier: `claim-${claimType.toLowerCase()}-${norm.id}`,
+          claimSnippet: norm.sanitizedExcerpt,
+          relationshipType: "SUPPORTS",
+          supportStrength: "STRONG",
+          explanation: `Empirically verified from ${src.name} (${raw.sourceUrl})`,
+          relevanceScore: 90,
+        });
+
+        if (norm.actorRole && norm.actorRole.trim().length > 0) {
+          claimLinks.push({
+            id: "claim-link-buyer-" + crypto.randomUUID(),
+            normalizedSignalId: norm.id,
+            signal: evidenceItem,
+            claimType: "BUYER_IDENTITY",
+            claimIdentifier: `claim-buyer-identity-${norm.id}`,
+            claimSnippet: `Identified actor role: ${norm.actorRole}`,
+            relationshipType: "SUPPORTS",
+            supportStrength: "STRONG",
+            explanation: `Actor role identified from ${src.name}`,
+            relevanceScore: 85,
+          });
+        }
+      }
+
+      const qualityResult = evaluatePublicationQuality(
+        claimLinks,
+        blueprint.scorecard?.evidenceConfidenceScore || 80,
+      );
+
+      const isVerified = qualityResult.status === "VERIFIED" && qualityResult.isEligibleForVerified;
+      const finalStatus = isVerified ? "PUBLISHED" : "DRAFT";
+      const pubQualityStatus = qualityResult.status;
+
       let opp = await prisma.opportunity.create({
         data: {
           slug: finalSlug,
@@ -834,8 +987,8 @@ export async function executeManualStagingIngestion(
           existingWorkflow: blueprint.existingWorkflow,
           painSeverity: blueprint.painSeverity,
           painFrequency: blueprint.painFrequency,
-          status: "PUBLISHED",
-          publicationQualityStatus: "VERIFIED",
+          status: finalStatus,
+          publicationQualityStatus: pubQualityStatus,
           isDemoFixture: false,
           industry: cl.vertical || "DevOps & Compliance",
           customerType: "B2B",
@@ -863,7 +1016,7 @@ export async function executeManualStagingIngestion(
           competitionScore: 80,
           goMarketScore: 82,
           rubricVersion: "2.0.0",
-          isHypothesisOnly: false,
+          isHypothesisOnly: !isVerified,
         },
       });
 
@@ -1059,11 +1212,33 @@ export async function executeManualStagingIngestion(
         });
       }
 
-      publishedSlugs.push(finalSlug);
-      publishedCount++;
+      candidateEvaluations.push({
+        title: formattedTitle,
+        slug: finalSlug,
+        status: finalStatus,
+        publicationQualityStatus: pubQualityStatus,
+        blockers: qualityResult.blockers,
+        warnings: qualityResult.warnings,
+        metrics: qualityResult.metrics,
+        supportingUrls: verifiedSignals.map((vs) => vs.rawSignal.sourceUrl),
+      });
+
+      if (isVerified) {
+        publishedSlugs.push(finalSlug);
+        publishedCount++;
+      }
     }
 
     // 7. Complete the IngestionRun
+    const runSummary = {
+      sourcesProcessed: activeSources.length,
+      clustersDiscovered: clusters.length,
+      normalizedSignalsCount,
+      historicalSignalsCount,
+      currentSignalsCount,
+      candidateEvaluations,
+    };
+
     await markRunCompleted(prisma, runId, {
       totalFetched,
       totalDeduplicated,
@@ -1071,13 +1246,7 @@ export async function executeManualStagingIngestion(
       candidatesCount,
       publishedCount,
       publishedSlugs,
-      summary: {
-        sourcesProcessed: activeSources.length,
-        clustersDiscovered: clusters.length,
-        normalizedSignalsCount,
-        historicalSignalsCount,
-        currentSignalsCount,
-      },
+      summary: runSummary,
     });
 
     logger.info("Manual staging ingestion finished successfully", {
@@ -1086,6 +1255,7 @@ export async function executeManualStagingIngestion(
       publishedSlugs,
       historicalSignalsCount,
       currentSignalsCount,
+      candidateEvaluationsCount: candidateEvaluations.length,
     });
 
     return {
@@ -1102,13 +1272,7 @@ export async function executeManualStagingIngestion(
       publishedSlugs,
       startedAt: now.toISOString(),
       completedAt: new Date().toISOString(),
-      summary: {
-        sourcesProcessed: activeSources.length,
-        clustersDiscovered: clusters.length,
-        normalizedSignalsCount,
-        historicalSignalsCount,
-        currentSignalsCount,
-      },
+      summary: runSummary,
     };
 
   } catch (error: any) {

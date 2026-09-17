@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { MockDeterministicProvider } from "@buildworth/ai";
 import { executeIntelligencePipeline } from "../src/pipeline.js";
 import { calculateEvidenceConfidence } from "@buildworth/scoring";
 import { evaluatePublicationQuality } from "@buildworth/validation";
@@ -6,6 +7,58 @@ import { sanitizeToPlainText } from "@buildworth/shared";
 import { EvidenceSignalItem, ClaimEvidenceLinkItem } from "@buildworth/shared";
 
 describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publication Quality Gate", () => {
+  const mockAi = new MockDeterministicProvider();
+  let fetchSpy: any;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes("algolia")) {
+        return {
+          ok: true,
+          json: async () => ({
+            hits: [
+              {
+                objectID: "777701",
+                title: "Ask HN: How do you handle secrets rotation in CI/CD?",
+                story_text: "Managing cross-cloud secrets rotation causes constant friction and downtime risk.",
+                author: "hn_user_1",
+                created_at: new Date().toISOString(),
+                points: 90,
+                num_comments: 30,
+              },
+            ],
+          }),
+        } as any;
+      }
+      if (urlStr.includes("github.com")) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                id: 666601,
+                html_url: "https://github.com/org/repo/issues/666601",
+                title: "Secrets rotation synchronization failure",
+                body: "Friction in rotating secrets across environments causes deployment blockers.",
+                user: { login: "gh_user_1" },
+                created_at: new Date().toISOString(),
+                comments: 15,
+              },
+            ],
+          }),
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ hits: [], items: [] }),
+      } as any;
+    });
+  });
+
+  afterEach(() => {
+    fetchSpy?.mockRestore();
+  });
   const verifiedSignals: EvidenceSignalItem[] = [
     {
       id: "sig-hn-1",
@@ -224,7 +277,7 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
   });
 
   it("4. End-to-end pipeline synthesis produces blueprints with structured evidenceLinks", async () => {
-    const pipelineResult = await executeIntelligencePipeline();
+    const pipelineResult = await executeIntelligencePipeline(mockAi);
     expect(pipelineResult.opportunitiesSynthesized.length).toBeGreaterThan(0);
     const opp = pipelineResult.opportunitiesSynthesized[0];
     expect(opp.evidenceLinks).toBeDefined();

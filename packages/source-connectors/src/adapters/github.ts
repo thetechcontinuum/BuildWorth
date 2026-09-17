@@ -12,12 +12,20 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
     "Uses GitHub REST/GraphQL API with Personal Access Tokens. Extracts publicly indexed repository problem issues.";
   public readonly attributionRequired = true;
 
-  public async fetchSignals(limit = 20): Promise<RawIngestSignal[]> {
-    logger.info(`Fetching GitHub issues signals (limit ${limit})...`);
+  public async fetchSignals(limit = 20, query?: string): Promise<RawIngestSignal[]> {
+    logger.info(`Fetching GitHub issues signals (limit ${limit}${query ? `, query: ${query}` : ""})...`);
     try {
-      const res = await fetch(`https://api.github.com/search/issues?q=is:public+is:issue+state:open+sort:updated&per_page=${Math.min(limit, 20)}`, {
-        headers: { "User-Agent": "BuildWorth-Staging/1.0" },
-      });
+      const q =
+        query && query.trim().length > 0
+          ? `is:public is:issue state:open ${query.trim()}`
+          : `is:public is:issue state:open sort:updated`;
+
+      const res = await fetch(
+        `https://api.github.com/search/issues?q=${encodeURIComponent(q)}&per_page=${Math.min(limit, 20)}`,
+        {
+          headers: { "User-Agent": "BuildWorth-Staging/1.0" },
+        },
+      );
       if (res.ok) {
         const json = await res.json();
         const items = json.items || [];
