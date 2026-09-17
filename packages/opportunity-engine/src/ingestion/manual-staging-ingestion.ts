@@ -1181,7 +1181,7 @@ export async function executeManualStagingIngestion(
       orderBy: { createdAt: "desc" },
       take: 1,
       include: {
-        scorecard: true,
+        scorecards: { orderBy: { createdAt: "desc" }, take: 1 },
         evidenceLinks: {
           include: {
             normalizedSignal: {
@@ -1272,7 +1272,7 @@ export async function executeManualStagingIngestion(
       const targetClaimLinks = buildEmpiricalClaimLinks(allTargetSignals);
       const targetQualityResult = evaluatePublicationQuality(
         targetClaimLinks,
-        targetCandidate.scorecard?.evidenceConfidenceScore || 80,
+        targetCandidate.scorecards?.[0]?.evidenceConfidenceScore || 80,
       );
 
       const targetIsVerified = targetQualityResult.status === "VERIFIED" && targetQualityResult.isEligibleForVerified;
