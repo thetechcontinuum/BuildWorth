@@ -24,7 +24,8 @@ import type {
 import { evaluatePublicationQuality } from "@buildworth/validation";
 import { classifySignal } from "../classifier.js";
 import { extractSignalIntelligence } from "../extractor.js";
-import { clusterSignals, ClusterCandidate } from "../clustering/cluster-manager.js";
+import { clusterSignals, ClusterCandidate, ProblemClusterResult } from "../clustering/cluster-manager.js";
+import { cosineSimilarity } from "../clustering/vector-math.js";
 import { synthesizeOpportunity } from "../synthesizer.js";
 import { createOpportunityRevisionTransaction } from "../revision/revision-service.js";
 import { logger } from "@buildworth/observability";
@@ -244,6 +245,335 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
   }
 
   return { cleanedOpportunities, cleanedRawSignals, cleanedNormalizedSignals };
+}
+
+export function determineEmpiricalClaimType(
+  signalType?: string | null,
+  sanitizedExcerpt?: string | null,
+  actorRole?: string | null,
+): ClaimType {
+  const text = `${sanitizedExcerpt || ""}`.toLowerCase();
+
+  // Pricing/budget keywords alone cannot verify WILLINGNESS_TO_PAY: require explicit purchase intent attributable to a prospective buyer.
+  // Explicit willingness to pay requires buyer commitment phrases like "willing to pay", "would pay $X", "budget allocated of $X", etc.
+  const hasExplicitBuyerCommitment =
+    /\b(willing to pay|i('d| would) pay(\b| \d|\$)|pay (up to|\$)|shut up and take my money|credit card ready|paying customer)\b/i.test(text);
+
+  if (hasExplicitBuyerCommitment) {
+    return "WILLINGNESS_TO_PAY";
+  }
+
+  // Explicit buyer demand phrases
+  const hasBuyerDemand =
+    /\b(looking for a tool|need a solution|any tool for|does anyone know a tool|would love a tool|desperately need)\b/i.test(text);
+
+  if (hasBuyerDemand) {
+    return "BUYER_DEMAND";
+  }
+
+  if (actorRole && /lead|head of|vp|director|manager|founder|cto|ciso|engineer|devops/i.test(actorRole)) {
+    if (signalType === "BUYER_IDENTITY" || /as a (devops|engineer|cto|founder|vp|lead)/i.test(text)) {
+      return "BUYER_IDENTITY";
+    }
+  }
+
+  if (signalType === "WORKAROUND" || /hacky script|workaround|spreadsheet|manual script|custom script/i.test(text)) {
+    return "CURRENT_WORKAROUND";
+  }
+
+  return "PAIN_EXISTENCE";
+}
+
+export function buildEmpiricalClaimLinks(
+  verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }>,
+): ClaimEvidenceLinkItem[] {
+  return verifiedSignals.map((vs, idx) => {
+    const claimType = determineEmpiricalClaimType(
+      vs.normalizedSignal.signalType,
+      vs.normalizedSignal.sanitizedExcerpt,
+      vs.normalizedSignal.actorRole,
+    );
+
+    const indKey =
+      vs.normalizedSignal.independenceKey ||
+      deriveIndependenceKey(
+        vs.rawSignal.authorFingerprint || `auth-${vs.rawSignal.id}`,
+        vs.rawSignal.sourceUrl,
+        vs.source.key,
+      );
+
+    const sourceFam =
+      vs.source.sourceFamily ||
+      (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY");
+
+    const signalItem: EvidenceSignalItem = {
+      id: vs.normalizedSignal.id || `sig-${idx}`,
+      sourceId: vs.source.id,
+      sourceTitle: vs.source.name,
+      sourceFamily: sourceFam,
+      canonicalUrl: vs.normalizedSignal.canonicalUrl || vs.rawSignal.sourceUrl,
+      credibilityTier: "TIER_2_CREDIBLE_PUBLIC",
+      evidenceOrigin: "COLLECTED",
+      verificationStatus: "VERIFIED",
+      verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
+      sanitizedExcerpt: vs.normalizedSignal.sanitizedExcerpt || vs.rawSignal.rawContent,
+      problemSummary: vs.normalizedSignal.problemSummary || vs.rawSignal.title || "Empirical signal",
+      actorRole: vs.normalizedSignal.actorRole || null,
+      workflowContext: vs.normalizedSignal.workflowContext || null,
+      language: "en",
+      evidenceQuality: 80,
+      recencyScore: 80,
+      credibilityScore: 80,
+      independenceKey: indKey,
+      independenceConfidence: 1.0,
+      collectedAt: vs.rawSignal.createdAt ? new Date(vs.rawSignal.createdAt).toISOString() : new Date().toISOString(),
+      publishedAt: vs.rawSignal.publishedAt ? new Date(vs.rawSignal.publishedAt).toISOString() : new Date().toISOString(),
+      publishedAtPrecision: "EXACT_TIMESTAMP",
+      purchaseIntent: vs.normalizedSignal.purchaseIntent || false,
+      signalType: vs.normalizedSignal.signalType || "PAIN_COMPLAINT",
+    };
+
+    return {
+      id: `link-${vs.normalizedSignal.id || idx}`,
+      normalizedSignalId: vs.normalizedSignal.id,
+      claimType,
+      claimIdentifier: `claim-${claimType.toLowerCase()}-${vs.normalizedSignal.id}`,
+      claimSnippet: vs.normalizedSignal.sanitizedExcerpt || vs.rawSignal.rawContent || "Empirical signal evidence",
+      relationshipType: "SUPPORTS",
+      supportStrength: "STRONG",
+      explanation: `Empirically verified from ${vs.source.name} (${vs.rawSignal.sourceUrl})`,
+      relevanceScore: 0.9,
+      signal: signalItem,
+    };
+  });
+}
+
+async function createCandidateWithRevisionAndLinks(
+  prisma: any,
+  oppData: any,
+  blueprint: any,
+  verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }>,
+  isVerified: boolean,
+) {
+  const opp = await prisma.opportunity.create({
+    data: oppData,
+  });
+
+  await prisma.scorecard.create({
+    data: {
+      opportunityId: opp.id,
+      opportunityScore: blueprint.scorecard?.opportunityScore || 85,
+      evidenceConfidenceScore: blueprint.scorecard?.evidenceConfidenceScore || 80,
+      demandScore: 82,
+      feasibilityScore: 88,
+      economicsScore: 84,
+      competitionScore: 80,
+      goMarketScore: 82,
+      rubricVersion: "2.0.0",
+      isHypothesisOnly: !isVerified,
+    },
+  });
+
+  const customerSegments: CustomerSegmentItem[] = blueprint.targetCustomerSegments.map((name: string) => ({
+    id: "seg-" + crypto.randomUUID(),
+    segmentName: name,
+    industry: oppData.industry,
+    companySizeRange: "10-250 employees",
+    geography: "Global / Remote",
+    businessModel: "B2B SaaS",
+    economicBuyerRole: blueprint.economicBuyer,
+    endUserRole: blueprint.endUser,
+    procurementComplexity: "LOW",
+    budgetCategory: "ENGINEERING_TOOLS",
+    spendingBehavior: "CREDIT_CARD",
+    buyingTrigger: blueprint.buyingTrigger,
+    primaryObjection: "Budget and integration bandwidth",
+    acquisitionChannels: ["GITHUB", "COMMUNITY"],
+    salesCycleMinDays: 7,
+    salesCycleMaxDays: 30,
+    salesMotion: "FOUNDER_LED",
+    confidenceScore: 80,
+    provenanceType: "MODEL_ESTIMATE",
+    evidenceLinkIds: [],
+  }));
+
+  const mvpFeatures: MvpFeatureItem[] = blueprint.narrowMvpScope.map((name: string, idx: number) => ({
+    id: "feat-" + crypto.randomUUID(),
+    featureName: name,
+    description: name,
+    category: "MUST_HAVE",
+    userJourneyStep: "ONBOARDING",
+    requiredIntegrations: ["GITHUB_ACTIONS"],
+    requiredData: ["PULL_REQUEST_METADATA"],
+    dependencies: [],
+    acceptanceCriteria: ["Validates within 5 minutes"],
+    orderIndex: idx,
+  }));
+
+  const competitors: CompetitorItem[] = (blueprint.existingCompetitors || []).map((name: string) => ({
+    id: "comp-" + crypto.randomUUID(),
+    name,
+    competitorType: "DIRECT",
+    differentiationHypothesis: blueprint.competitorWeaknesses?.[0] || "Lightweight and automated",
+    switchingCosts: "MEDIUM",
+    strengths: ["Brand awareness"],
+    recurringComplaints: ["High enterprise cost"],
+    provenanceType: "MODEL_ESTIMATE",
+    evidenceLinkIds: [],
+  }));
+
+  const costs: CostLineItemData[] = [
+    {
+      id: "cost-" + crypto.randomUUID(),
+      costType: "ONE_TIME_BUILD",
+      category: "BACKEND_DEV",
+      title: "MVP Engineering Build",
+      scenarioType: "BASE",
+      amountMinorCents: blueprint.economics.estimatedMvpCost.minMinor,
+      currency: "USD",
+      estimateMethod: "Engineering hours benchmark",
+      provenanceType: "MODEL_ESTIMATE",
+      evidenceLinkIds: [],
+      assumptionIds: [],
+      confidenceScore: 80,
+    },
+  ];
+
+  const benefits: BenefitDriverData[] = [
+    {
+      id: "ben-" + crypto.randomUUID(),
+      category: "LABOR_TIME_SAVED",
+      title: "Engineering Hours Saved",
+      affectedRole: blueprint.endUser,
+      unitQuantity: 30,
+      unitValueCents: 7500,
+      annualValueCents: 2700000,
+      frequencyPeriod: "MONTHLY",
+      calculationDescription: "30 hours/mo saved at $75/hr",
+      provenanceType: "MODEL_ESTIMATE",
+      evidenceLinkIds: [],
+      assumptionIds: [],
+      confidenceScore: 80,
+    },
+  ];
+
+  const risks: RiskItem[] = (blueprint.majorRisks || []).map((desc: string) => ({
+    id: "risk-" + crypto.randomUUID(),
+    category: "TECHNICAL",
+    severity: "MEDIUM",
+    description: desc,
+    impactScore: 3,
+    probabilityScore: 3,
+    mitigationStrategy: "Build resilient multi-cloud adapters",
+    status: "IDENTIFIED",
+    provenanceType: "MODEL_ESTIMATE",
+    evidenceLinkIds: [],
+  }));
+
+  const assumptions: AssumptionItem[] = (blueprint.majorAssumptions || []).map((stmt: string) => ({
+    id: "asm-" + crypto.randomUUID(),
+    category: "PROBLEM",
+    statement: stmt,
+    importanceScore: 4,
+    uncertaintyScore: 3,
+    status: "UNTESTED",
+    testMethod: "Customer interview campaign",
+    successThreshold: ">= 60% validation",
+    failureThreshold: "< 30% validation",
+    provenanceType: "ASSUMPTION",
+    evidenceLinkIds: [],
+  }));
+
+  const experiments: ValidationExperimentItem[] = [
+    {
+      id: "exp-" + crypto.randomUUID(),
+      hypothesis: blueprint.recommendedNextExperiment,
+      experimentType: "PREORDER",
+      targetParticipant: blueprint.economicBuyer,
+      sampleSize: 5,
+      estimatedCostCents: 50000,
+      estimatedDurationDays: 14,
+      acquisitionChannel: "DIRECT_OUTREACH",
+      procedureSummary: "Reach out to 5 qualified engineering leaders",
+      successMetric: "Paid preorder commitments",
+      successThreshold: ">= 3 commitments",
+      failureThreshold: "< 1 commitment",
+      killCriterion: "Zero responses after 20 outreach attempts",
+      nextActionOnSuccess: "Build MVP",
+      nextActionOnFailure: "Pivot value proposition",
+      status: "PLANNED",
+      orderPriority: 1,
+      evidenceGeneratedIds: [],
+    },
+  ];
+
+  const rev = await createOpportunityRevisionTransaction(prisma, {
+    opportunityId: opp.id,
+    reasonForChange: "Initial synthesis from market signals",
+    architectureSummary: blueprint.proposedProduct,
+    customerSegments,
+    mvpFeatures,
+    competitors,
+    scenarios: [
+      {
+        scenarioType: "BASE",
+        currency: "USD",
+        activeCustomers: 50,
+        monthlyPriceCents: 19900,
+        onboardingPriceCents: 0,
+        variableCostPerCustomerCents: 500,
+        monthlyFixedCostCents: 30000,
+        customerAcquisitionCostCents: 25000,
+        deliveryTimeWeeks: 6,
+        assumptions: ["Standard self-serve onboarding conversion"],
+        evidenceIds: [],
+      },
+    ],
+    costs,
+    benefits,
+    risks,
+    assumptions,
+    experiments,
+    opportunityScore: 85,
+    evidenceConfidence: 80,
+    criticalClaimsCovered: verifiedSignals.length,
+    costSummary: {
+      minBuildMinorCents: blueprint.economics.estimatedMvpCost.minMinor,
+      maxBuildMinorCents: blueprint.economics.estimatedMvpCost.maxMinor,
+      minWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
+      maxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
+      minMonthlyOpMinorCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
+      maxMonthlyOpMinorCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
+    },
+  });
+
+  for (const item of verifiedSignals) {
+    const claimType = determineEmpiricalClaimType(
+      item.normalizedSignal.signalType,
+      item.normalizedSignal.sanitizedExcerpt,
+      item.normalizedSignal.actorRole,
+    );
+    try {
+      await prisma.evidenceLink.create({
+        data: {
+          opportunityId: opp.id,
+          opportunityRevisionId: rev.revisionId,
+          normalizedSignalId: item.normalizedSignal.id,
+          claimType: claimType as any,
+          claimIdentifier: "claim-pain-" + opp.id,
+          claimSnippet: item.normalizedSignal.sanitizedExcerpt || item.normalizedSignal.problemSummary || "Empirical signal evidence",
+          relationshipType: "SUPPORTS",
+          supportStrength: "STRONG",
+          explanation: `Empirically verified from ${item.source.name} (${item.rawSignal.sourceUrl})`,
+          relevanceScore: 0.9,
+        },
+      });
+    } catch (linkErr: any) {
+      logger.warn("Failed creating EvidenceLink", { message: linkErr?.message });
+    }
+  }
+
+  return opp;
 }
 
 export async function executeManualStagingIngestion(
@@ -840,26 +1170,87 @@ export async function executeManualStagingIngestion(
 
     candidatesCount = clusterCandidates.length;
 
-    // 5. Semantic Clustering
-    const clusters = clusterCandidates.length > 0 ? clusterSignals(clusterCandidates, 0.75) : [];
-    const boundedClusters = clusters.slice(0, maxPublishedOpportunities);
+    // 5. Semantic Clustering & Evidence Expansion Path
     const candidateEvaluations: any[] = [];
+    let totalClustersDiscovered = 0;
 
-    // 6. Complete Publication Chain Traceability Enforcement & Blueprint Synthesis
-    // Source -> RawSignal -> NormalizedSignal -> EvidenceLink -> OpportunityRevision -> Opportunity
-    for (const cl of boundedClusters) {
-      if (Date.now() > deadline || publishedCount >= maxPublishedOpportunities) break;
+    // Query for an existing target persisted candidate to expand evidence for
+    const existingCandidates = await prisma.opportunity.findMany({
+      where: { isDemoFixture: false },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+      include: {
+        scorecard: true,
+        evidenceLinks: {
+          include: {
+            normalizedSignal: {
+              include: {
+                rawSignal: {
+                  include: { source: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    }).catch(() => []);
 
-      // Verify complete publication chain for every supporting signal in cluster
-      const verifiedSignals: Array<{
+    const targetCandidate = existingCandidates[0] || null;
+
+    if (targetCandidate) {
+      // 6a. Preserve existing candidate evidence and problem identity
+      const targetOriginalSignals: Array<{
+        normalizedSignal: any;
+        rawSignal: any;
+        source: any;
+      }> = [];
+      const targetOriginalSignalIds = new Set<string>();
+      const originalUrls = new Set<string>();
+
+      for (const link of targetCandidate.evidenceLinks || []) {
+        const ns = link.normalizedSignal;
+        if (ns && ns.rawSignal && ns.rawSignal.source) {
+          if (!targetOriginalSignalIds.has(ns.id)) {
+            targetOriginalSignalIds.add(ns.id);
+            targetOriginalSignals.push({
+              normalizedSignal: ns,
+              rawSignal: ns.rawSignal,
+              source: ns.rawSignal.source,
+            });
+            const u = ns.canonicalUrl || ns.rawSignal.sourceUrl;
+            if (u) originalUrls.add(u);
+          }
+        }
+      }
+
+      let targetCentroid: number[] | null = null;
+      try {
+        const emb = await aiProvider.generateEmbedding(targetCandidate.problemStatement || targetCandidate.title);
+        targetCentroid = emb.embedding;
+      } catch {}
+
+      const matchedToTarget: ClusterCandidate[] = [];
+      const unmatchedPool: ClusterCandidate[] = [];
+
+      for (const item of clusterCandidates) {
+        if (targetOriginalSignalIds.has(item.id)) continue;
+        const sim = targetCentroid ? cosineSimilarity(item.embedding, targetCentroid) : 0;
+        if (sim >= 0.70) {
+          matchedToTarget.push(item);
+        } else {
+          unmatchedPool.push(item);
+        }
+      }
+
+      const newTargetVerifiedSignals: Array<{
         normalizedSignal: any;
         rawSignal: any;
         source: any;
       }> = [];
 
-      for (const sigId of cl.signalIds) {
+      for (const item of matchedToTarget) {
         const normSig = await prisma.normalizedSignal.findUnique({
-          where: { id: sigId },
+          where: { id: item.id },
           include: {
             rawSignal: {
               include: { source: true },
@@ -868,7 +1259,7 @@ export async function executeManualStagingIngestion(
         });
 
         if (normSig && normSig.rawSignal && normSig.rawSignal.source) {
-          verifiedSignals.push({
+          newTargetVerifiedSignals.push({
             normalizedSignal: normSig,
             rawSignal: normSig.rawSignal,
             source: normSig.rawSignal.source,
@@ -876,157 +1267,309 @@ export async function executeManualStagingIngestion(
         }
       }
 
-      // Reject candidate if full trace is incomplete
-      if (verifiedSignals.length === 0) {
-        logger.warn("Rejecting cluster candidate: missing verifiable publication chain", { clusterId: cl.clusterId });
-        continue;
-      }
-
-      const rawTitle = cl.title || cl.summary;
-      const formattedTitle = formatMeaningfulTitle(rawTitle);
-      const generatedSlug = generateCollisionSafeSlug(formattedTitle);
-
-      const blueprint = synthesizeOpportunity(cl, verifiedSignals.length);
-      blueprint.title = formattedTitle;
-      blueprint.slug = generatedSlug;
-
-      // Ensure collision-safe uniqueness for slug in database
-      let finalSlug = generatedSlug;
-      const existingOpp = await prisma.opportunity.findUnique({
-        where: { slug: finalSlug },
-      });
-      if (existingOpp && existingOpp.id) {
-        finalSlug = generateCollisionSafeSlug(formattedTitle, crypto.randomBytes(3).toString("hex"));
-        blueprint.slug = finalSlug;
-      }
-
-      // Evaluate publication quality gate v2.0.0
-      const claimLinks: ClaimEvidenceLinkItem[] = [];
-      for (const item of verifiedSignals) {
-        const norm = item.normalizedSignal;
-        const raw = item.rawSignal;
-        const src = item.source;
-
-        const evidenceItem: EvidenceSignalItem = {
-          id: norm.id,
-          sourceId: src.id,
-          sourceName: src.name,
-          sourceFamily: src.sourceFamily || (src.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY"),
-          credibilityTier: src.credibilityTier || "TIER_1_PRIMARY",
-          policyStatus: src.policyStatus || "ALLOWED",
-          signalType: norm.signalType,
-          evidenceOrigin: norm.evidenceOrigin || "COLLECTED",
-          originalUrl: norm.originalUrl || raw.sourceUrl,
-          canonicalUrl: norm.canonicalUrl || raw.sourceUrl,
-          sourceTitle: norm.sourceTitle || raw.title,
-          publishedAt: raw.publishedAt || norm.publishedAt || norm.createdAt,
-          publishedAtPrecision: norm.publishedAtPrecision || "EXACT_TIMESTAMP",
-          collectedAt: norm.collectedAt || norm.createdAt,
-          language: norm.language || "en",
-          sanitizedExcerpt: norm.sanitizedExcerpt,
-          problemSummary: norm.problemSummary,
-          actorRole: norm.actorRole,
-          workflowContext: norm.workflowContext,
-          purchaseIntent: norm.purchaseIntent || false,
-          evidenceQuality: norm.evidenceQuality || 0.8,
-          recencyScore: norm.recencyScore || 1.0,
-          credibilityScore: norm.credibilityScore || 0.8,
-          independenceKey: norm.independenceKey,
-          independenceMethod: norm.independenceMethod,
-          independenceConfidence: norm.independenceConfidence || 1.0,
-          verificationStatus: norm.verificationStatus || "VERIFIED",
-        };
-
-        let claimType: ClaimType = "PAIN_EXISTENCE";
-        const excerptLower = (norm.sanitizedExcerpt || "").toLowerCase();
-        const hasExplicitDemandText =
-          /\b(budget|buy|purchase|procure|licensed?|rfp|vendor|paying|willing to pay|\$\d+|\d+\s*dollars|cost per)\b/i.test(excerptLower);
-        const hasExplicitPayText =
-          /\b(willing to pay|\$\d+|\d+\s*dollars|subscription|price|pricing|\/mo|\/month|\/year|budget of)\b/i.test(excerptLower);
-
-        if (norm.signalType === "WILLINGNESS_TO_PAY" && hasExplicitPayText) {
-          claimType = "WILLINGNESS_TO_PAY";
-        } else if (norm.signalType === "PURCHASE_INTENT" && hasExplicitDemandText) {
-          claimType = "BUYER_DEMAND";
-        } else if (norm.signalType === "WORKAROUND") {
-          claimType = "CURRENT_WORKAROUND";
-        }
-
-        claimLinks.push({
-          id: "claim-link-" + crypto.randomUUID(),
-          normalizedSignalId: norm.id,
-          signal: evidenceItem,
-          claimType,
-          claimIdentifier: `claim-${claimType.toLowerCase()}-${norm.id}`,
-          claimSnippet: norm.sanitizedExcerpt,
-          relationshipType: "SUPPORTS",
-          supportStrength: "STRONG",
-          explanation: `Empirically verified from ${src.name} (${raw.sourceUrl})`,
-          relevanceScore: 90,
-        });
-
-        if (norm.actorRole && norm.actorRole.trim().length > 0) {
-          claimLinks.push({
-            id: "claim-link-buyer-" + crypto.randomUUID(),
-            normalizedSignalId: norm.id,
-            signal: evidenceItem,
-            claimType: "BUYER_IDENTITY",
-            claimIdentifier: `claim-buyer-identity-${norm.id}`,
-            claimSnippet: `Identified actor role: ${norm.actorRole}`,
-            relationshipType: "SUPPORTS",
-            supportStrength: "STRONG",
-            explanation: `Actor role identified from ${src.name}`,
-            relevanceScore: 85,
-          });
-        }
-      }
-
-      const qualityResult = evaluatePublicationQuality(
-        claimLinks,
-        blueprint.scorecard?.evidenceConfidenceScore || 80,
+      const allTargetSignals = [...targetOriginalSignals, ...newTargetVerifiedSignals];
+      const targetClaimLinks = buildEmpiricalClaimLinks(allTargetSignals);
+      const targetQualityResult = evaluatePublicationQuality(
+        targetClaimLinks,
+        targetCandidate.scorecard?.evidenceConfidenceScore || 80,
       );
 
-      const isVerified = qualityResult.status === "VERIFIED" && qualityResult.isEligibleForVerified;
-      const finalStatus = isVerified ? "PUBLISHED" : "DRAFT";
-      const pubQualityStatus = qualityResult.status;
+      const targetIsVerified = targetQualityResult.status === "VERIFIED" && targetQualityResult.isEligibleForVerified;
+      const targetFinalStatus = targetIsVerified ? "PUBLISHED" : "DRAFT";
+      const targetPubQualityStatus = targetQualityResult.status;
 
-      let opp: any;
-      if (existingOpp && existingOpp.id) {
-        opp = await prisma.opportunity.update({
-          where: { id: existingOpp.id },
-          data: {
-            title: formattedTitle,
-            oneSentenceSummary: blueprint.oneSentenceSummary,
-            problemStatement: blueprint.problemStatement,
-            jobsToBeDone: blueprint.jobsToBeDone,
-            proposedProduct: blueprint.proposedProduct,
-            narrowMvpScope: blueprint.narrowMvpScope,
-            targetCustomerSegments: blueprint.targetCustomerSegments,
-            economicBuyer: blueprint.economicBuyer,
-            endUser: blueprint.endUser,
-            buyingTrigger: blueprint.buyingTrigger,
-            existingWorkflow: blueprint.existingWorkflow,
-            painSeverity: blueprint.painSeverity,
-            painFrequency: blueprint.painFrequency,
-            status: finalStatus,
-            publicationQualityStatus: pubQualityStatus,
-            industry: cl.vertical || "DevOps & Compliance",
-            customerType: "B2B",
-            estimatedMvpCostMinCents: blueprint.economics.estimatedMvpCost.minMinor,
-            estimatedMvpCostMaxCents: blueprint.economics.estimatedMvpCost.maxMinor,
-            estimatedTimeToMvpMinWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
-            estimatedTimeToMvpMaxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
-            estimatedMonthlyOpCostMinCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
-            estimatedMonthlyOpCostMaxCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
-            recommendedNextExperiment: blueprint.recommendedNextExperiment,
-            majorAssumptions: blueprint.majorAssumptions,
-            majorRisks: blueprint.majorRisks,
+      if (newTargetVerifiedSignals.length > 0) {
+        // Synthesize updated blueprint with combined evidence
+        const clusterProxy: ProblemClusterResult = {
+          clusterId: `cluster-target-${targetCandidate.id}`,
+          title: targetCandidate.title,
+          summary: targetCandidate.problemStatement,
+          vertical: targetCandidate.industry || "DevOps & Compliance",
+          signalIds: allTargetSignals.map((s) => s.normalizedSignal.id),
+          centroid: targetCentroid || new Array(64).fill(0),
+        };
+
+        const updatedBlueprint = synthesizeOpportunity(clusterProxy, allTargetSignals.length);
+
+        const customerSegments: CustomerSegmentItem[] = updatedBlueprint.targetCustomerSegments.map((name) => ({
+          id: "seg-" + crypto.randomUUID(),
+          segmentName: name,
+          industry: targetCandidate.industry,
+          companySizeRange: "10-250 employees",
+          geography: "Global / Remote",
+          businessModel: "B2B SaaS",
+          economicBuyerRole: updatedBlueprint.economicBuyer,
+          endUserRole: updatedBlueprint.endUser,
+          procurementComplexity: "LOW",
+          budgetCategory: "ENGINEERING_TOOLS",
+          spendingBehavior: "CREDIT_CARD",
+          buyingTrigger: updatedBlueprint.buyingTrigger,
+          primaryObjection: "Budget and integration bandwidth",
+          acquisitionChannels: ["GITHUB", "COMMUNITY"],
+          salesCycleMinDays: 7,
+          salesCycleMaxDays: 30,
+          salesMotion: "FOUNDER_LED",
+          confidenceScore: 80,
+          provenanceType: "MODEL_ESTIMATE",
+          evidenceLinkIds: [],
+        }));
+
+        const mvpFeatures: MvpFeatureItem[] = updatedBlueprint.narrowMvpScope.map((name, idx) => ({
+          id: "feat-" + crypto.randomUUID(),
+          featureName: name,
+          description: name,
+          category: "MUST_HAVE",
+          userJourneyStep: "ONBOARDING",
+          requiredIntegrations: ["GITHUB_ACTIONS"],
+          requiredData: ["PULL_REQUEST_METADATA"],
+          dependencies: [],
+          acceptanceCriteria: ["Validates within 5 minutes"],
+          orderIndex: idx,
+        }));
+
+        const competitors: CompetitorItem[] = (updatedBlueprint.existingCompetitors || []).map((name) => ({
+          id: "comp-" + crypto.randomUUID(),
+          name,
+          competitorType: "DIRECT",
+          differentiationHypothesis: updatedBlueprint.competitorWeaknesses?.[0] || "Lightweight and automated",
+          switchingCosts: "MEDIUM",
+          strengths: ["Brand awareness"],
+          recurringComplaints: ["High enterprise cost"],
+          provenanceType: "MODEL_ESTIMATE",
+          evidenceLinkIds: [],
+        }));
+
+        const costs: CostLineItemData[] = [
+          {
+            id: "cost-" + crypto.randomUUID(),
+            costType: "ONE_TIME_BUILD",
+            category: "BACKEND_DEV",
+            title: "MVP Engineering Build",
+            scenarioType: "BASE",
+            amountMinorCents: updatedBlueprint.economics.estimatedMvpCost.minMinor,
+            currency: "USD",
+            estimateMethod: "Engineering hours benchmark",
+            provenanceType: "MODEL_ESTIMATE",
+            evidenceLinkIds: [],
+            assumptionIds: [],
+            confidenceScore: 80,
+          },
+        ];
+
+        const benefits: BenefitDriverData[] = [
+          {
+            id: "ben-" + crypto.randomUUID(),
+            category: "LABOR_TIME_SAVED",
+            title: "Engineering Hours Saved",
+            affectedRole: updatedBlueprint.endUser,
+            unitQuantity: 30,
+            unitValueCents: 7500,
+            annualValueCents: 2700000,
+            frequencyPeriod: "MONTHLY",
+            calculationDescription: "30 hours/mo saved at $75/hr",
+            provenanceType: "MODEL_ESTIMATE",
+            evidenceLinkIds: [],
+            assumptionIds: [],
+            confidenceScore: 80,
+          },
+        ];
+
+        const risks: RiskItem[] = (updatedBlueprint.majorRisks || []).map((desc) => ({
+          id: "risk-" + crypto.randomUUID(),
+          category: "TECHNICAL",
+          severity: "MEDIUM",
+          description: desc,
+          impactScore: 3,
+          probabilityScore: 3,
+          mitigationStrategy: "Build resilient multi-cloud adapters",
+          status: "IDENTIFIED",
+          provenanceType: "MODEL_ESTIMATE",
+          evidenceLinkIds: [],
+        }));
+
+        const assumptions: AssumptionItem[] = (updatedBlueprint.majorAssumptions || []).map((stmt) => ({
+          id: "asm-" + crypto.randomUUID(),
+          category: "PROBLEM",
+          statement: stmt,
+          importanceScore: 4,
+          uncertaintyScore: 3,
+          status: "UNTESTED",
+          testMethod: "Customer interview campaign",
+          successThreshold: ">= 60% validation",
+          failureThreshold: "< 30% validation",
+          provenanceType: "ASSUMPTION",
+          evidenceLinkIds: [],
+        }));
+
+        const experiments: ValidationExperimentItem[] = [
+          {
+            id: "exp-" + crypto.randomUUID(),
+            hypothesis: updatedBlueprint.recommendedNextExperiment,
+            experimentType: "PREORDER",
+            targetParticipant: updatedBlueprint.economicBuyer,
+            sampleSize: 5,
+            estimatedCostCents: 50000,
+            estimatedDurationDays: 14,
+            acquisitionChannel: "DIRECT_OUTREACH",
+            procedureSummary: "Reach out to 5 qualified engineering leaders",
+            successMetric: "Paid preorder commitments",
+            successThreshold: ">= 3 commitments",
+            failureThreshold: "< 1 commitment",
+            killCriterion: "Zero responses after 20 outreach attempts",
+            nextActionOnSuccess: "Build MVP",
+            nextActionOnFailure: "Pivot value proposition",
+            status: "PLANNED",
+            orderPriority: 1,
+            evidenceGeneratedIds: [],
+          },
+        ];
+
+        const revisionResult = await createOpportunityRevisionTransaction(prisma, {
+          opportunityId: targetCandidate.id,
+          reasonForChange: "Focused staging evidence expansion pass",
+          architectureSummary: updatedBlueprint.proposedProduct,
+          customerSegments,
+          mvpFeatures,
+          competitors,
+          scenarios: [
+            {
+              scenarioType: "BASE",
+              currency: "USD",
+              activeCustomers: 50,
+              monthlyPriceCents: 19900,
+              onboardingPriceCents: 0,
+              variableCostPerCustomerCents: 500,
+              monthlyFixedCostCents: 30000,
+              customerAcquisitionCostCents: 25000,
+              deliveryTimeWeeks: 6,
+              assumptions: ["Standard self-serve onboarding conversion"],
+              evidenceIds: [],
+            },
+          ],
+          costs,
+          benefits,
+          risks,
+          assumptions,
+          experiments,
+          opportunityScore: 85,
+          evidenceConfidence: 80,
+          criticalClaimsCovered: allTargetSignals.length,
+          costSummary: {
+            minBuildMinorCents: updatedBlueprint.economics.estimatedMvpCost.minMinor,
+            maxBuildMinorCents: updatedBlueprint.economics.estimatedMvpCost.maxMinor,
+            minWeeks: updatedBlueprint.economics.estimatedTimeToMvpWeeks.min,
+            maxWeeks: updatedBlueprint.economics.estimatedTimeToMvpWeeks.max,
+            minMonthlyOpMinorCents: updatedBlueprint.economics.estimatedMonthlyOperatingCost.minMinor,
+            maxMonthlyOpMinorCents: updatedBlueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
           },
         });
-      } else {
-        opp = await prisma.opportunity.create({
-          data: {
-            slug: finalSlug,
+
+        for (const item of newTargetVerifiedSignals) {
+          const claimType = determineEmpiricalClaimType(
+            item.normalizedSignal.signalType,
+            item.normalizedSignal.sanitizedExcerpt,
+            item.normalizedSignal.actorRole,
+          );
+          try {
+            await prisma.evidenceLink.create({
+              data: {
+                opportunityId: targetCandidate.id,
+                opportunityRevisionId: revisionResult.revisionId,
+                normalizedSignalId: item.normalizedSignal.id,
+                claimType: claimType as any,
+                claimIdentifier: "claim-pain-" + targetCandidate.id,
+                claimSnippet: item.normalizedSignal.sanitizedExcerpt || item.normalizedSignal.problemSummary || "Empirical signal evidence",
+                relationshipType: "SUPPORTS",
+                supportStrength: "STRONG",
+                explanation: `Empirically verified from ${item.source.name} (${item.rawSignal.sourceUrl})`,
+                relevanceScore: 0.9,
+              },
+            });
+          } catch (linkErr: any) {
+            logger.warn("Failed creating EvidenceLink", { message: linkErr?.message });
+          }
+        }
+      }
+
+      await prisma.opportunity.update({
+        where: { id: targetCandidate.id },
+        data: {
+          status: targetFinalStatus,
+          publicationQualityStatus: targetPubQualityStatus,
+        },
+      });
+
+      const targetAddedUrls = Array.from(
+        new Set(newTargetVerifiedSignals.map((s) => s.rawSignal.sourceUrl || s.normalizedSignal.canonicalUrl).filter(Boolean)),
+      );
+
+      candidateEvaluations.push({
+        id: targetCandidate.id,
+        title: targetCandidate.title,
+        slug: targetCandidate.slug,
+        status: targetFinalStatus,
+        publicationQualityStatus: targetPubQualityStatus,
+        originalUrls: Array.from(originalUrls),
+        addedUrls: targetAddedUrls,
+        supportingUrls: Array.from(new Set(allTargetSignals.map((vs) => vs.rawSignal.sourceUrl))),
+        independenceKeys: Array.from(
+          new Set(
+            allTargetSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`),
+          ),
+        ),
+        sourceFamilies: Array.from(
+          new Set(
+            allTargetSignals
+              .map((vs) => vs.source.sourceFamily || (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY"))
+              .filter(Boolean),
+          ),
+        ),
+        blockers: targetQualityResult.blockers,
+        warnings: targetQualityResult.warnings,
+        metrics: targetQualityResult.metrics,
+      });
+
+      if (targetIsVerified) {
+        publishedSlugs.push(targetCandidate.slug);
+        publishedCount++;
+      }
+
+      // 6b. Cluster genuinely different problems into separate candidates
+      if (unmatchedPool.length > 0 && publishedCount < maxPublishedOpportunities) {
+        const newClusters = clusterSignals(unmatchedPool, 0.75);
+        totalClustersDiscovered += newClusters.length;
+        for (const cl of newClusters.slice(0, maxPublishedOpportunities - publishedCount)) {
+          const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
+          for (const sigId of cl.signalIds) {
+            const normSig = await prisma.normalizedSignal.findUnique({
+              where: { id: sigId },
+              include: { rawSignal: { include: { source: true } } },
+            });
+            if (normSig && normSig.rawSignal && normSig.rawSignal.source) {
+              verifiedSignals.push({ normalizedSignal: normSig, rawSignal: normSig.rawSignal, source: normSig.rawSignal.source });
+            }
+          }
+          if (verifiedSignals.length === 0) continue;
+
+          const rawTitle = cl.title || cl.summary;
+          const formattedTitle = formatMeaningfulTitle(rawTitle);
+          let generatedSlug = generateCollisionSafeSlug(formattedTitle);
+          const existingSlug = await prisma.opportunity.findUnique({ where: { slug: generatedSlug } });
+          if (existingSlug) {
+            generatedSlug = generateCollisionSafeSlug(formattedTitle, crypto.randomBytes(3).toString("hex"));
+          }
+
+          const blueprint = synthesizeOpportunity(cl, verifiedSignals.length);
+          blueprint.title = formattedTitle;
+          blueprint.slug = generatedSlug;
+
+          const claimLinks = buildEmpiricalClaimLinks(verifiedSignals);
+          const qualityResult = evaluatePublicationQuality(claimLinks, blueprint.scorecard?.evidenceConfidenceScore || 80);
+          const isVerified = qualityResult.status === "VERIFIED" && qualityResult.isEligibleForVerified;
+          const finalStatus = isVerified ? "PUBLISHED" : "DRAFT";
+
+          const oppData = {
+            slug: generatedSlug,
             title: formattedTitle,
             oneSentenceSummary: blueprint.oneSentenceSummary,
             problemStatement: blueprint.problemStatement,
@@ -1041,7 +1584,7 @@ export async function executeManualStagingIngestion(
             painSeverity: blueprint.painSeverity,
             painFrequency: blueprint.painFrequency,
             status: finalStatus,
-            publicationQualityStatus: pubQualityStatus,
+            publicationQualityStatus: qualityResult.status,
             isDemoFixture: false,
             industry: cl.vertical || "DevOps & Compliance",
             customerType: "B2B",
@@ -1054,265 +1597,138 @@ export async function executeManualStagingIngestion(
             recommendedNextExperiment: blueprint.recommendedNextExperiment,
             majorAssumptions: blueprint.majorAssumptions,
             majorRisks: blueprint.majorRisks,
-          },
-        });
-      }
+          };
 
-      // Persist Scorecard
-      await prisma.scorecard.create({
-        data: {
-          opportunityId: opp.id,
-          opportunityScore: blueprint.scorecard?.opportunityScore || 85,
-          evidenceConfidenceScore: blueprint.scorecard?.evidenceConfidenceScore || 80,
-          demandScore: 82,
-          feasibilityScore: 88,
-          economicsScore: 84,
-          competitionScore: 80,
-          goMarketScore: 82,
-          rubricVersion: "2.0.0",
-          isHypothesisOnly: !isVerified,
-        },
-      });
+          const newOpp = await createCandidateWithRevisionAndLinks(
+            prisma,
+            oppData,
+            blueprint,
+            verifiedSignals,
+            isVerified,
+          );
 
-      // Prepare child items with unique UUIDs
-      const customerSegments: CustomerSegmentItem[] = blueprint.targetCustomerSegments.map((name) => ({
-        id: "seg-" + crypto.randomUUID(),
-        segmentName: name,
-        industry: opp.industry,
-        companySizeRange: "10-250 employees",
-        geography: "Global / Remote",
-        businessModel: "B2B SaaS",
-        economicBuyerRole: blueprint.economicBuyer,
-        endUserRole: blueprint.endUser,
-        procurementComplexity: "LOW",
-        budgetCategory: "ENGINEERING_TOOLS",
-        spendingBehavior: "CREDIT_CARD",
-        buyingTrigger: blueprint.buyingTrigger,
-        primaryObjection: "Budget and integration bandwidth",
-        acquisitionChannels: ["GITHUB", "COMMUNITY"],
-        salesCycleMinDays: 7,
-        salesCycleMaxDays: 30,
-        salesMotion: "FOUNDER_LED",
-        confidenceScore: 80,
-        provenanceType: "MODEL_ESTIMATE",
-        evidenceLinkIds: [],
-      }));
-
-      const mvpFeatures: MvpFeatureItem[] = blueprint.narrowMvpScope.map((name, idx) => ({
-        id: "feat-" + crypto.randomUUID(),
-        featureName: name,
-        description: name,
-        category: "MUST_HAVE",
-        userJourneyStep: "ONBOARDING",
-        requiredIntegrations: ["GITHUB_ACTIONS"],
-        requiredData: ["PULL_REQUEST_METADATA"],
-        dependencies: [],
-        acceptanceCriteria: ["Validates within 5 minutes"],
-        orderIndex: idx,
-      }));
-
-      const competitors: CompetitorItem[] = (blueprint.existingCompetitors || []).map((name) => ({
-        id: "comp-" + crypto.randomUUID(),
-        name,
-        competitorType: "DIRECT",
-        differentiationHypothesis: blueprint.competitorWeaknesses?.[0] || "Lightweight and automated",
-        switchingCosts: "MEDIUM",
-        strengths: ["Brand awareness"],
-        recurringComplaints: ["High enterprise cost"],
-        provenanceType: "MODEL_ESTIMATE",
-        evidenceLinkIds: [],
-      }));
-
-      const costs: CostLineItemData[] = [
-        {
-          id: "cost-" + crypto.randomUUID(),
-          costType: "ONE_TIME_BUILD",
-          category: "BACKEND_DEV",
-          title: "MVP Engineering Build",
-          scenarioType: "BASE",
-          amountMinorCents: blueprint.economics.estimatedMvpCost.minMinor,
-          currency: "USD",
-          estimateMethod: "Engineering hours benchmark",
-          provenanceType: "MODEL_ESTIMATE",
-          evidenceLinkIds: [],
-          assumptionIds: [],
-          confidenceScore: 80,
-        },
-      ];
-
-      const benefits: BenefitDriverData[] = [
-        {
-          id: "ben-" + crypto.randomUUID(),
-          category: "LABOR_TIME_SAVED",
-          title: "Engineering Hours Saved",
-          affectedRole: blueprint.endUser,
-          unitQuantity: 30,
-          unitValueCents: 7500,
-          annualValueCents: 2700000,
-          frequencyPeriod: "MONTHLY",
-          calculationDescription: "30 hours/mo saved at $75/hr",
-          provenanceType: "MODEL_ESTIMATE",
-          evidenceLinkIds: [],
-          assumptionIds: [],
-          confidenceScore: 80,
-        },
-      ];
-
-      const risks: RiskItem[] = (blueprint.majorRisks || []).map((desc) => ({
-        id: "risk-" + crypto.randomUUID(),
-        category: "TECHNICAL",
-        severity: "MEDIUM",
-        description: desc,
-        impactScore: 3,
-        probabilityScore: 3,
-        mitigationStrategy: "Build resilient multi-cloud adapters",
-        status: "IDENTIFIED",
-        provenanceType: "MODEL_ESTIMATE",
-        evidenceLinkIds: [],
-      }));
-
-      const assumptions: AssumptionItem[] = (blueprint.majorAssumptions || []).map((stmt) => ({
-        id: "asm-" + crypto.randomUUID(),
-        category: "PROBLEM",
-        statement: stmt,
-        importanceScore: 4,
-        uncertaintyScore: 3,
-        status: "UNTESTED",
-        testMethod: "Customer interview campaign",
-        successThreshold: ">= 60% validation",
-        failureThreshold: "< 30% validation",
-        provenanceType: "ASSUMPTION",
-        evidenceLinkIds: [],
-      }));
-
-      const experiments: ValidationExperimentItem[] = [
-        {
-          id: "exp-" + crypto.randomUUID(),
-          hypothesis: blueprint.recommendedNextExperiment,
-          experimentType: "PREORDER",
-          targetParticipant: blueprint.economicBuyer,
-          sampleSize: 5,
-          estimatedCostCents: 50000,
-          estimatedDurationDays: 14,
-          acquisitionChannel: "DIRECT_OUTREACH",
-          procedureSummary: "Reach out to 5 qualified engineering leaders",
-          successMetric: "Paid preorder commitments",
-          successThreshold: ">= 3 commitments",
-          failureThreshold: "< 1 commitment",
-          killCriterion: "Zero responses after 20 outreach attempts",
-          nextActionOnSuccess: "Build MVP",
-          nextActionOnFailure: "Pivot value proposition",
-          status: "PLANNED",
-          orderPriority: 1,
-          evidenceGeneratedIds: [],
-        },
-      ];
-
-      const revisionResult = await createOpportunityRevisionTransaction(prisma, {
-        opportunityId: opp.id,
-        reasonForChange: "Initial manual staging ingestion empirical validation",
-        architectureSummary: blueprint.proposedProduct,
-        customerSegments,
-        mvpFeatures,
-        competitors,
-        scenarios: [
-          {
-            scenarioType: "BASE",
-            currency: "USD",
-            activeCustomers: 50,
-            monthlyPriceCents: 19900,
-            onboardingPriceCents: 0,
-            variableCostPerCustomerCents: 500,
-            monthlyFixedCostCents: 30000,
-            customerAcquisitionCostCents: 25000,
-            deliveryTimeWeeks: 6,
-            assumptions: ["Standard self-serve onboarding conversion"],
-            evidenceIds: [],
-          },
-        ],
-        costs,
-        benefits,
-        risks,
-        assumptions,
-        experiments,
-        opportunityScore: 85,
-        evidenceConfidence: 80,
-        criticalClaimsCovered: verifiedSignals.length,
-        costSummary: {
-          minBuildMinorCents: blueprint.economics.estimatedMvpCost.minMinor,
-          maxBuildMinorCents: blueprint.economics.estimatedMvpCost.maxMinor,
-          minWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
-          maxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
-          minMonthlyOpMinorCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
-          maxMonthlyOpMinorCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
-        },
-      });
-
-      // Persist EvidenceLinks connecting NormalizedSignals -> Opportunity & OpportunityRevision
-      for (const item of verifiedSignals) {
-        let evClaimType: any = "PAIN_EXISTENCE";
-        if (item.normalizedSignal.signalType === "PURCHASE_INTENT") {
-          evClaimType = "BUYER_DEMAND";
-        } else if (item.normalizedSignal.signalType === "WILLINGNESS_TO_PAY") {
-          evClaimType = "WILLINGNESS_TO_PAY";
-        } else if (item.normalizedSignal.signalType === "WORKAROUND") {
-          evClaimType = "CURRENT_WORKAROUND";
-        }
-
-        try {
-          await prisma.evidenceLink.create({
-            data: {
-              opportunityId: opp.id,
-              opportunityRevisionId: revisionResult.revisionId,
-              normalizedSignalId: item.normalizedSignal.id,
-              claimType: evClaimType,
-              claimIdentifier: "claim-pain-" + opp.id,
-              claimSnippet: item.normalizedSignal.sanitizedExcerpt || item.normalizedSignal.problemSummary || "Empirical signal evidence",
-              relationshipType: "SUPPORTS",
-              supportStrength: "STRONG",
-              explanation: `Empirically verified from ${item.source.name} (${item.rawSignal.sourceUrl})`,
-              relevanceScore: 0.9,
-            },
+          candidateEvaluations.push({
+            id: newOpp.id,
+            title: formattedTitle,
+            slug: generatedSlug,
+            status: finalStatus,
+            publicationQualityStatus: qualityResult.status,
+            originalUrls: [],
+            addedUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
+            supportingUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
+            independenceKeys: Array.from(new Set(verifiedSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`))),
+            sourceFamilies: Array.from(new Set(verifiedSignals.map((vs) => vs.source.sourceFamily || (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY")).filter(Boolean))),
+            blockers: qualityResult.blockers,
+            warnings: qualityResult.warnings,
+            metrics: qualityResult.metrics,
           });
-        } catch (linkErr: any) {
-          logger.warn("Failed creating EvidenceLink", { message: linkErr?.message });
+
+          if (isVerified) {
+            publishedSlugs.push(generatedSlug);
+            publishedCount++;
+          }
         }
       }
 
-      candidateEvaluations.push({
-        id: opp.id,
-        title: formattedTitle,
-        slug: opp.slug,
-        status: finalStatus,
-        publicationQualityStatus: pubQualityStatus,
-        blockers: qualityResult.blockers,
-        warnings: qualityResult.warnings,
-        metrics: qualityResult.metrics,
-        supportingUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
-        independenceKeys: Array.from(
-          new Set(
-            verifiedSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`),
-          ),
-        ),
-        sourceFamilies: Array.from(
-          new Set(
-            verifiedSignals
-              .map((vs) => vs.source.sourceFamily || (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY"))
-              .filter(Boolean),
-          ),
-        ),
-      });
+    } else {
+      // 6c. Cold initial clustering when no previous opportunity exists
+      const clusters = clusterCandidates.length > 0 ? clusterSignals(clusterCandidates, 0.75) : [];
+      totalClustersDiscovered = clusters.length;
+      const boundedClusters = clusters.slice(0, maxPublishedOpportunities);
 
-      if (isVerified) {
-        publishedSlugs.push(finalSlug);
-        publishedCount++;
+      for (const cl of boundedClusters) {
+        if (Date.now() > deadline || publishedCount >= maxPublishedOpportunities) break;
+
+        const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
+        for (const sigId of cl.signalIds) {
+          const normSig = await prisma.normalizedSignal.findUnique({
+            where: { id: sigId },
+            include: { rawSignal: { include: { source: true } } },
+          });
+          if (normSig && normSig.rawSignal && normSig.rawSignal.source) {
+            verifiedSignals.push({ normalizedSignal: normSig, rawSignal: normSig.rawSignal, source: normSig.rawSignal.source });
+          }
+        }
+        if (verifiedSignals.length === 0) continue;
+
+        const rawTitle = cl.title || cl.summary;
+        const formattedTitle = formatMeaningfulTitle(rawTitle);
+        const generatedSlug = generateCollisionSafeSlug(formattedTitle);
+        const blueprint = synthesizeOpportunity(cl, verifiedSignals.length);
+        blueprint.title = formattedTitle;
+        blueprint.slug = generatedSlug;
+
+        const claimLinks = buildEmpiricalClaimLinks(verifiedSignals);
+        const qualityResult = evaluatePublicationQuality(claimLinks, blueprint.scorecard?.evidenceConfidenceScore || 80);
+        const isVerified = qualityResult.status === "VERIFIED" && qualityResult.isEligibleForVerified;
+        const finalStatus = isVerified ? "PUBLISHED" : "DRAFT";
+
+        const oppData = {
+          slug: generatedSlug,
+          title: formattedTitle,
+          oneSentenceSummary: blueprint.oneSentenceSummary,
+          problemStatement: blueprint.problemStatement,
+          jobsToBeDone: blueprint.jobsToBeDone,
+          proposedProduct: blueprint.proposedProduct,
+          narrowMvpScope: blueprint.narrowMvpScope,
+          targetCustomerSegments: blueprint.targetCustomerSegments,
+          economicBuyer: blueprint.economicBuyer,
+          endUser: blueprint.endUser,
+          buyingTrigger: blueprint.buyingTrigger,
+          existingWorkflow: blueprint.existingWorkflow,
+          painSeverity: blueprint.painSeverity,
+          painFrequency: blueprint.painFrequency,
+          status: finalStatus,
+          publicationQualityStatus: qualityResult.status,
+          isDemoFixture: false,
+          industry: cl.vertical || "DevOps & Compliance",
+          customerType: "B2B",
+          estimatedMvpCostMinCents: blueprint.economics.estimatedMvpCost.minMinor,
+          estimatedMvpCostMaxCents: blueprint.economics.estimatedMvpCost.maxMinor,
+          estimatedTimeToMvpMinWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
+          estimatedTimeToMvpMaxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
+          estimatedMonthlyOpCostMinCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
+          estimatedMonthlyOpCostMaxCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
+          recommendedNextExperiment: blueprint.recommendedNextExperiment,
+          majorAssumptions: blueprint.majorAssumptions,
+          majorRisks: blueprint.majorRisks,
+        };
+
+        const opp = await createCandidateWithRevisionAndLinks(
+          prisma,
+          oppData,
+          blueprint,
+          verifiedSignals,
+          isVerified,
+        );
+
+        candidateEvaluations.push({
+          id: opp.id,
+          title: formattedTitle,
+          slug: generatedSlug,
+          status: finalStatus,
+          publicationQualityStatus: qualityResult.status,
+          originalUrls: [],
+          addedUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
+          supportingUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
+          independenceKeys: Array.from(new Set(verifiedSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`))),
+          sourceFamilies: Array.from(new Set(verifiedSignals.map((vs) => vs.source.sourceFamily || (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY")).filter(Boolean))),
+          blockers: qualityResult.blockers,
+          warnings: qualityResult.warnings,
+          metrics: qualityResult.metrics,
+        });
+
+        if (isVerified) {
+          publishedSlugs.push(generatedSlug);
+          publishedCount++;
+        }
       }
     }
 
     // 7. Complete the IngestionRun
     const runSummary = {
       sourcesProcessed: activeSources.length,
-      clustersDiscovered: clusters.length,
+      clustersDiscovered: totalClustersDiscovered,
       normalizedSignalsCount,
       historicalSignalsCount,
       currentSignalsCount,

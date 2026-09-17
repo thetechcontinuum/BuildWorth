@@ -210,8 +210,16 @@ function printSummary(run) {
       console.log(`[Candidate ${idx + 1}] ${ev.title}`);
       if (ev.id) console.log(`  Candidate ID               : ${ev.id}`);
       console.log(`  Publication Quality Status : ${ev.publicationQualityStatus}`);
-      console.log(`  Database Status            : ${ev.status}`);
-      console.log(`  Supporting URLs (${ev.supportingUrls?.length || 0}):`);
+      if (ev.originalUrls) {
+        console.log(`  Original URLs (${ev.originalUrls.length}):`);
+        ev.originalUrls.forEach((u) => console.log(`    * ${u}`));
+      }
+      if (ev.addedUrls) {
+        console.log(`  Added URLs (${ev.addedUrls.length}):`);
+        if (ev.addedUrls.length === 0) console.log(`    (none)`);
+        ev.addedUrls.forEach((u) => console.log(`    + ${u}`));
+      }
+      console.log(`  Total Supporting URLs (${ev.supportingUrls?.length || 0}):`);
       (ev.supportingUrls || []).forEach((u) => console.log(`    - ${u}`));
       if (ev.independenceKeys && ev.independenceKeys.length > 0) {
         console.log(`  Independence Keys (${ev.independenceKeys.length}):`);
