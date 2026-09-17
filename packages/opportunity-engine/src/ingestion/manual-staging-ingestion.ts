@@ -43,11 +43,13 @@ export interface ManualIngestionOptions {
   maxFetchItems?: number;
   maxRawSignals?: number;
   maxCandidates?: number;
+  maxHistoricalSignals?: number;
   maxPublishedOpportunities?: number;
   aiProvider?: LLMProvider;
   executionTimeoutMs?: number;
   cleanSyntheticPrior?: boolean;
 }
+
 
 export interface ManualIngestionRunResult {
   runId: string;
@@ -101,6 +103,23 @@ export function generateCollisionSafeSlug(title: string, nonce?: string): string
   }
   return base;
 }
+
+export const KNOWN_SYNTHETIC_FIXTURE_EXTERNAL_IDS = [
+  "gh-issue-98214",
+  "hn-38491021",
+  "hn-39210044",
+  "rd-1f92a10",
+  "ph-post-7712",
+];
+
+export const KNOWN_SYNTHETIC_FIXTURE_URLS = [
+  "https://github.com/example-org/devops-tools/issues/98214",
+  "https://news.ycombinator.com/item?id=38491021",
+  "https://news.ycombinator.com/item?id=39210044",
+  "https://reddit.com/r/devops/comments/1f92a10",
+  "https://producthunt.com/posts/example-saas-tool#comment-889",
+  "https://producthunt.com/posts/example-devops-tool",
+];
 
 /**
  * Cleans the previous synthetic staging opportunity and associated synthetic test records.
@@ -162,32 +181,28 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
     }
   }
 
-  // Clean old test raw and normalized signals from synthetic probing
-  const testUrls = [
-    "https://news.ycombinator.com/item?id=38491021",
-    "https://news.ycombinator.com/item?id=39210044",
-    "https://reddit.com/r/devops/comments/1f92a10",
-    "https://github.com/example-org/devops-tools/issues/98214",
-    "https://producthunt.com/posts/example-devops-tool",
-  ];
+  // Clean old test raw and normalized signals demonstrably produced by removed adapter fixtures
+  const rawList = await prisma.rawSignal.findMany({
+    where: {
+      OR: [
+        { sourceUrl: { in: KNOWN_SYNTHETIC_FIXTURE_URLS } },
+        { externalId: { in: KNOWN_SYNTHETIC_FIXTURE_EXTERNAL_IDS } },
+      ],
+    },
+  }).catch(() => []);
 
-  for (const url of testUrls) {
-    const rawList = await prisma.rawSignal.findMany({
-      where: { sourceUrl: url },
-    });
-    for (const raw of rawList) {
-      await prisma.evidenceLink.deleteMany({
-        where: { normalizedSignal: { rawSignalId: raw.id } },
-      }).catch(() => {});
-      await prisma.normalizedSignal.deleteMany({
-        where: { rawSignalId: raw.id },
-      }).catch(() => {});
-      await prisma.rawSignal.delete({
-        where: { id: raw.id },
-      }).catch(() => {});
-      cleanedRawSignals++;
-      cleanedNormalizedSignals++;
-    }
+  for (const raw of rawList) {
+    await prisma.evidenceLink.deleteMany({
+      where: { normalizedSignal: { rawSignalId: raw.id } },
+    }).catch(() => {});
+    await prisma.normalizedSignal.deleteMany({
+      where: { rawSignalId: raw.id },
+    }).catch(() => {});
+    await prisma.rawSignal.delete({
+      where: { id: raw.id },
+    }).catch(() => {});
+    cleanedRawSignals++;
+    cleanedNormalizedSignals++;
   }
 
   return { cleanedOpportunities, cleanedRawSignals, cleanedNormalizedSignals };
@@ -205,11 +220,13 @@ export async function executeManualStagingIngestion(
     maxFetchItems = 30,
     maxRawSignals = 20,
     maxCandidates = 5,
+    maxHistoricalSignals = 20,
     maxPublishedOpportunities = 3,
     aiProvider = defaultAI,
     executionTimeoutMs = 45000,
     cleanSyntheticPrior = false,
   } = options;
+
 
   const deadline = Date.now() + executionTimeoutMs;
   const claimToken = crypto.randomUUID();
@@ -620,19 +637,30 @@ export async function executeManualStagingIngestion(
       }
     }
 
-    // Fall back to existing unclustered verified NormalizedSignals if available
-    if (sanitizedSignalsToProcess.length === 0) {
+    // Include eligible historical unclustered verified NormalizedSignals alongside newly ingested signals
+    let historicalSignalsCount = 0;
+    const currentSignalsCount = sanitizedSignalsToProcess.length;
+
+    if (maxHistoricalSignals > 0) {
+      const alreadyPresentRawIds = new Set(sanitizedSignalsToProcess.map((s) => s.rawSignalId));
       const existingUnclustered = await prisma.normalizedSignal.findMany({
         where: {
           clusterMemberships: { none: {} },
+          verificationStatus: { not: "REJECTED" },
+          rawSignal: {
+            AND: [
+              { canonicalUrl: { notIn: KNOWN_SYNTHETIC_FIXTURE_URLS } },
+              { externalId: { notIn: KNOWN_SYNTHETIC_FIXTURE_EXTERNAL_IDS } },
+            ],
+          },
         },
         include: { rawSignal: { include: { source: true } } },
-        take: maxCandidates,
+        take: maxHistoricalSignals,
         orderBy: { createdAt: "desc" },
-      });
+      }).catch(() => []);
 
       for (const sig of existingUnclustered) {
-        if (sig.rawSignal && sig.rawSignal.source) {
+        if (sig.rawSignal && sig.rawSignal.source && !alreadyPresentRawIds.has(sig.rawSignal.id)) {
           sanitizedSignalsToProcess.push({
             rawSignalId: sig.rawSignal.id,
             normalizedSignalId: sig.id,
@@ -643,9 +671,13 @@ export async function executeManualStagingIngestion(
             sourceId: sig.rawSignal.source.id,
             sourceName: sig.rawSignal.source.name,
           });
+          alreadyPresentRawIds.add(sig.rawSignal.id);
+          historicalSignalsCount++;
         }
       }
     }
+
+
 
     // 4. AI Classification & Extraction
     const clusterCandidates: ClusterCandidate[] = [];
@@ -1043,6 +1075,8 @@ export async function executeManualStagingIngestion(
         sourcesProcessed: activeSources.length,
         clustersDiscovered: clusters.length,
         normalizedSignalsCount,
+        historicalSignalsCount,
+        currentSignalsCount,
       },
     });
 
@@ -1050,6 +1084,8 @@ export async function executeManualStagingIngestion(
       runId,
       publishedCount,
       publishedSlugs,
+      historicalSignalsCount,
+      currentSignalsCount,
     });
 
     return {
@@ -1070,8 +1106,11 @@ export async function executeManualStagingIngestion(
         sourcesProcessed: activeSources.length,
         clustersDiscovered: clusters.length,
         normalizedSignalsCount,
+        historicalSignalsCount,
+        currentSignalsCount,
       },
     };
+
   } catch (error: any) {
     logger.error("Error executing staging ingestion pipeline", error);
     const msg = String(error?.message || "");

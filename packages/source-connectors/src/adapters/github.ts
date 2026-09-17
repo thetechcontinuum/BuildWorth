@@ -37,21 +37,10 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
         }
       }
     } catch (err: any) {
-      logger.warn("Live GitHub fetch failed, using fallback", { error: err?.message });
+      logger.warn("Live GitHub fetch failed or unconfigured", { error: err?.message });
     }
 
-    return [
-      {
-        externalId: "gh-issue-98214",
-        sourceKey: this.sourceKey,
-        sourceUrl: "https://github.com/example-org/devops-tools/issues/98214",
-        authorFingerprint: "platform_eng",
-        title: "Feature Request: Automated Stripe invoice reconciliation webhook handler",
-        rawContent:
-          "Current workaround requires running a cron job in Python that parses CSV exports from Stripe and updates our SQL database. It fails silently when Stripe adds new tax fields.",
-        publishedAt: new Date(),
-        metadata: { repo: "example-org/devops-tools", labels: ["friction", "workaround"] },
-      },
-    ];
+    return [];
   }
 }
+
