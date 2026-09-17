@@ -136,7 +136,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const result = await executeManualStagingIngestion(prisma, {
       idempotencyKey,
-      executionTimeoutMs: 50000,
+      executionTimeoutMs: 8500,
+      maxSources: 2,
+      maxFetchItems: 6,
+      maxRawSignals: 4,
+      maxCandidates: 2,
       cleanSyntheticPrior,
     });
 
