@@ -576,19 +576,24 @@ export async function executeManualStagingIngestion(
       try {
         const rawSignals: any[] = [];
         const slotsAvailable = maxFetchItems - totalFetched;
+        const maxPerSource = Math.ceil(maxFetchItems / 2); // e.g. 15 per active fetching source
+        const srcSlots = Math.min(slotsAvailable, maxPerSource);
 
         if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github")) {
-          const generalSignals = await adapter.fetchSignals(Math.min(10, slotsAvailable));
-          rawSignals.push(...generalSignals);
-
           for (const query of targetQueries) {
-            if (totalFetched + rawSignals.length >= maxFetchItems) break;
-            const remaining = maxFetchItems - (totalFetched + rawSignals.length);
+            if (rawSignals.length >= srcSlots) break;
+            const remaining = srcSlots - rawSignals.length;
             const targeted = await adapter.fetchSignals(Math.min(5, remaining), query);
             rawSignals.push(...targeted);
           }
+
+          if (rawSignals.length < srcSlots) {
+            const remaining = srcSlots - rawSignals.length;
+            const generalSignals = await adapter.fetchSignals(Math.min(5, remaining));
+            rawSignals.push(...generalSignals);
+          }
         } else {
-          const generalSignals = await adapter.fetchSignals(Math.min(20, slotsAvailable));
+          const generalSignals = await adapter.fetchSignals(Math.min(15, srcSlots));
           rawSignals.push(...generalSignals);
         }
 
@@ -763,6 +768,8 @@ export async function executeManualStagingIngestion(
         await prisma.normalizedSignal.update({
           where: { id: item.normalizedSignalId },
           data: {
+            signalType: classification.signalType as any,
+            purchaseIntent: classification.signalType === "PURCHASE_INTENT" || classification.signalType === "WILLINGNESS_TO_PAY" || (extracted.intentToPayScore && extracted.intentToPayScore > 50),
             problemSummary: extracted.problemSummary,
             actorRole: extracted.actorRole,
             workflowContext: extracted.workflowContext,
