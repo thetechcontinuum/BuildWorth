@@ -1,6 +1,12 @@
 import { SourceCredibilityTier, SourcePolicyStatus, EvidenceOrigin } from "@buildworth/shared";
 
-export type AdapterType = "HACKERNEWS_API" | "REDDIT_OAUTH" | "GITHUB_REST" | "PRODUCTHUNT_GRAPHQL";
+export type AdapterType =
+  | "HACKERNEWS_API"
+  | "REDDIT_OAUTH"
+  | "GITHUB_REST"
+  | "PRODUCTHUNT_GRAPHQL"
+  | "KRASIA_RSS"
+  | "E27_API";
 export type SourceAccessMethod = "API" | "OAUTH_API" | "GRAPHQL" | "RSS";
 
 export interface RawIngestSignal {

@@ -77,7 +77,7 @@ export interface ManualIngestionRunResult {
   summary?: any;
 }
 
-const ALLOWLISTED_SOURCE_KEYS = ["hackernews", "reddit", "github", "producthunt"];
+const ALLOWLISTED_SOURCE_KEYS = ["hackernews", "reddit", "github", "producthunt", "krasia", "e27"];
 
 export function formatMeaningfulTitle(text: string, maxLen = 75): string {
   const cleaned = text
@@ -750,7 +750,135 @@ export async function executeManualStagingIngestion(
   const processedHashes = new Set<string>();
 
   try {
-    // 2. Fetch Active Approved Sources
+    // 2. Fetch and synchronize Active Approved Sources
+    const defaultSources = [
+      {
+        key: "hackernews",
+        name: "Hacker News",
+        description: "Hacker News community submissions and comments",
+        sourceFamily: "COMMUNITY",
+        baseUrl: "https://news.ycombinator.com",
+        adapterType: "HACKERNEWS_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_1_PRIMARY" as any,
+        rateLimitPerMinute: 120,
+        permittedExcerptLength: 280,
+        requiresAttribution: true,
+        termsNotes: "Uses official open API for indexing problem discussions.",
+      },
+      {
+        key: "reddit",
+        name: "Reddit Tech & Ops",
+        description: "Public technical subreddits (r/devops, r/dataengineering)",
+        sourceFamily: "COMMUNITY",
+        baseUrl: "https://reddit.com",
+        adapterType: "REDDIT_OAUTH",
+        accessMethod: "OAUTH_API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 60,
+        permittedExcerptLength: 280,
+        requiresAttribution: true,
+        termsNotes: "OAuth API with short excerpts and permalink citations.",
+      },
+      {
+        key: "github",
+        name: "GitHub Issues & Discussions",
+        description: "Public GitHub repository problem statements and issues",
+        sourceFamily: "DEVELOPER_ECOSYSTEM",
+        baseUrl: "https://github.com",
+        adapterType: "GITHUB_REST",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_1_PRIMARY" as any,
+        rateLimitPerMinute: 80,
+        permittedExcerptLength: 280,
+        requiresAttribution: true,
+        termsNotes: "Extracts public open-source repository issue friction.",
+      },
+      {
+        key: "producthunt",
+        name: "Product Hunt Reviews",
+        description: "Product Hunt market feedback and user complaints",
+        sourceFamily: "COMMUNITY",
+        baseUrl: "https://producthunt.com",
+        adapterType: "PRODUCTHUNT_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 60,
+        permittedExcerptLength: 280,
+        requiresAttribution: true,
+        termsNotes: "Permitted API access for product reviews and gaps.",
+      },
+      {
+        key: "krasia",
+        name: "KrASIA",
+        description: "Asia tech ecosystem news, startup funding and market intelligence",
+        sourceFamily: "DISCOVERY",
+        baseUrl: "https://kr-asia.com",
+        adapterType: "KRASIA_RSS",
+        accessMethod: "RSS",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 60,
+        permittedExcerptLength: 280,
+        requiresAttribution: true,
+        termsNotes: "Official public RSS feed via console.kr-asia.com/feed with attribution to original journalists/syndication partners.",
+      },
+      {
+        key: "e27",
+        name: "e27",
+        description: "Southeast Asia tech ecosystem and startup community platform",
+        sourceFamily: "DISCOVERY",
+        baseUrl: "https://e27.co",
+        adapterType: "E27_API",
+        accessMethod: "API",
+        isEnabled: false,
+        policyStatus: "REVIEW_REQUIRED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        requiresAttribution: true,
+        termsNotes: "Access blocked by publisher Cloudflare 403 bot protection and robots.txt AI training restrictions. Kept disabled until official partnership API is provisioned.",
+      },
+    ];
+
+    try {
+      const totalSourcesCount = await prisma.source.count().catch(() => 0);
+      if (totalSourcesCount === 0) {
+        for (const src of defaultSources) {
+          await prisma.source.upsert({
+            where: { key: src.key },
+            update: {
+              sourceFamily: src.sourceFamily,
+              baseUrl: src.baseUrl,
+              adapterType: src.adapterType,
+              accessMethod: src.accessMethod,
+              termsNotes: src.termsNotes,
+              attributionRequired: src.requiresAttribution,
+            },
+            create: src,
+          });
+        }
+      } else {
+        for (const src of defaultSources) {
+          const existingList = await prisma.source.findMany({ where: { key: src.key } }).catch(() => []);
+          if (!existingList || existingList.length === 0) {
+            await prisma.source.create({ data: src }).catch(() => {});
+          }
+        }
+      }
+    } catch (seedErr: any) {
+      logger.warn("Source sync warning", { error: seedErr?.message });
+    }
+
     let activeSources = await prisma.source.findMany({
       where: {
         isEnabled: true,
@@ -758,91 +886,6 @@ export async function executeManualStagingIngestion(
       },
       take: maxSources,
     });
-
-    if (!activeSources || activeSources.length === 0) {
-      const totalSourcesCount = await prisma.source.count().catch(() => 0);
-      if (totalSourcesCount === 0) {
-        // Seed default approved staging sources if none exist in database
-        try {
-          const defaultSources = [
-            {
-              key: "hackernews",
-              name: "Hacker News",
-              description: "Hacker News community submissions and comments",
-              adapterType: "HACKERNEWS_API",
-              accessMethod: "API",
-              isEnabled: true,
-              policyStatus: "ALLOWED" as any,
-              credibilityTier: "TIER_1_PRIMARY" as any,
-              rateLimitPerMinute: 120,
-              permittedExcerptLength: 280,
-              requiresAttribution: true,
-              termsNotes: "Uses official open API for indexing problem discussions.",
-            },
-            {
-              key: "reddit",
-              name: "Reddit Tech & Ops",
-              description: "Public technical subreddits (r/devops, r/dataengineering)",
-              adapterType: "REDDIT_OAUTH",
-              accessMethod: "OAUTH_API",
-              isEnabled: true,
-              policyStatus: "ALLOWED" as any,
-              credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
-              rateLimitPerMinute: 60,
-              permittedExcerptLength: 280,
-              requiresAttribution: true,
-              termsNotes: "OAuth API with short excerpts and permalink citations.",
-            },
-            {
-              key: "github",
-              name: "GitHub Issues & Discussions",
-              description: "Public GitHub repository problem statements and issues",
-              adapterType: "GITHUB_REST",
-              accessMethod: "API",
-              isEnabled: true,
-              policyStatus: "ALLOWED" as any,
-              credibilityTier: "TIER_1_PRIMARY" as any,
-              rateLimitPerMinute: 80,
-              permittedExcerptLength: 280,
-              requiresAttribution: true,
-              termsNotes: "Extracts public open-source repository issue friction.",
-            },
-            {
-              key: "producthunt",
-              name: "Product Hunt Reviews",
-              description: "Product Hunt market feedback and user complaints",
-              adapterType: "PRODUCTHUNT_API",
-              accessMethod: "API",
-              isEnabled: true,
-              policyStatus: "ALLOWED" as any,
-              credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
-              rateLimitPerMinute: 60,
-              permittedExcerptLength: 280,
-              requiresAttribution: true,
-              termsNotes: "Permitted API access for product reviews and gaps.",
-            },
-          ];
-
-          for (const src of defaultSources) {
-            await prisma.source.upsert({
-              where: { key: src.key },
-              update: { isEnabled: true, policyStatus: "ALLOWED" as any },
-              create: src,
-            });
-          }
-
-          activeSources = await prisma.source.findMany({
-            where: {
-              isEnabled: true,
-              key: { in: ALLOWLISTED_SOURCE_KEYS },
-            },
-            take: maxSources,
-          });
-        } catch (seedErr: any) {
-          logger.warn("Could not seed default staging sources", { error: seedErr?.message });
-        }
-      }
-    }
 
     if (!activeSources || activeSources.length === 0) {
       logger.warn("No active approved sources found for staging manual ingestion.");
@@ -915,7 +958,7 @@ export async function executeManualStagingIngestion(
         const maxPerSource = Math.ceil(maxFetchItems / 2); // e.g. 15 per active fetching source
         const srcSlots = Math.min(slotsAvailable, maxPerSource);
 
-        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github")) {
+        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github" || src.key === "krasia")) {
           const queriesToRun = targetQueries.slice(0, 2);
           const perQuery = Math.max(3, Math.floor(srcSlots / queriesToRun.length));
           const fetchPromises = queriesToRun.map((q) => adapter.fetchSignals(perQuery, q));
@@ -988,13 +1031,15 @@ export async function executeManualStagingIngestion(
                 src.key,
                 rawRecord.externalId,
                 canonicalUrl,
+                rawRecord.authorFingerprint || undefined,
+                raw.metadata,
               );
 
               normRecord = await prisma.normalizedSignal.create({
                 data: {
                   rawSignalId: rawRecord.id,
                   sourceId: src.id,
-                  signalType: "PAIN",
+                  signalType: src.key === "krasia" || src.key === "e27" ? "MARKET_ACTIVITY" : "PAIN",
                   evidenceOrigin: "COLLECTED",
                   originalUrl: raw.sourceUrl,
                   canonicalUrl,
