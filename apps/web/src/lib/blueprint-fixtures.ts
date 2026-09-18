@@ -42,7 +42,8 @@ export const SOC2_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
   decisionRuleVersion: "1.0.0",
   inputHash: "a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
 
-  architectureSummary: "Lightweight cloud event listener + Webhook relay + Next.js dashboard backed by PostgreSQL with zero-knowledge secret storage.",
+  architectureSummary:
+    "Lightweight cloud event listener + Webhook relay + Next.js dashboard backed by PostgreSQL with zero-knowledge secret storage.",
   gtmNarrative: {
     initialWedge: "Automated PR approval signature capture and Vercel env snapshots.",
     leadSource: "Targeted outbound to DevOps engineers and Eng Directors.",
@@ -81,9 +82,18 @@ export const SOC2_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
     },
   },
   reachableMarket: {
-    method: "Bottom-up account penetration based on US & EU Series A-C venture-backed SaaS startups",
-    inputValues: { totalStartups: 42000, awsShare: 0.65, serviceableShare: 0.15, avgAnnualPrice: 2388 },
-    assumptions: ["65% of target companies use AWS as primary cloud", "15% actively seek 3rd party evidence collection"],
+    method:
+      "Bottom-up account penetration based on US & EU Series A-C venture-backed SaaS startups",
+    inputValues: {
+      totalStartups: 42000,
+      awsShare: 0.65,
+      serviceableShare: 0.15,
+      avgAnnualPrice: 2388,
+    },
+    assumptions: [
+      "65% of target companies use AWS as primary cloud",
+      "15% actively seek 3rd party evidence collection",
+    ],
     lowerBoundCents: 450000000,
     baseCaseCents: 978000000,
     upperBoundCents: 1850000000,
@@ -103,10 +113,15 @@ export const SOC2_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
       technicalApproverRole: "Principal Security Architect",
       procurementComplexity: "Low (Credit card approval under $500/mo)",
       budgetCategory: "Engineering Tooling & Compliance",
-      spendingBehavior: "Authorizes immediate departmental SaaS without RFP when ROI payback is < 60 days",
+      spendingBehavior:
+        "Authorizes immediate departmental SaaS without RFP when ROI payback is < 60 days",
       buyingTrigger: "Upcoming annual SOC2 Type II audit deadline",
       primaryObjection: "Security clearance for third-party cloud infrastructure access",
-      acquisitionChannels: ["Hacker News Launch", "Reddit r/devops discussions", "Targeted Founder Outbound"],
+      acquisitionChannels: [
+        "Hacker News Launch",
+        "Reddit r/devops discussions",
+        "Targeted Founder Outbound",
+      ],
       salesCycleMinDays: 7,
       salesCycleMaxDays: 21,
       salesMotion: "FOUNDER_LED",
@@ -214,7 +229,8 @@ export const SOC2_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
       probabilityScore: 2,
       impactScore: 4,
       severity: "MEDIUM",
-      mitigationStrategy: "Differentiate on cross-cloud support (GCP/Azure) and automated Slack remediation actions.",
+      mitigationStrategy:
+        "Differentiate on cross-cloud support (GCP/Azure) and automated Slack remediation actions.",
       earlyWarningIndicator: "AWS re:Invent keynote product announcements.",
       status: "IDENTIFIED",
       evidenceLinkIds: [],
@@ -225,7 +241,8 @@ export const SOC2_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
   assumptions: [
     {
       id: "as-1",
-      statement: "DevOps engineering leads have corporate credit card purchasing authority under $300/mo.",
+      statement:
+        "DevOps engineering leads have corporate credit card purchasing authority under $300/mo.",
       category: "WILLINGNESS_TO_PAY",
       importanceScore: 4,
       uncertaintyScore: 2,
@@ -241,20 +258,23 @@ export const SOC2_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
   validationExperiments: [
     {
       id: "exp-1",
-      hypothesis: "Engineering managers will sign up for a free 14-day AWS Cost Anomaly pilot via targeted LinkedIn/HN outreach.",
+      hypothesis:
+        "Engineering managers will sign up for a free 14-day AWS Cost Anomaly pilot via targeted LinkedIn/HN outreach.",
       experimentType: "LANDING_PAGE",
       targetParticipant: "DevOps Engineers / VP Eng at Series A SaaS startups",
       sampleSize: 100,
       estimatedCostCents: 15000,
       estimatedDurationDays: 14,
       acquisitionChannel: "Hacker News ‘Show HN’ + Reddit r/devops targeted posts",
-      procedureSummary: "Publish landing page with live interactive CloudFormation demo and waitlist opt-in.",
+      procedureSummary:
+        "Publish landing page with live interactive CloudFormation demo and waitlist opt-in.",
       successMetric: "Waitlist Conversion Rate",
       successThreshold: "> 8% conversion rate from unique visitors to verified work email waitlist",
       failureThreshold: "< 2% conversion rate",
       killCriterion: "< 1% conversion rate after 250 qualified visitors",
       nextActionOnSuccess: "Build narrow MVP single-tenant CloudFormation worker",
-      nextActionOnFailure: "Pivot messaging toward compliance audit evidence instead of real-time spend",
+      nextActionOnFailure:
+        "Pivot messaging toward compliance audit evidence instead of real-time spend",
       status: "PLANNED",
       orderPriority: 0,
       evidenceGeneratedIds: [],
@@ -263,7 +283,10 @@ export const SOC2_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
 
   decisionEvaluation: {
     recommendation: "BUILD_CANDIDATE" as DecisionRecommendation,
-    reasonCodes: ["HIGH_SCORE_STRONG_EVIDENCE_HEALTHY_ECONOMICS", "ALL_COMMERCIAL_AND_EVIDENCE_GATES_PASSED"],
+    reasonCodes: [
+      "HIGH_SCORE_STRONG_EVIDENCE_HEALTHY_ECONOMICS",
+      "ALL_COMMERCIAL_AND_EVIDENCE_GATES_PASSED",
+    ],
     blockingConditions: [],
     opportunityScoreUsed: 89,
     evidenceConfidenceUsed: 82,
@@ -288,7 +311,8 @@ export const SNOWFLAKE_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
   decisionRuleVersion: "1.0.0",
   inputHash: "b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef01",
 
-  architectureSummary: "Real-time Snowflake query interceptor & credit usage circuit breaker with webhook alerting.",
+  architectureSummary:
+    "Real-time Snowflake query interceptor & credit usage circuit breaker with webhook alerting.",
   gtmNarrative: {
     initialWedge: "Automated Slack alerts when queries exceed 50 credits.",
     leadSource: "Targeted outbound to Data Leads & FinOps managers.",
@@ -299,7 +323,8 @@ export const SNOWFLAKE_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
     objectionPlaybook: [
       {
         objection: "We use Snowflake native resource monitors",
-        responseHypothesis: "Resource monitors are warehouse-level; we provide granular per-query auto-cancellation.",
+        responseHypothesis:
+          "Resource monitors are warehouse-level; we provide granular per-query auto-cancellation.",
       },
     ],
   },
@@ -328,7 +353,12 @@ export const SNOWFLAKE_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
   },
   reachableMarket: {
     method: "Bottom-up Snowflake enterprise customer count",
-    inputValues: { totalStartups: 12000, awsShare: 0.50, serviceableShare: 0.20, avgAnnualPrice: 2988 },
+    inputValues: {
+      totalStartups: 12000,
+      awsShare: 0.5,
+      serviceableShare: 0.2,
+      avgAnnualPrice: 2988,
+    },
     assumptions: ["Snowflake data warehouse adoption", "High query concurrency workloads"],
     lowerBoundCents: 250000000,
     baseCaseCents: 600000000,
@@ -394,8 +424,12 @@ export const SNOWFLAKE_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
       competitorType: "Platform Native Tool",
       knownPricing: "Included in Snowflake",
       strengths: ["Zero setup", "Direct native integration"],
-      recurringComplaints: ["Suspends entire warehouse rather than individual runaway queries", "Delayed alert triggers"],
-      differentiationHypothesis: "Granular single-query auto-cancellation without disrupting concurrent team workloads",
+      recurringComplaints: [
+        "Suspends entire warehouse rather than individual runaway queries",
+        "Delayed alert triggers",
+      ],
+      differentiationHypothesis:
+        "Granular single-query auto-cancellation without disrupting concurrent team workloads",
       switchingCosts: "Low",
       provenanceType: "MODEL_ESTIMATE",
       evidenceLinkIds: [],
@@ -456,7 +490,8 @@ export const SNOWFLAKE_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
     {
       id: "risk-snow-1",
       category: "TECHNICAL",
-      description: "Snowflake query latency in Account Usage views delays auto-cancellation window.",
+      description:
+        "Snowflake query latency in Account Usage views delays auto-cancellation window.",
       probabilityScore: 3,
       impactScore: 4,
       severity: "HIGH",
@@ -487,7 +522,8 @@ export const SNOWFLAKE_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
   validationExperiments: [
     {
       id: "exp-snow-1",
-      hypothesis: "Data teams will sign up for a hosted query watchdog after running a free open-source cost audit.",
+      hypothesis:
+        "Data teams will sign up for a hosted query watchdog after running a free open-source cost audit.",
       experimentType: "PROTOTYPE_TEST",
       targetParticipant: "Data Engineers and FinOps leads",
       sampleSize: 50,
@@ -509,7 +545,10 @@ export const SNOWFLAKE_BLUEPRINT_DEV_FIXTURE: FullVentureBlueprint = {
 
   decisionEvaluation: {
     recommendation: "VALIDATE_FIRST" as DecisionRecommendation,
-    reasonCodes: ["HYPOTHESIS_UNVERIFIED_EVIDENCE_REQUIRES_VALIDATION", "EVIDENCE_CONFIDENCE_BELOW_BUILD_THRESHOLD"],
+    reasonCodes: [
+      "HYPOTHESIS_UNVERIFIED_EVIDENCE_REQUIRES_VALIDATION",
+      "EVIDENCE_CONFIDENCE_BELOW_BUILD_THRESHOLD",
+    ],
     blockingConditions: ["EVIDENCE_NOT_VERIFIED", "HYPOTHESIS_STAGE"],
     opportunityScoreUsed: 80,
     evidenceConfidenceUsed: 0,

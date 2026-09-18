@@ -73,7 +73,7 @@ export function calculateFounderFit(
     profileRevisionId?: string;
     profileRevisionInputHash?: string;
     opportunityRevisionId?: string;
-  } = {}
+  } = {},
 ): FounderFitEvaluationResult {
   const dimensions: DimensionScoreBreakdown[] = [];
   const blockers: HardBlockerDetail[] = [];
@@ -96,7 +96,7 @@ export function calculateFounderFit(
       const weight = reqSkill.importance || 3;
       totalWeight += weight;
 
-      const userSkill = profile.skills.find(s => normalizeSkillKey(s.skillKey) === normKey);
+      const userSkill = profile.skills.find((s) => normalizeSkillKey(s.skillKey) === normKey);
       const userProf = userSkill ? PROFICIENCY_RANK[userSkill.proficiency] : 0;
       const minProf = PROFICIENCY_RANK[reqSkill.minimumProficiency];
 
@@ -109,7 +109,8 @@ export function calculateFounderFit(
           title: `Skill Gap: ${reqSkill.skillKey}`,
           description: `Requires ${reqSkill.minimumProficiency} proficiency (Founder has ${userSkill ? userSkill.proficiency : "NONE"}).`,
           severity: "MODERATE",
-          mitigationSuggestion: "Outsource development or contract domain specialist for Milestone 1.",
+          mitigationSuggestion:
+            "Outsource development or contract domain specialist for Milestone 1.",
         });
       } else {
         missingSkills.push(reqSkill.skillKey);
@@ -155,8 +156,10 @@ export function calculateFounderFit(
   // 2. Dimension 2: Domain Expertise Match (15 pts)
   let domainScore = 0;
   const targetIndustries = requirements.targetIndustries || [];
-  const userDomains = profile.domainExpertise.map(d => d.industryOrDomain.toLowerCase());
-  const hasDomainMatch = targetIndustries.some(ti => userDomains.some(ud => ud.includes(ti.toLowerCase()) || ti.toLowerCase().includes(ud)));
+  const userDomains = profile.domainExpertise.map((d) => d.industryOrDomain.toLowerCase());
+  const hasDomainMatch = targetIndustries.some((ti) =>
+    userDomains.some((ud) => ud.includes(ti.toLowerCase()) || ti.toLowerCase().includes(ud)),
+  );
 
   if (hasDomainMatch) {
     domainScore = 15;
@@ -176,7 +179,9 @@ export function calculateFounderFit(
     score: domainScore,
     maxScore: 15,
     status: profile.domainExpertise.length > 0 ? "CALCULATED" : "NOT_ENOUGH_PROFILE_DATA",
-    explanation: hasDomainMatch ? "Direct industry experience detected." : "Adjacent domain background.",
+    explanation: hasDomainMatch
+      ? "Direct industry experience detected."
+      : "Adjacent domain background.",
     matchedRequirements: hasDomainMatch ? targetIndustries : [],
     missingRequirements: hasDomainMatch ? [] : targetIndustries,
   });
@@ -216,7 +221,10 @@ export function calculateFounderFit(
     score: budgetScore,
     maxScore: 15,
     status: "CALCULATED",
-    explanation: userBudgetRank >= reqBudgetRank ? "Budget band meets or exceeds MVP requirement." : "Budget band is below requirement.",
+    explanation:
+      userBudgetRank >= reqBudgetRank
+        ? "Budget band meets or exceeds MVP requirement."
+        : "Budget band is below requirement.",
     matchedRequirements: userBudgetRank >= reqBudgetRank ? [requirements.minimumBudgetBand] : [],
     missingRequirements: userBudgetRank < reqBudgetRank ? [requirements.minimumBudgetBand] : [],
   });
@@ -244,7 +252,10 @@ export function calculateFounderFit(
     score: capacityScore,
     maxScore: 10,
     status: "CALCULATED",
-    explanation: userCapRank >= reqCapRank ? "Weekly time commitment is sufficient." : "Available capacity is constrained.",
+    explanation:
+      userCapRank >= reqCapRank
+        ? "Weekly time commitment is sufficient."
+        : "Available capacity is constrained.",
     matchedRequirements: userCapRank >= reqCapRank ? [requirements.minimumCapacityBand] : [],
     missingRequirements: userCapRank < reqCapRank ? [requirements.minimumCapacityBand] : [],
   });
@@ -267,8 +278,11 @@ export function calculateFounderFit(
     score: distScore,
     maxScore: 15,
     status: "CALCULATED",
-    explanation: profile.distributionAssets.length > 0 ? "Leverageable distribution channels identified." : "No proprietary distribution assets recorded.",
-    matchedRequirements: profile.distributionAssets.map(a => a.assetType),
+    explanation:
+      profile.distributionAssets.length > 0
+        ? "Leverageable distribution channels identified."
+        : "No proprietary distribution assets recorded.",
+    matchedRequirements: profile.distributionAssets.map((a) => a.assetType),
     missingRequirements: [],
   });
 
@@ -276,7 +290,9 @@ export function calculateFounderFit(
   let buyerScore = 5;
   const targetBuyers = requirements.targetBuyerRoles || [];
   const prefBuyers = profile.preferences.preferredBuyerRoles || [];
-  const hasBuyerMatch = targetBuyers.some(tb => prefBuyers.some(pb => pb.toLowerCase().includes(tb.toLowerCase())));
+  const hasBuyerMatch = targetBuyers.some((tb) =>
+    prefBuyers.some((pb) => pb.toLowerCase().includes(tb.toLowerCase())),
+  );
 
   if (hasBuyerMatch) {
     buyerScore = 10;
@@ -292,7 +308,9 @@ export function calculateFounderFit(
     score: buyerScore,
     maxScore: 10,
     status: "CALCULATED",
-    explanation: hasBuyerMatch ? "Buyer role matches founder target relationships." : "General market access.",
+    explanation: hasBuyerMatch
+      ? "Buyer role matches founder target relationships."
+      : "General market access.",
     matchedRequirements: hasBuyerMatch ? targetBuyers : [],
     missingRequirements: hasBuyerMatch ? [] : targetBuyers,
   });
@@ -320,7 +338,10 @@ export function calculateFounderFit(
     score: teamScore,
     maxScore: 10,
     status: "CALCULATED",
-    explanation: userTeamRank >= reqTeamRank ? "Team capabilities align with build requirements." : "Single-threaded capacity risk.",
+    explanation:
+      userTeamRank >= reqTeamRank
+        ? "Team capabilities align with build requirements."
+        : "Single-threaded capacity risk.",
     matchedRequirements: [profile.constraints.teamSizeBand],
     missingRequirements: [],
   });
@@ -348,13 +369,20 @@ export function calculateFounderFit(
     score: Math.max(0, riskScore),
     maxScore: 5,
     status: "CALCULATED",
-    explanation: userRegRisk >= reqRegRisk ? "Risk profile is acceptable." : "Exceeds risk tolerance.",
+    explanation:
+      userRegRisk >= reqRegRisk ? "Risk profile is acceptable." : "Exceeds risk tolerance.",
     matchedRequirements: [],
     missingRequirements: [],
   });
 
   // Sum total Founder Fit (0-100)
-  const totalFounderFit = Math.min(100, Math.max(0, dimensions.reduce((acc, d) => acc + d.score, 0)));
+  const totalFounderFit = Math.min(
+    100,
+    Math.max(
+      0,
+      dimensions.reduce((acc, d) => acc + d.score, 0),
+    ),
+  );
 
   // Calculate Fit Confidence (0-100)
   // Rubric: Profile completeness (40) + Requirement completeness (30) + Provenance quality (20) + Taxonomy coverage (10)
@@ -371,23 +399,33 @@ export function calculateFounderFit(
   fitConfidence += 10; // 100% Taxonomy mapping
 
   // Calculate Personalized Rank & Penalties
-  const baseRank = (options.opportunityScore * 0.40) + (options.evidenceConfidence * 0.25) + (totalFounderFit * 0.35);
+  const baseRank =
+    options.opportunityScore * 0.4 + options.evidenceConfidence * 0.25 + totalFounderFit * 0.35;
   const penalties: Array<{ reason: string; penaltyPoints: number }> = [];
 
-  const removableBlockers = blockers.filter(b => b.isRemovable);
-  const nonRemovableBlockers = blockers.filter(b => !b.isRemovable);
+  const removableBlockers = blockers.filter((b) => b.isRemovable);
+  const nonRemovableBlockers = blockers.filter((b) => !b.isRemovable);
 
   if (removableBlockers.length > 0) {
     const p = Math.min(21, removableBlockers.length * 7);
-    penalties.push({ reason: `${removableBlockers.length} Removable Blocker(s)`, penaltyPoints: p });
+    penalties.push({
+      reason: `${removableBlockers.length} Removable Blocker(s)`,
+      penaltyPoints: p,
+    });
   }
 
   if (nonRemovableBlockers.length > 0) {
     const p = Math.min(50, nonRemovableBlockers.length * 25);
-    penalties.push({ reason: `${nonRemovableBlockers.length} Non-Removable Blocker(s)`, penaltyPoints: p });
+    penalties.push({
+      reason: `${nonRemovableBlockers.length} Non-Removable Blocker(s)`,
+      penaltyPoints: p,
+    });
   }
 
-  if (options.publicationQualityStatus === "HYPOTHESIS" || options.publicationQualityStatus === "EVIDENCE_PENDING") {
+  if (
+    options.publicationQualityStatus === "HYPOTHESIS" ||
+    options.publicationQualityStatus === "EVIDENCE_PENDING"
+  ) {
     penalties.push({ reason: "Unverified Hypothesis Status", penaltyPoints: 10 });
   }
 
@@ -396,7 +434,10 @@ export function calculateFounderFit(
   }
 
   const totalPenalties = penalties.reduce((acc, p) => acc + p.penaltyPoints, 0);
-  const personalizedRank = Math.min(100, Math.max(0, parseFloat((baseRank - totalPenalties).toFixed(1))));
+  const personalizedRank = Math.min(
+    100,
+    Math.max(0, parseFloat((baseRank - totalPenalties).toFixed(1))),
+  );
 
   // Recommendation Category Determination
   let recommendationCategory: FitRecommendationCategory = "POSSIBLE_MATCH";
@@ -424,21 +465,16 @@ export function calculateFounderFit(
     recommendationCategory = "POOR_MATCH";
   }
 
-  const canonicalPayload = buildCanonicalFounderFitPayload(
-    profile,
-    requirements,
-    options,
-    {
-      hashSchemaVersion: versions.hashSchemaVersion ?? 1,
-      calculatorVersion: versions.calculatorVersion ?? "2.0.1",
-      rubricVersion: versions.rubricVersion ?? "2.0.0",
-      rankingVersion: versions.rankingVersion ?? "2.0.0",
-      taxonomyVersion: versions.taxonomyVersion ?? "1.0.0",
-      profileRevisionId: versions.profileRevisionId ?? profile.id ?? profile.userId,
-      profileRevisionInputHash: versions.profileRevisionInputHash,
-      opportunityRevisionId: versions.opportunityRevisionId ?? requirements.blueprintId,
-    }
-  );
+  const canonicalPayload = buildCanonicalFounderFitPayload(profile, requirements, options, {
+    hashSchemaVersion: versions.hashSchemaVersion ?? 1,
+    calculatorVersion: versions.calculatorVersion ?? "2.0.1",
+    rubricVersion: versions.rubricVersion ?? "2.0.0",
+    rankingVersion: versions.rankingVersion ?? "2.0.0",
+    taxonomyVersion: versions.taxonomyVersion ?? "1.0.0",
+    profileRevisionId: versions.profileRevisionId ?? profile.id ?? profile.userId,
+    profileRevisionInputHash: versions.profileRevisionInputHash,
+    opportunityRevisionId: versions.opportunityRevisionId ?? requirements.blueprintId,
+  });
 
   const inputHash = computeCanonicalInputHash(canonicalPayload);
 

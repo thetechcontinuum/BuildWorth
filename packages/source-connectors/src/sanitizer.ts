@@ -10,6 +10,8 @@ export function deriveIndependenceKey(
   sourceKey: string,
   externalId: string,
   sourceUrl: string,
+  authorFingerprint?: string,
+  metadata?: Record<string, unknown>,
 ): { key: string; method: string } {
   if (sourceKey === "hackernews") {
     return {
@@ -42,6 +44,20 @@ export function deriveIndependenceKey(
   if (sourceKey === "producthunt") {
     return { key: `ph:post:${externalId}`, method: "POST_ID" };
   }
+  if (sourceKey === "krasia" || sourceKey === "e27") {
+    const synPartner = (metadata?.syndicationPartner || metadata?.syndicatedPublisher || (metadata?.isSyndicated ? authorFingerprint : undefined)) as string | undefined;
+    if (synPartner && synPartner.trim().length > 0) {
+      const slugPartner = synPartner.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      return { key: `syndication:${slugPartner}`, method: "SYNDICATION_PARTNER" };
+    }
+    try {
+      const parsed = new URL(sourceUrl);
+      const slug = parsed.pathname.replace(/^\/+|\/+$/g, "").split("/")[0] || externalId;
+      return { key: `${sourceKey}:article:${slug}`, method: "ARTICLE_SLUG" };
+    } catch {
+      return { key: `${sourceKey}:article:${externalId}`, method: "EXTERNAL_ID" };
+    }
+  }
 
   return { key: `source:${sourceKey}:${externalId}`, method: "SOURCE_EXTERNAL_ID" };
 }
@@ -57,6 +73,8 @@ export function sanitizeSignal(raw: RawIngestSignal): SanitizedSignal {
     raw.sourceKey,
     raw.externalId,
     raw.sourceUrl,
+    raw.authorFingerprint,
+    raw.metadata,
   );
 
   return {

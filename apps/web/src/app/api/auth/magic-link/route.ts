@@ -42,8 +42,12 @@ export async function POST(request: Request) {
     const limit = await checkAndIncrementRateLimit(prisma, rateLimitKey, 5, 600);
     if (!limit.allowed) {
       return NextResponse.json(
-        { error: "RATE_LIMIT_EXCEEDED", message: "Too many requests. Please try again later.", retryAfterSeconds: limit.retryAfterSeconds },
-        { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds || 60) } }
+        {
+          error: "RATE_LIMIT_EXCEEDED",
+          message: "Too many requests. Please try again later.",
+          retryAfterSeconds: limit.retryAfterSeconds,
+        },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds || 60) } },
       );
     }
 

@@ -1,8 +1,5 @@
 import crypto from "crypto";
-import {
-  FounderProfileData,
-  OpportunityFounderRequirementsData,
-} from "@buildworth/shared";
+import { FounderProfileData, OpportunityFounderRequirementsData } from "@buildworth/shared";
 import { CalculateFitOptions } from "./calculator.js";
 
 export interface CanonicalScoringPolicy {
@@ -43,7 +40,7 @@ export interface CanonicalScoringPolicy {
 }
 
 export const CANONICAL_DEFAULT_SCORING_POLICY: CanonicalScoringPolicy = {
-  opportunityWeight: 0.40,
+  opportunityWeight: 0.4,
   evidenceConfidenceWeight: 0.25,
   founderFitWeight: 0.35,
   hypothesisPenaltyPoints: 10,
@@ -94,7 +91,9 @@ function canonicalize(val: any): any {
   return sortedObj;
 }
 
-export function computeScoringPolicyFingerprint(policy: CanonicalScoringPolicy = CANONICAL_DEFAULT_SCORING_POLICY): string {
+export function computeScoringPolicyFingerprint(
+  policy: CanonicalScoringPolicy = CANONICAL_DEFAULT_SCORING_POLICY,
+): string {
   const json = JSON.stringify(canonicalize(policy));
   return crypto.createHash("sha256").update(json, "utf8").digest("hex");
 }
@@ -173,10 +172,10 @@ export function buildCanonicalFounderFitPayload(
     profileRevisionId?: string;
     profileRevisionInputHash?: string;
     opportunityRevisionId?: string;
-  } = {}
+  } = {},
 ): CanonicalFounderFitPayload {
   const sortedSkills = [...profile.skills]
-    .map(s => ({
+    .map((s) => ({
       skillKey: s.skillKey.toUpperCase(),
       proficiency: s.proficiency,
       isPrimary: !!s.isPrimary,
@@ -184,21 +183,21 @@ export function buildCanonicalFounderFitPayload(
     .sort((a, b) => a.skillKey.localeCompare(b.skillKey));
 
   const sortedDomain = [...profile.domainExpertise]
-    .map(d => ({
+    .map((d) => ({
       industryOrDomain: d.industryOrDomain,
       yearsExperienceBand: d.yearsExperienceBand,
     }))
     .sort((a, b) => a.industryOrDomain.localeCompare(b.industryOrDomain));
 
   const sortedAssets = [...profile.distributionAssets]
-    .map(a => ({
+    .map((a) => ({
       assetType: a.assetType,
       audienceSizeBand: a.audienceSizeBand || "",
     }))
     .sort((a, b) => a.assetType.localeCompare(b.assetType));
 
   const sortedReqSkills = [...requirements.requiredSkills]
-    .map(s => ({
+    .map((s) => ({
       skillKey: s.skillKey.toUpperCase(),
       minimumProficiency: s.minimumProficiency,
       preferredProficiency: s.preferredProficiency,
@@ -216,9 +215,11 @@ export function buildCanonicalFounderFitPayload(
     rankingVersion: versions.rankingVersion ?? "2.0.0",
     taxonomyVersion: versions.taxonomyVersion ?? "1.0.0",
     scoringPolicyHash: versions.scoringPolicyHash ?? computeScoringPolicyFingerprint(),
-    profileRevisionId: versions.profileRevisionId ?? profile.id ?? profile.userId ?? "prof-rev-default",
+    profileRevisionId:
+      versions.profileRevisionId ?? profile.id ?? profile.userId ?? "prof-rev-default",
     profileRevisionInputHash: versions.profileRevisionInputHash ?? defaultProfileHash,
-    opportunityRevisionId: versions.opportunityRevisionId ?? requirements.blueprintId ?? "opp-rev-default",
+    opportunityRevisionId:
+      versions.opportunityRevisionId ?? requirements.blueprintId ?? "opp-rev-default",
     opportunityBlueprintId: requirements.blueprintId,
     requirementsSchemaVersion: requirements.schemaVersion || "1.0.0",
     opportunityScore: Math.round(options.opportunityScore),

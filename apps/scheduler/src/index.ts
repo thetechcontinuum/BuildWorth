@@ -17,6 +17,31 @@ export const SCHEDULED_TASKS = [
     cron: "0 0 * * *",
     description: "Reset daily AI spend ledger allocations",
   },
+  {
+    name: "minutely_notification_outbox_dispatch",
+    cron: "* * * * *",
+    description: "Poll and process pending notification outbox items with atomic row leasing",
+  },
+  {
+    name: "morning_08am_radar_daily_digest",
+    cron: "0 8 * * *",
+    description: "Generate and queue daily Radar opportunity digest runs",
+  },
+  {
+    name: "monday_08am_radar_weekly_digest",
+    cron: "0 8 * * 1",
+    description: "Generate and queue weekly Radar opportunity digest runs for Free and Pro users",
+  },
+  {
+    name: "minutely_export_reservation_reconciliation",
+    cron: "* * * * *",
+    description: "Reconcile abandoned/expired PENDING opportunity export reservations and append compensating releases",
+  },
+  {
+    name: "daily_03am_commercial_event_retention_reconciliation",
+    cron: "0 3 * * *",
+    description: "Reconcile expired GDPR commercial events: permanently delete expired analytics and irreversibly anonymize audit trails",
+  },
 ];
 
 async function runScheduler() {

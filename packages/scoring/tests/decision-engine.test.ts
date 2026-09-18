@@ -130,7 +130,9 @@ describe("Deterministic Decision Recommendation Engine v1.0.0", () => {
       assumptions: [],
     });
     expect(res1.recommendation).not.toBe("BUILD_CANDIDATE");
-    expect(res1.blockingConditions.some(c => c.includes("Publication quality status"))).toBe(true);
+    expect(res1.blockingConditions.some((c) => c.includes("Publication quality status"))).toBe(
+      true,
+    );
 
     // 2. Missing critical claim coverage (<4)
     const res2 = evaluateDecisionRecommendation({
@@ -143,7 +145,7 @@ describe("Deterministic Decision Recommendation Engine v1.0.0", () => {
       assumptions: [],
     });
     expect(res2.recommendation).not.toBe("BUILD_CANDIDATE");
-    expect(res2.blockingConditions.some(c => c.includes("coverage incomplete"))).toBe(true);
+    expect(res2.blockingConditions.some((c) => c.includes("coverage incomplete"))).toBe(true);
 
     // 3. Unresolved critical risk (IDENTIFIED or MITIGATING)
     const res3 = evaluateDecisionRecommendation({
@@ -169,7 +171,7 @@ describe("Deterministic Decision Recommendation Engine v1.0.0", () => {
       assumptions: [],
     });
     expect(res3.recommendation).not.toBe("BUILD_CANDIDATE");
-    expect(res3.blockingConditions.some(c => c.includes("Unresolved critical risk"))).toBe(true);
+    expect(res3.blockingConditions.some((c) => c.includes("Unresolved critical risk"))).toBe(true);
 
     // 4. Low buyer accessibility (<6)
     const res4 = evaluateDecisionRecommendation({
@@ -183,7 +185,7 @@ describe("Deterministic Decision Recommendation Engine v1.0.0", () => {
       buyerAccessibilityScore: 4, // low
     });
     expect(res4.recommendation).not.toBe("BUILD_CANDIDATE");
-    expect(res4.blockingConditions.some(c => c.includes("Buyer accessibility"))).toBe(true);
+    expect(res4.blockingConditions.some((c) => c.includes("Buyer accessibility"))).toBe(true);
 
     // 5. Missing WTP evidence
     const res5 = evaluateDecisionRecommendation({
@@ -197,7 +199,6 @@ describe("Deterministic Decision Recommendation Engine v1.0.0", () => {
       hasSufficientWtpEvidence: false,
     });
     expect(res5.recommendation).not.toBe("BUILD_CANDIDATE");
-    expect(res5.blockingConditions.some(c => c.includes("willingness-to-pay"))).toBe(true);
+    expect(res5.blockingConditions.some((c) => c.includes("willingness-to-pay"))).toBe(true);
   });
-
 });

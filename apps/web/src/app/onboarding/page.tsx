@@ -3,10 +3,7 @@
 import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import {
-  ChevronRight,
-  ChevronLeft,
-} from "lucide-react";
+import { ChevronRight, ChevronLeft } from "lucide-react";
 
 function OnboardingContent() {
   const searchParams = useSearchParams();
@@ -25,11 +22,27 @@ function OnboardingContent() {
       {/* Progress Header */}
       <div className="space-y-3">
         <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
-          <span>STEP {step <= 5 ? step : 5} OF {totalSteps}: {step === 1 ? "GOALS" : step === 2 ? "CAPABILITIES" : step === 3 ? "RESOURCES" : step === 4 ? "MARKET ACCESS" : step === 5 ? "CONSTRAINTS" : "ANONYMOUS PREVIEW"}</span>
+          <span>
+            STEP {step <= 5 ? step : 5} OF {totalSteps}:{" "}
+            {step === 1
+              ? "GOALS"
+              : step === 2
+                ? "CAPABILITIES"
+                : step === 3
+                  ? "RESOURCES"
+                  : step === 4
+                    ? "MARKET ACCESS"
+                    : step === 5
+                      ? "CONSTRAINTS"
+                      : "ANONYMOUS PREVIEW"}
+          </span>
           <span>{progressPercent}% Complete</span>
         </div>
         <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
-          <div className="h-full bg-indigo-600 transition-all duration-300 rounded-full" style={{ width: `${progressPercent}%` }} />
+          <div
+            className="h-full bg-indigo-600 transition-all duration-300 rounded-full"
+            style={{ width: `${progressPercent}%` }}
+          />
         </div>
       </div>
 
@@ -38,14 +51,22 @@ function OnboardingContent() {
         {step === 6 && (
           <div data-testid="anonymous-preview-summary" className="space-y-6">
             <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center justify-between">
-              <span className="font-semibold">PREVIEW MODE — Temporary &amp; Not Saved to Cloud</span>
-              <span className="text-[11px] text-zinc-400 font-mono">Zero database rows created</span>
+              <span className="font-semibold">
+                PREVIEW MODE — Temporary &amp; Not Saved to Cloud
+              </span>
+              <span className="text-[11px] text-zinc-400 font-mono">
+                Zero database rows created
+              </span>
             </div>
 
             <div className="space-y-2">
-              <h1 className="text-2xl font-bold text-white tracking-tight">Your Anonymous Founder Profile Preview</h1>
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                Your Anonymous Founder Profile Preview
+              </h1>
               <p className="text-sm text-zinc-400">
-                Personalized matches are calculated locally in your browser memory. Create a verified account to persist your profile revision and receive continuous match tracking.
+                Personalized matches are calculated locally in your browser memory. Create a
+                verified account to persist your profile revision and receive continuous match
+                tracking.
               </p>
             </div>
 
@@ -88,8 +109,12 @@ function OnboardingContent() {
         {step === 1 && (
           <div data-testid="onboarding-step-goals" className="space-y-6">
             <div className="space-y-1">
-              <h1 className="text-2xl font-bold text-white tracking-tight">What markets and business models do you target?</h1>
-              <p className="text-sm text-zinc-400">Personalize opportunity clustering to your preferred customer domain.</p>
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                What markets and business models do you target?
+              </h1>
+              <p className="text-sm text-zinc-400">
+                Personalize opportunity clustering to your preferred customer domain.
+              </p>
             </div>
 
             <div className="space-y-4">
@@ -108,7 +133,9 @@ function OnboardingContent() {
               </label>
 
               <div className="p-4 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-xs text-zinc-400 space-y-1">
-                <span className="font-semibold text-zinc-300">Privacy Notice:</span> We collect only business criteria required for venture matching. We never collect or infer sensitive personal data.
+                <span className="font-semibold text-zinc-300">Privacy Notice:</span> We collect only
+                business criteria required for venture matching. We never collect or infer sensitive
+                personal data.
               </div>
             </div>
           </div>
@@ -117,16 +144,31 @@ function OnboardingContent() {
         {step === 2 && (
           <div className="space-y-6">
             <div className="space-y-1">
-              <h1 className="text-2xl font-bold text-white tracking-tight">What are your core technical and product capabilities?</h1>
-              <p className="text-sm text-zinc-400">Select skills where you have deep operational proficiency.</p>
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                What are your core technical and product capabilities?
+              </h1>
+              <p className="text-sm text-zinc-400">
+                Select skills where you have deep operational proficiency.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              {["TypeScript", "React", "Next.js", "PostgreSQL", "Python", "Go", "Kubernetes", "AWS / Terraform"].map((s) => (
+              {[
+                "TypeScript",
+                "React",
+                "Next.js",
+                "PostgreSQL",
+                "Python",
+                "Go",
+                "Kubernetes",
+                "AWS / Terraform",
+              ].map((s) => (
                 <button
                   key={s}
                   type="button"
-                  onClick={() => setSkills(skills.includes(s) ? skills.filter(k => k !== s) : [...skills, s])}
+                  onClick={() =>
+                    setSkills(skills.includes(s) ? skills.filter((k) => k !== s) : [...skills, s])
+                  }
                   className={`p-3 rounded-xl border text-xs font-medium text-left transition-all ${skills.includes(s) ? "bg-indigo-600/10 border-indigo-500 text-indigo-300" : "bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:border-zinc-700"}`}
                 >
                   {s}
@@ -139,13 +181,19 @@ function OnboardingContent() {
         {step === 3 && (
           <div className="space-y-6">
             <div className="space-y-1">
-              <h1 className="text-2xl font-bold text-white tracking-tight">What capital and time runway do you have available?</h1>
-              <p className="text-sm text-zinc-400">Matches opportunities within your realistic build capacity.</p>
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                What capital and time runway do you have available?
+              </h1>
+              <p className="text-sm text-zinc-400">
+                Matches opportunities within your realistic build capacity.
+              </p>
             </div>
 
             <div className="space-y-4">
               <label className="block space-y-1.5">
-                <span className="text-xs font-medium text-zinc-300">Available Budget for Milestone 1</span>
+                <span className="text-xs font-medium text-zinc-300">
+                  Available Budget for Milestone 1
+                </span>
                 <select
                   value={budget}
                   onChange={(e) => setBudget(e.target.value)}
@@ -178,14 +226,29 @@ function OnboardingContent() {
         {step === 4 && (
           <div className="space-y-6">
             <div className="space-y-1">
-              <h1 className="text-2xl font-bold text-white tracking-tight">Do you have proprietary distribution advantages?</h1>
-              <p className="text-sm text-zinc-400">Highlights unfair advantages in reaching your first 20 customers.</p>
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                Do you have proprietary distribution advantages?
+              </h1>
+              <p className="text-sm text-zinc-400">
+                Highlights unfair advantages in reaching your first 20 customers.
+              </p>
             </div>
 
             <div className="space-y-3">
-              {["Active Developer Community or Audience", "Existing Relationships with Target Economic Buyers", "Industry Partner or Procurement Channel"].map((asset, idx) => (
-                <label key={idx} className="flex items-center gap-3 p-3.5 rounded-xl bg-zinc-950/60 border border-zinc-800 cursor-pointer hover:border-zinc-700 transition-colors">
-                  <input type="checkbox" defaultChecked={idx === 0} className="rounded text-indigo-600 focus:ring-0 bg-zinc-900 border-zinc-700" />
+              {[
+                "Active Developer Community or Audience",
+                "Existing Relationships with Target Economic Buyers",
+                "Industry Partner or Procurement Channel",
+              ].map((asset, idx) => (
+                <label
+                  key={idx}
+                  className="flex items-center gap-3 p-3.5 rounded-xl bg-zinc-950/60 border border-zinc-800 cursor-pointer hover:border-zinc-700 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    defaultChecked={idx === 0}
+                    className="rounded text-indigo-600 focus:ring-0 bg-zinc-900 border-zinc-700"
+                  />
                   <span className="text-xs text-zinc-300 font-medium">{asset}</span>
                 </label>
               ))}
@@ -196,14 +259,20 @@ function OnboardingContent() {
         {step === 5 && (
           <div className="space-y-6">
             <div className="space-y-1">
-              <h1 className="text-2xl font-bold text-white tracking-tight">What are your critical operational constraints?</h1>
-              <p className="text-sm text-zinc-400">Prevents recommendations with incompatible regulatory or funding requirements.</p>
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                What are your critical operational constraints?
+              </h1>
+              <p className="text-sm text-zinc-400">
+                Prevents recommendations with incompatible regulatory or funding requirements.
+              </p>
             </div>
 
             <div className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-3 text-xs text-zinc-300">
               <div className="flex items-center justify-between">
                 <span>Funding Strategy:</span>
-                <span className="font-semibold text-indigo-400">Bootstrapped / Cash-Flow First</span>
+                <span className="font-semibold text-indigo-400">
+                  Bootstrapped / Cash-Flow First
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Regulatory Risk Tolerance:</span>
@@ -255,7 +324,11 @@ function OnboardingContent() {
 
 export default function OnboardingPage() {
   return (
-    <Suspense fallback={<div className="text-zinc-400 py-12 text-center text-sm">Loading onboarding...</div>}>
+    <Suspense
+      fallback={
+        <div className="text-zinc-400 py-12 text-center text-sm">Loading onboarding...</div>
+      }
+    >
       <OnboardingContent />
     </Suspense>
   );

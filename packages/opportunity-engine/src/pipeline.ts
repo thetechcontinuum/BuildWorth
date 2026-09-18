@@ -1,6 +1,7 @@
 import { sourceRegistry } from "@buildworth/source-connectors";
 import { runAdapterIngestion } from "@buildworth/source-connectors";
 import { defaultAI } from "@buildworth/ai";
+import type { LLMProvider } from "@buildworth/ai";
 import { classifySignal } from "./classifier.js";
 import { extractSignalIntelligence } from "./extractor.js";
 import { clusterSignals, ClusterCandidate } from "./clustering/cluster-manager.js";
@@ -19,7 +20,9 @@ export interface PipelineExecutionSummary {
 /**
  * Executes the complete 20-step automated intelligence pipeline end-to-end.
  */
-export async function executeIntelligencePipeline(): Promise<PipelineExecutionSummary> {
+export async function executeIntelligencePipeline(
+  aiProvider: LLMProvider = defaultAI,
+): Promise<PipelineExecutionSummary> {
   const startTime = Date.now();
   logger.info("Executing BuildWorth 20-step opportunity discovery pipeline...");
 
@@ -38,18 +41,18 @@ export async function executeIntelligencePipeline(): Promise<PipelineExecutionSu
 
   for (const sig of allSanitizedSignals) {
     const classification = await classifySignal(
-      defaultAI,
+      aiProvider,
       sig.sanitizedExcerpt,
       sig.sanitizedTitle,
     );
     if (classification.signalType === "NOISE") continue;
 
     const extracted = await extractSignalIntelligence(
-      defaultAI,
+      aiProvider,
       sig.sanitizedExcerpt,
       sig.sanitizedTitle,
     );
-    const embResult = await defaultAI.generateEmbedding(extracted.problemSummary);
+    const embResult = await aiProvider.generateEmbedding(extracted.problemSummary);
 
     clusterCandidates.push({
       id: sig.externalId,

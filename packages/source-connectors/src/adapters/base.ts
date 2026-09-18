@@ -19,7 +19,7 @@ export abstract class BaseSourceAdapter {
     return this.rateLimiter;
   }
 
-  public abstract fetchSignals(limit?: number): Promise<RawIngestSignal[]>;
+  public abstract fetchSignals(limit?: number, query?: string): Promise<RawIngestSignal[]>;
 
   public getHealth(): SourceHealthStatus {
     return {

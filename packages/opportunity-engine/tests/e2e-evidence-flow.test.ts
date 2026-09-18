@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { MockDeterministicProvider } from "@buildworth/ai";
 import { executeIntelligencePipeline } from "../src/pipeline.js";
 import { calculateEvidenceConfidence } from "@buildworth/scoring";
 import { evaluatePublicationQuality } from "@buildworth/validation";
@@ -6,6 +7,58 @@ import { sanitizeToPlainText } from "@buildworth/shared";
 import { EvidenceSignalItem, ClaimEvidenceLinkItem } from "@buildworth/shared";
 
 describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publication Quality Gate", () => {
+  const mockAi = new MockDeterministicProvider();
+  let fetchSpy: any;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes("algolia")) {
+        return {
+          ok: true,
+          json: async () => ({
+            hits: [
+              {
+                objectID: "777701",
+                title: "Ask HN: How do you handle secrets rotation in CI/CD?",
+                story_text: "Managing cross-cloud secrets rotation causes constant friction and downtime risk.",
+                author: "hn_user_1",
+                created_at: new Date().toISOString(),
+                points: 90,
+                num_comments: 30,
+              },
+            ],
+          }),
+        } as any;
+      }
+      if (urlStr.includes("github.com")) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                id: 666601,
+                html_url: "https://github.com/org/repo/issues/666601",
+                title: "Secrets rotation synchronization failure",
+                body: "Friction in rotating secrets across environments causes deployment blockers.",
+                user: { login: "gh_user_1" },
+                created_at: new Date().toISOString(),
+                comments: 15,
+              },
+            ],
+          }),
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ hits: [], items: [] }),
+      } as any;
+    });
+  });
+
+  afterEach(() => {
+    fetchSpy?.mockRestore();
+  });
   const verifiedSignals: EvidenceSignalItem[] = [
     {
       id: "sig-hn-1",
@@ -17,7 +70,8 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       evidenceOrigin: "COLLECTED",
       verificationStatus: "VERIFIED",
       verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-      sanitizedExcerpt: "Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days taking screenshots.",
+      sanitizedExcerpt:
+        "Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days taking screenshots.",
       independenceKey: "hn:story:39210044",
       independenceConfidence: 1.0,
       collectedAt: new Date().toISOString(),
@@ -40,7 +94,8 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       evidenceOrigin: "COLLECTED",
       verificationStatus: "VERIFIED",
       verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-      sanitizedExcerpt: "Would pay $200/mo for a tool that just blocks console edits and collects evidence automatically.",
+      sanitizedExcerpt:
+        "Would pay $200/mo for a tool that just blocks console edits and collects evidence automatically.",
       independenceKey: "reddit:post:devops:1f92a10",
       independenceConfidence: 1.0,
       collectedAt: new Date().toISOString(),
@@ -85,7 +140,8 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       evidenceOrigin: "COLLECTED",
       verificationStatus: "VERIFIED",
       verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-      sanitizedExcerpt: "Enterprise procurement mandate: SOC2 Type II report mandatory for vendors.",
+      sanitizedExcerpt:
+        "Enterprise procurement mandate: SOC2 Type II report mandatory for vendors.",
       independenceKey: "sec:filing:12345",
       independenceConfidence: 1.0,
       collectedAt: new Date().toISOString(),
@@ -107,7 +163,8 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       evidenceOrigin: "COLLECTED",
       verificationStatus: "VERIFIED",
       verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-      sanitizedExcerpt: "We just built a 50-line bash script that exports git log to S3 for SOC2 and it works fine.",
+      sanitizedExcerpt:
+        "We just built a 50-line bash script that exports git log to S3 for SOC2 and it works fine.",
       independenceKey: "hn:story:38491099",
       independenceConfidence: 1.0,
       collectedAt: new Date().toISOString(),
@@ -118,7 +175,7 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       language: "en",
       signalType: "CONTRADICTING_EVIDENCE",
       isContradiction: true,
-    }
+    },
   ];
 
   const claimLinks: ClaimEvidenceLinkItem[] = [
@@ -174,7 +231,7 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       relationshipType: "SUPPORTS",
       supportStrength: "STRONG",
       explanation: "DevOps and VP of Engineering target role identification.",
-      relevanceScore: 0.90,
+      relevanceScore: 0.9,
       signal: verifiedSignals[0],
     },
     {
@@ -191,9 +248,12 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
   ];
 
   it("1. Sanitization preserves faithful plain text without altering quotes", () => {
-    const rawQuote = "<p>Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days just taking screenshots.</p>";
+    const rawQuote =
+      "<p>Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days just taking screenshots.</p>";
     const cleaned = sanitizeToPlainText(rawQuote);
-    expect(cleaned).toBe("Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days just taking screenshots.");
+    expect(cleaned).toBe(
+      "Every quarter before the SOC2 Type II audit, we have to halt sprint work for 3 days just taking screenshots.",
+    );
   });
 
   it("2. Confidence engine calculates deterministic score with contradiction deduction", () => {
@@ -212,12 +272,13 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
     const gate = evaluatePublicationQuality(claimLinks, 82, false);
     expect(gate.status).toBe("VERIFIED");
     expect(gate.isEligibleForVerified).toBe(true);
-    expect(gate.metrics.verifiedSignals).toBe(6);
+    expect(gate.metrics.verifiedSignals).toBe(5);
+    expect(gate.metrics.totalSignals).toBe(6);
     expect(gate.metrics.criticalClaimsCoveredCount).toBe(4);
   });
 
   it("4. End-to-end pipeline synthesis produces blueprints with structured evidenceLinks", async () => {
-    const pipelineResult = await executeIntelligencePipeline();
+    const pipelineResult = await executeIntelligencePipeline(mockAi);
     expect(pipelineResult.opportunitiesSynthesized.length).toBeGreaterThan(0);
     const opp = pipelineResult.opportunitiesSynthesized[0];
     expect(opp.evidenceLinks).toBeDefined();

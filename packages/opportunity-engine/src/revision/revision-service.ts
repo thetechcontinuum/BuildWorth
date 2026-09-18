@@ -56,12 +56,12 @@ export function computeBlueprintInputHash(input: CreateRevisionInput): string {
   const canonicalObj = {
     oppId: input.opportunityId,
     reason: input.reasonForChange,
-    segments: input.customerSegments.map(s => ({
+    segments: input.customerSegments.map((s) => ({
       name: s.segmentName,
       role: s.economicBuyerRole,
       motion: s.salesMotion,
     })),
-    scenarios: input.scenarios.map(s => ({
+    scenarios: input.scenarios.map((s) => ({
       type: s.scenarioType,
       price: s.monthlyPriceCents,
       cust: s.activeCustomers,
@@ -69,8 +69,12 @@ export function computeBlueprintInputHash(input: CreateRevisionInput): string {
       var: s.variableCostPerCustomerCents,
       cac: s.customerAcquisitionCostCents,
     })),
-    risks: input.risks.map(r => ({ cat: r.category, sev: r.severity, desc: r.description })),
-    assumptions: input.assumptions.map(a => ({ cat: a.category, imp: a.importanceScore, stat: a.status })),
+    risks: input.risks.map((r) => ({ cat: r.category, sev: r.severity, desc: r.description })),
+    assumptions: input.assumptions.map((a) => ({
+      cat: a.category,
+      imp: a.importanceScore,
+      stat: a.status,
+    })),
     oppScore: input.opportunityScore,
     confScore: input.evidenceConfidence,
   };
@@ -81,12 +85,15 @@ export function computeBlueprintInputHash(input: CreateRevisionInput): string {
 
 export async function createOpportunityRevisionTransaction(
   prismaClient: any,
-  input: CreateRevisionInput
+  input: CreateRevisionInput,
 ) {
   return await prismaClient.$transaction(async (tx: any) => {
-    const lockKey = Math.abs(
-      input.opportunityId.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)
-    ) % 2147483647;
+    const lockKey =
+      Math.abs(
+        input.opportunityId
+          .split("")
+          .reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0),
+      ) % 2147483647;
 
     await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`);
 
@@ -101,18 +108,25 @@ export async function createOpportunityRevisionTransaction(
     const nextRevisionNumber = (lastRev?.revisionNumber ?? 0) + 1;
 
     const inputHash = computeBlueprintInputHash(input);
-    const baseScenarioInput: FinancialScenarioInput = input.scenarios.find(s => s.scenarioType === "BASE") || input.scenarios[0] || {
-      scenarioType: "BASE",
-      currency: "USD",
-      activeCustomers: 0,
-      monthlyPriceCents: 0,
-      onboardingPriceCents: 0,
-      variableCostPerCustomerCents: 0,
-      monthlyFixedCostCents: 0,
-      customerAcquisitionCostCents: 0,
-      deliveryTimeWeeks: 0,
-    };
-    const baseScenarioMetrics = calculateScenarioMetrics(baseScenarioInput, input.costs, input.benefits);
+    const baseScenarioInput: FinancialScenarioInput = input.scenarios.find(
+      (s) => s.scenarioType === "BASE",
+    ) ||
+      input.scenarios[0] || {
+        scenarioType: "BASE",
+        currency: "USD",
+        activeCustomers: 0,
+        monthlyPriceCents: 0,
+        onboardingPriceCents: 0,
+        variableCostPerCustomerCents: 0,
+        monthlyFixedCostCents: 0,
+        customerAcquisitionCostCents: 0,
+        deliveryTimeWeeks: 0,
+      };
+    const baseScenarioMetrics = calculateScenarioMetrics(
+      baseScenarioInput,
+      input.costs,
+      input.benefits,
+    );
 
     const decision = evaluateDecisionRecommendation({
       opportunityScore: input.opportunityScore,
@@ -369,17 +383,17 @@ export async function createOpportunityRevisionTransaction(
       },
     });
 
-    
     // Derive riskiest assumption deterministically
     const unresolvedAssumptions = input.assumptions
-      .filter(a => a.status === "UNTESTED" || a.status === "TESTING")
+      .filter((a) => a.status === "UNTESTED" || a.status === "TESTING")
       .sort((a, b) => {
         const riskScoreA = (a.importanceScore || 1) * (a.uncertaintyScore || 1);
         const riskScoreB = (b.importanceScore || 1) * (b.uncertaintyScore || 1);
         if (riskScoreB !== riskScoreA) return riskScoreB - riskScoreA;
         return (a.id || "").localeCompare(b.id || "");
       });
-    const riskiestAssumptionStatement = unresolvedAssumptions[0]?.statement ?? input.assumptions[0]?.statement ?? null;
+    const riskiestAssumptionStatement =
+      unresolvedAssumptions[0]?.statement ?? input.assumptions[0]?.statement ?? null;
 
     await tx.opportunity.update({
       where: { id: opp.id },
@@ -396,6 +410,13 @@ export async function createOpportunityRevisionTransaction(
         estimatedMonthlyOpCostMaxCents: input.costSummary.maxMonthlyOpMinorCents,
         riskiestAssumption: riskiestAssumptionStatement,
         cheapestExperiment: input.experiments[0]?.hypothesis,
+      },
+    });
+
+    await tx.opportunityRadarJob.create({
+      data: {
+        opportunityRevisionId: revision.id,
+        status: "PENDING",
       },
     });
 

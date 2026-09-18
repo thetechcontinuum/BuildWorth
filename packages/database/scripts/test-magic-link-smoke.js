@@ -1,9 +1,20 @@
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
-const { initiatePasswordlessLogin, verifyPasswordlessToken, resolveHashedServerSession } = require("../dist/auth-identity.js");
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
+const {
+  initiatePasswordlessLogin,
+  verifyPasswordlessToken,
+  resolveHashedServerSession,
+} = require("../dist/auth-identity.js");
 
 async function runScannerPrefetchSafetySmokeTest() {
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
   console.log("=== BuildWorth Phase 3 Scanner-Safe Magic-Link Smoke Test ===");
   const testEmail = "scanner.safe.test@buildworth.io";
@@ -14,9 +25,15 @@ async function runScannerPrefetchSafetySmokeTest() {
   const rawToken = init.testToken;
   const appUrl = "http://localhost:3009";
   const generatedEmailUrl = appUrl + "/auth/verify?token=" + encodeURIComponent(rawToken);
-  console.log("2. Generated Email Link (No Email in URL): " + appUrl + "/auth/verify?token=[REDACTED_32_BYTES]");
+  console.log(
+    "2. Generated Email Link (No Email in URL): " +
+      appUrl +
+      "/auth/verify?token=[REDACTED_32_BYTES]",
+  );
   console.log("3. Simulating email security scanner GET request...");
-  const tokenRecord = await prisma.verificationToken.findFirst({ where: { identifier: testEmail } });
+  const tokenRecord = await prisma.verificationToken.findFirst({
+    where: { identifier: testEmail },
+  });
   if (!tokenRecord) throw new Error("Verification token record missing");
   console.log("   ✓ GET request does not consume token, creates 0 users, and creates 0 sessions");
   console.log("4. User opens confirmation landing page and clicks Continue...");
@@ -35,4 +52,7 @@ async function runScannerPrefetchSafetySmokeTest() {
   console.log(">>> SCANNER-SAFE MAGIC-LINK VERIFICATION: 100% PASS (EXIT CODE 0) <<<");
   await prisma.$disconnect();
 }
-runScannerPrefetchSafetySmokeTest().catch(err => { console.error(err); process.exit(1); });
+runScannerPrefetchSafetySmokeTest().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

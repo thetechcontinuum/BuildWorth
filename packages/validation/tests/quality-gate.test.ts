@@ -124,4 +124,26 @@ describe("Publication Quality Gate", () => {
     const res = evaluatePublicationQuality(links, 60);
     expect(res.status).toBe("STALE");
   });
+
+  it("regression: one signal supporting two claims counts as one unique verified signal", () => {
+    const singleSignal = mockSignal({
+      id: "sig-unique-1",
+      sourceFamily: "DEVELOPER_ECOSYSTEM",
+      independenceKey: "github:repo:org/repo",
+      signalType: "PAIN",
+      verificationStatus: "VERIFIED",
+    });
+
+    const links = [
+      mockLink("PAIN_EXISTENCE", singleSignal),
+      mockLink("BUYER_IDENTITY", singleSignal),
+    ];
+
+    const res = evaluatePublicationQuality(links, 80);
+    expect(res.metrics.verifiedSignals).toBe(1);
+    expect(res.metrics.totalSignals).toBe(2);
+    expect(res.metrics.independentSourceGroups).toBe(1);
+    expect(res.status).toBe("HYPOTHESIS");
+    expect(res.blockers.some((b) => b.includes("Requires at least 5 verified signals (found 1)"))).toBe(true);
+  });
 });

@@ -35,11 +35,14 @@ export function isValidEmail(email: string): boolean {
 export async function initiatePasswordlessLogin(
   prisma: PrismaClient,
   rawEmail: string,
-  options: { isTestEnv?: boolean } = {}
+  options: { isTestEnv?: boolean } = {},
 ): Promise<MagicLinkRequestResult> {
   if (!isValidEmail(rawEmail)) {
     // Return generic message to prevent leaking validation specifics / email enumeration
-    return { success: false, message: "If this is a valid email, a verification link has been sent." };
+    return {
+      success: false,
+      message: "If this is a valid email, a verification link has been sent.",
+    };
   }
 
   const email = normalizeEmail(rawEmail);
@@ -77,7 +80,7 @@ export async function initiatePasswordlessLogin(
 export async function verifyPasswordlessToken(
   prisma: PrismaClient,
   rawToken: string,
-  rawEmail?: string
+  rawEmail?: string,
 ): Promise<VerifyTokenResult> {
   if (!rawToken || rawToken.length < 32) {
     return { success: false, error: "INVALID_OR_EXPIRED_TOKEN" };
@@ -164,7 +167,7 @@ export async function verifyPasswordlessToken(
 
 export async function resolveHashedServerSession(
   prisma: PrismaClient,
-  rawSessionToken: string | null | undefined
+  rawSessionToken: string | null | undefined,
 ) {
   if (!rawSessionToken || rawSessionToken.length < 32) return null;
 
@@ -194,7 +197,7 @@ export async function resolveHashedServerSession(
 
 export async function revokeHashedServerSession(
   prisma: PrismaClient,
-  rawSessionToken: string
+  rawSessionToken: string,
 ): Promise<boolean> {
   try {
     const hashedSessionToken = hashToken(rawSessionToken);

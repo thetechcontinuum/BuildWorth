@@ -3,6 +3,8 @@ import { HackerNewsAdapter } from "./adapters/hackernews.js";
 import { RedditAdapter } from "./adapters/reddit.js";
 import { GitHubIssuesAdapter } from "./adapters/github.js";
 import { ProductHuntAdapter } from "./adapters/producthunt.js";
+import { KrAsiaAdapter } from "./adapters/krasia.js";
+import { E27Adapter } from "./adapters/e27.js";
 import { SourceHealthStatus } from "./types.js";
 
 export class SourceRegistry {
@@ -13,6 +15,8 @@ export class SourceRegistry {
     this.register(new RedditAdapter());
     this.register(new GitHubIssuesAdapter());
     this.register(new ProductHuntAdapter());
+    this.register(new KrAsiaAdapter());
+    this.register(new E27Adapter());
   }
 
   public register(adapter: BaseSourceAdapter): void {

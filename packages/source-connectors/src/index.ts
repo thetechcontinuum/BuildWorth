@@ -7,6 +7,8 @@ export * from "./adapters/hackernews.js";
 export * from "./adapters/reddit.js";
 export * from "./adapters/github.js";
 export * from "./adapters/producthunt.js";
+export * from "./adapters/krasia.js";
+export * from "./adapters/e27.js";
 export * from "./registry.js";
 export * from "./runner.js";
 export * from "./safe-fetch.js";

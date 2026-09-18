@@ -16,7 +16,7 @@ export function generateOpaqueSessionToken(): string {
 export async function createServerSession(
   prisma: PrismaClient,
   userId: string,
-  expiresInDays: number = 30
+  expiresInDays: number = 30,
 ): Promise<{ sessionToken: string; expires: Date }> {
   const sessionToken = generateOpaqueSessionToken();
   const expires = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
@@ -34,7 +34,7 @@ export async function createServerSession(
 
 export async function resolveServerSession(
   prisma: PrismaClient,
-  sessionToken: string | null | undefined
+  sessionToken: string | null | undefined,
 ): Promise<ServerSessionUser | null> {
   if (!sessionToken || sessionToken.length < 32) return null;
 
@@ -61,7 +61,7 @@ export async function resolveServerSession(
 
 export async function revokeServerSession(
   prisma: PrismaClient,
-  sessionToken: string
+  sessionToken: string,
 ): Promise<boolean> {
   try {
     await prisma.session.delete({ where: { sessionToken } });
