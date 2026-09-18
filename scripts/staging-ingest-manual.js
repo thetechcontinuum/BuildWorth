@@ -203,6 +203,25 @@ function printSummary(run) {
   const slugs = run.publishedSlugs || [];
   console.log(`Published Slugs: ${slugs.length > 0 ? slugs.join(", ") : "(none)"}`);
 
+  const perSource = run.summary?.perSourceStats || {};
+  const sourceKeys = Object.keys(perSource);
+  if (sourceKeys.length > 0) {
+    console.log("\n--- Per-Source Ingestion Breakdown ---");
+    sourceKeys.forEach((k) => {
+      const s = perSource[k];
+      console.log(`[${s.name || k}]`);
+      console.log(`  Fetched Items  : ${s.fetched}`);
+      console.log(`  New Raw Signals: ${s.newRawSignals}`);
+      console.log(`  Duplicates     : ${s.duplicates}`);
+      if (s.persistedUrls && s.persistedUrls.length > 0) {
+        console.log(`  Persisted URLs :`);
+        s.persistedUrls.forEach((u) => console.log(`    + ${u}`));
+      } else {
+        console.log(`  Persisted URLs : (none)`);
+      }
+    });
+  }
+
   const evals = run.summary?.candidateEvaluations || [];
   if (evals.length > 0) {
     console.log("\n--- Candidate Quality Gate Evaluations ---");

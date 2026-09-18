@@ -765,7 +765,7 @@ export async function executeManualStagingIngestion(
         credibilityTier: "TIER_1_PRIMARY" as any,
         rateLimitPerMinute: 120,
         permittedExcerptLength: 280,
-        requiresAttribution: true,
+        attributionRequired: true,
         termsNotes: "Uses official open API for indexing problem discussions.",
       },
       {
@@ -781,7 +781,7 @@ export async function executeManualStagingIngestion(
         credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
         rateLimitPerMinute: 60,
         permittedExcerptLength: 280,
-        requiresAttribution: true,
+        attributionRequired: true,
         termsNotes: "OAuth API with short excerpts and permalink citations.",
       },
       {
@@ -797,7 +797,7 @@ export async function executeManualStagingIngestion(
         credibilityTier: "TIER_1_PRIMARY" as any,
         rateLimitPerMinute: 80,
         permittedExcerptLength: 280,
-        requiresAttribution: true,
+        attributionRequired: true,
         termsNotes: "Extracts public open-source repository issue friction.",
       },
       {
@@ -813,7 +813,7 @@ export async function executeManualStagingIngestion(
         credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
         rateLimitPerMinute: 60,
         permittedExcerptLength: 280,
-        requiresAttribution: true,
+        attributionRequired: true,
         termsNotes: "Permitted API access for product reviews and gaps.",
       },
       {
@@ -829,7 +829,7 @@ export async function executeManualStagingIngestion(
         credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
         rateLimitPerMinute: 60,
         permittedExcerptLength: 280,
-        requiresAttribution: true,
+        attributionRequired: true,
         termsNotes: "Official public RSS feed via console.kr-asia.com/feed with attribution to original journalists/syndication partners.",
       },
       {
@@ -845,34 +845,48 @@ export async function executeManualStagingIngestion(
         credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
         rateLimitPerMinute: 30,
         permittedExcerptLength: 280,
-        requiresAttribution: true,
+        attributionRequired: true,
         termsNotes: "Access blocked by publisher Cloudflare 403 bot protection and robots.txt AI training restrictions. Kept disabled until official partnership API is provisioned.",
       },
     ];
 
     try {
-      const totalSourcesCount = await prisma.source.count().catch(() => 0);
-      if (totalSourcesCount === 0) {
-        for (const src of defaultSources) {
-          await prisma.source.upsert({
-            where: { key: src.key },
-            update: {
+      for (const src of defaultSources) {
+        const existingList = await prisma.source.findMany({ where: { key: src.key } }).catch(() => []);
+        const existing = existingList[0];
+        if (existing) {
+          if (existing.sourceFamily !== src.sourceFamily || existing.adapterType !== src.adapterType) {
+            await prisma.source.update({
+              where: { id: existing.id },
+              data: {
+                sourceFamily: src.sourceFamily,
+                baseUrl: src.baseUrl,
+                adapterType: src.adapterType,
+                accessMethod: src.accessMethod,
+                termsNotes: src.termsNotes,
+                attributionRequired: src.attributionRequired,
+              },
+            }).catch(() => {});
+          }
+        } else {
+          await prisma.source.create({
+            data: {
+              key: src.key,
+              name: src.name,
+              description: src.description,
               sourceFamily: src.sourceFamily,
               baseUrl: src.baseUrl,
               adapterType: src.adapterType,
               accessMethod: src.accessMethod,
+              isEnabled: src.isEnabled,
+              policyStatus: src.policyStatus,
+              credibilityTier: src.credibilityTier,
+              rateLimitPerMinute: src.rateLimitPerMinute,
+              permittedExcerptLength: src.permittedExcerptLength,
+              attributionRequired: src.attributionRequired,
               termsNotes: src.termsNotes,
-              attributionRequired: src.requiresAttribution,
             },
-            create: src,
-          });
-        }
-      } else {
-        for (const src of defaultSources) {
-          const existingList = await prisma.source.findMany({ where: { key: src.key } }).catch(() => []);
-          if (!existingList || existingList.length === 0) {
-            await prisma.source.create({ data: src }).catch(() => {});
-          }
+          }).catch((cErr: any) => logger.warn("Source create error", { err: cErr?.message }));
         }
       }
     } catch (seedErr: any) {
@@ -935,11 +949,28 @@ export async function executeManualStagingIngestion(
       logger.warn("Could not extract candidate target queries", { error: qErr?.message });
     }
 
+    const perSourceStats: Record<string, {
+      name: string;
+      fetched: number;
+      newRawSignals: number;
+      duplicates: number;
+      persistedUrls: string[];
+    }> = {};
+
     for (const src of activeSources) {
       if (Date.now() > deadline || totalFetched >= maxFetchItems) break;
 
       const adapter = sourceRegistry.getAdapter(src.key);
       if (!adapter) continue;
+
+      const currentStats = {
+        name: src.name,
+        fetched: 0,
+        newRawSignals: 0,
+        duplicates: 0,
+        persistedUrls: [] as string[],
+      };
+      perSourceStats[src.key] = currentStats;
 
       const sourceRun = await prisma.sourceRun.create({
         data: {
@@ -958,7 +989,7 @@ export async function executeManualStagingIngestion(
         const maxPerSource = Math.ceil(maxFetchItems / 2); // e.g. 15 per active fetching source
         const srcSlots = Math.min(slotsAvailable, maxPerSource);
 
-        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github" || src.key === "krasia")) {
+        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github")) {
           const queriesToRun = targetQueries.slice(0, 2);
           const perQuery = Math.max(3, Math.floor(srcSlots / queriesToRun.length));
           const fetchPromises = queriesToRun.map((q) => adapter.fetchSignals(perQuery, q));
@@ -979,6 +1010,7 @@ export async function executeManualStagingIngestion(
 
         const boundedRawSignals = rawSignals.slice(0, Math.max(0, slotsAvailable));
         totalFetched += boundedRawSignals.length;
+        currentStats.fetched += boundedRawSignals.length;
 
         for (const raw of boundedRawSignals) {
           if (!raw.rawContent || raw.rawContent.trim().length < 10) continue;
@@ -990,6 +1022,7 @@ export async function executeManualStagingIngestion(
 
           if (processedHashes.has(contentHash)) {
             totalDeduplicated++;
+            currentStats.duplicates++;
             continue;
           }
           processedHashes.add(contentHash);
@@ -1016,9 +1049,12 @@ export async function executeManualStagingIngestion(
               });
               rawSignalsCount++;
               srcIngestedCount++;
+              currentStats.newRawSignals++;
+              currentStats.persistedUrls.push(canonicalUrl);
             }
           } else {
             totalDeduplicated++;
+            currentStats.duplicates++;
           }
 
           if (rawRecord) {
@@ -1566,7 +1602,7 @@ export async function executeManualStagingIngestion(
         sourceFamilies: Array.from(
           new Set(
             allTargetSignals
-              .map((vs) => vs.source.sourceFamily || (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY"))
+              .map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY"))
               .filter(Boolean),
           ),
         ),
@@ -1663,7 +1699,7 @@ export async function executeManualStagingIngestion(
             addedUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
             supportingUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
             independenceKeys: Array.from(new Set(verifiedSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`))),
-            sourceFamilies: Array.from(new Set(verifiedSignals.map((vs) => vs.source.sourceFamily || (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY")).filter(Boolean))),
+            sourceFamilies: Array.from(new Set(verifiedSignals.map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY")).filter(Boolean))),
             blockers: qualityResult.blockers,
             warnings: qualityResult.warnings,
             metrics: qualityResult.metrics,
@@ -1758,7 +1794,7 @@ export async function executeManualStagingIngestion(
           addedUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
           supportingUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
           independenceKeys: Array.from(new Set(verifiedSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`))),
-          sourceFamilies: Array.from(new Set(verifiedSignals.map((vs) => vs.source.sourceFamily || (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : "COMMUNITY")).filter(Boolean))),
+          sourceFamilies: Array.from(new Set(verifiedSignals.map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY")).filter(Boolean))),
           blockers: qualityResult.blockers,
           warnings: qualityResult.warnings,
           metrics: qualityResult.metrics,
@@ -1778,6 +1814,7 @@ export async function executeManualStagingIngestion(
       normalizedSignalsCount,
       historicalSignalsCount,
       currentSignalsCount,
+      perSourceStats,
       candidateEvaluations,
     };
 
