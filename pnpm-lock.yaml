@@ -26,21 +26,33 @@ importers:
 
   apps/admin:
     dependencies:
+      '@buildworth/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@buildworth/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@buildworth/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@buildworth/entitlements':
+        specifier: workspace:*
+        version: link:../../packages/entitlements
       '@buildworth/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@buildworth/opportunity-engine':
+        specifier: workspace:*
+        version: link:../../packages/opportunity-engine
       '@buildworth/scoring':
         specifier: workspace:*
         version: link:../../packages/scoring
       '@buildworth/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@buildworth/source-connectors':
+        specifier: workspace:*
+        version: link:../../packages/source-connectors
       '@buildworth/ui':
         specifier: workspace:*
         version: link:../../packages/ui
