@@ -5,6 +5,7 @@ import { GitHubIssuesAdapter } from "./adapters/github.js";
 import { ProductHuntAdapter } from "./adapters/producthunt.js";
 import { KrAsiaAdapter } from "./adapters/krasia.js";
 import { E27Adapter } from "./adapters/e27.js";
+import { GenericRssAdapter, GenericRssConfig } from "./adapters/generic-rss.js";
 import { SourceHealthStatus } from "./types.js";
 
 export class SourceRegistry {
@@ -25,6 +26,12 @@ export class SourceRegistry {
 
   public getAdapter(sourceKey: string): BaseSourceAdapter | undefined {
     return this.adapters.get(sourceKey);
+  }
+
+  public createGenericRssAdapter(config: GenericRssConfig): GenericRssAdapter {
+    const adapter = new GenericRssAdapter(config);
+    this.register(adapter);
+    return adapter;
   }
 
   public getAllAdapters(): BaseSourceAdapter[] {

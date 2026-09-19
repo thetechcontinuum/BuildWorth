@@ -1,10 +1,12 @@
 import { PrismaClient } from "@prisma/client";
 import crypto from "crypto";
+import { sendMagicLinkEmail } from "./email-delivery.js";
 
 export interface MagicLinkRequestResult {
   success: boolean;
   message: string;
   testToken?: string; // Captured ONLY in TEST/DEVELOPMENT environments
+  error?: string;
 }
 
 export interface VerifyTokenResult {
@@ -70,6 +72,23 @@ export async function initiatePasswordlessLogin(
 
   // If in isolated test mode, return testToken for automated tests
   const isTest = options.isTestEnv || process.env.NODE_ENV === "test";
+
+  // Dispatch real email delivery when email transport is active
+  if (!isTest) {
+    const deliveryResult = await sendMagicLinkEmail({
+      email,
+      token: rawVerificationToken,
+    });
+
+    if (!deliveryResult.delivered) {
+      return {
+        success: false,
+        message: "Failed to dispatch verification email.",
+        error: deliveryResult.error || "EMAIL_DELIVERY_FAILED",
+      };
+    }
+  }
+
   return {
     success: true,
     message: "If this is a valid email, a verification link has been sent.",

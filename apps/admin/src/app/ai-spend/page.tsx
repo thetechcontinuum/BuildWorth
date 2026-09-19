@@ -1,12 +1,25 @@
 import React from "react";
 import { Cpu } from "lucide-react";
+import { prisma } from "@buildworth/database";
+import { requireServerAdmin } from "@/lib/admin-page-guard";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "AI Spend & Budget Ceilings — BuildWorth Admin",
   description: "Monitor AI API consumption, token spend, and active kill-switch ceilings.",
 };
 
-export default function AiSpendPage() {
+export default async function AiSpendPage() {
+  await requireServerAdmin();
+
+  const records = await prisma.aiSpendLedgerRecord.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
+  const totalCostMinorUnits = records.reduce((acc, r) => acc + r.costMinorUnits, 0);
+
   return (
     <div className="space-y-8 max-w-5xl">
       <div>
@@ -18,23 +31,17 @@ export default function AiSpendPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-5 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
-          <span className="text-xs text-zinc-500 font-medium">Daily Spend (Today)</span>
-          <div className="text-2xl font-bold text-white font-mono">$1.42 / $5.00</div>
-          <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-indigo-500 h-full w-[28.4%]" />
+          <span className="text-xs text-zinc-500 font-medium">Recorded Ledger Spend</span>
+          <div className="text-2xl font-bold text-white font-mono">
+            ${(totalCostMinorUnits / 100).toFixed(2)}
           </div>
-          <span className="text-xs text-emerald-400 font-medium">Within $5.00 safe ceiling</span>
+          <span className="text-xs text-emerald-400 font-medium">Within safe ceiling</span>
         </div>
 
         <div className="p-5 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
-          <span className="text-xs text-zinc-500 font-medium">Monthly Spend (August)</span>
-          <div className="text-2xl font-bold text-white font-mono">$32.18 / $150.00</div>
-          <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-indigo-500 h-full w-[21.4%]" />
-          </div>
-          <span className="text-xs text-emerald-400 font-medium">
-            Within $150.00 monthly budget
-          </span>
+          <span className="text-xs text-zinc-500 font-medium">Ledger Entries</span>
+          <div className="text-2xl font-bold text-white font-mono">{records.length}</div>
+          <span className="text-xs text-zinc-400">Authoritative records</span>
         </div>
 
         <div className="p-5 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
@@ -54,29 +61,27 @@ export default function AiSpendPage() {
               <tr>
                 <th className="p-3">Model / Provider</th>
                 <th className="p-3">Purpose</th>
-                <th className="p-3">Tokens Processed</th>
-                <th className="p-3">Total Cost</th>
+                <th className="p-3">Prompt / Completion Tokens</th>
+                <th className="p-3">Cost</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60 text-zinc-300">
-              <tr>
-                <td className="p-3 font-medium">Gemini 1.5 Flash</td>
-                <td className="p-3">Signal Classification & Fact Extraction</td>
-                <td className="p-3 font-mono">2,410,000</td>
-                <td className="p-3 font-mono">$0.82</td>
-              </tr>
-              <tr>
-                <td className="p-3 font-medium">GPT-4o-mini</td>
-                <td className="p-3">Constrained Opportunity Synthesis</td>
-                <td className="p-3 font-mono">820,000</td>
-                <td className="p-3 font-mono">$0.60</td>
-              </tr>
-              <tr>
-                <td className="p-3 font-medium">text-embedding-3-small</td>
-                <td className="p-3">pgvector Problem Space Clustering</td>
-                <td className="p-3 font-mono">510,000</td>
-                <td className="p-3 font-mono">$0.02</td>
-              </tr>
+              {records.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="p-4 text-center text-zinc-500">
+                    No ledger entries recorded yet.
+                  </td>
+                </tr>
+              ) : (
+                records.map((r) => (
+                  <tr key={r.id}>
+                    <td className="p-3 font-medium">{r.model}</td>
+                    <td className="p-3">{r.purpose}</td>
+                    <td className="p-3 font-mono">{r.promptTokens} / {r.completionTokens}</td>
+                    <td className="p-3 font-mono">${(r.costMinorUnits / 100).toFixed(4)}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

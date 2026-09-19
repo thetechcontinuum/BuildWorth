@@ -5,8 +5,10 @@ export type AdapterType =
   | "REDDIT_OAUTH"
   | "GITHUB_REST"
   | "PRODUCTHUNT_GRAPHQL"
+  | "PRODUCTHUNT_API"
   | "KRASIA_RSS"
-  | "E27_API";
+  | "E27_API"
+  | "GENERIC_RSS";
 export type SourceAccessMethod = "API" | "OAUTH_API" | "GRAPHQL" | "RSS";
 
 export interface RawIngestSignal {

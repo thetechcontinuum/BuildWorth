@@ -12,6 +12,7 @@
     "db:push": "prisma db push",
     "db:seed": "node dist/seed.js",
     "lint": "tsc --noEmit",
+    "admin:provision": "node scripts/provision-admin.js",
     "audit:evidence": "node dist/audit-script.js",
     "migrate:deploy": "prisma migrate deploy",
     "migrate:status": "prisma migrate status",

@@ -126,6 +126,12 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
       return NextResponse.json({ error: "Opportunity not found." }, { status: 404 });
     }
 
+    // Security Guard: Non-administrators cannot export DRAFT / HYPOTHESIS opportunities
+    const isDraftOpp = (opp as any).status === "DRAFT" || opp.publicationQualityStatus === "HYPOTHESIS";
+    if (isDraftOpp && sessionUser.role !== "ADMIN") {
+      return NextResponse.json({ error: "Opportunity not found." }, { status: 404 });
+    }
+
     const isSnowflake = slug.includes("snowflake");
     const blueprintData = isSnowflake ? SNOWFLAKE_BLUEPRINT_DEV_FIXTURE : SOC2_BLUEPRINT_DEV_FIXTURE;
 

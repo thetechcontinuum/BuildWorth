@@ -50,6 +50,7 @@ export interface ManualIngestionOptions {
   maxCandidates?: number;
   maxHistoricalSignals?: number;
   maxPublishedOpportunities?: number;
+  targetSourceKeys?: string[];
   aiProvider?: LLMProvider;
   executionTimeoutMs?: number;
   cleanSyntheticPrior?: boolean;
@@ -590,6 +591,7 @@ export async function executeManualStagingIngestion(
     maxCandidates = 5,
     maxHistoricalSignals = 20,
     maxPublishedOpportunities = 3,
+    targetSourceKeys,
     aiProvider = defaultAI,
     executionTimeoutMs = 50000,
     cleanSyntheticPrior = false,
@@ -893,11 +895,22 @@ export async function executeManualStagingIngestion(
       logger.warn("Source sync warning", { error: seedErr?.message });
     }
 
+    const sourceFilter: any = {
+      isEnabled: true,
+      policyStatus: { not: "BLOCKED" },
+    };
+
+    if (targetSourceKeys && targetSourceKeys.length > 0) {
+      sourceFilter.key = { in: targetSourceKeys };
+    } else {
+      sourceFilter.OR = [
+        { key: { in: ALLOWLISTED_SOURCE_KEYS } },
+        { adapterType: "GENERIC_RSS" },
+      ];
+    }
+
     let activeSources = await prisma.source.findMany({
-      where: {
-        isEnabled: true,
-        key: { in: ALLOWLISTED_SOURCE_KEYS },
-      },
+      where: sourceFilter,
       take: maxSources,
     });
 
@@ -960,7 +973,19 @@ export async function executeManualStagingIngestion(
     for (const src of activeSources) {
       if (Date.now() > deadline || totalFetched >= maxFetchItems) break;
 
-      const adapter = sourceRegistry.getAdapter(src.key);
+      let adapter = sourceRegistry.getAdapter(src.key);
+      if (!adapter && src.adapterType === "GENERIC_RSS" && src.baseUrl) {
+        adapter = sourceRegistry.createGenericRssAdapter({
+          sourceKey: src.key,
+          name: src.name,
+          feedUrl: src.baseUrl,
+          rateLimitPerMinute: src.rateLimitPerMinute,
+          termsNotes: src.termsNotes || undefined,
+          attributionRequired: src.attributionRequired,
+          permittedExcerptLength: src.permittedExcerptLength,
+          sourceFamily: src.sourceFamily || "COMMUNITY",
+        });
+      }
       if (!adapter) continue;
 
       const currentStats = {

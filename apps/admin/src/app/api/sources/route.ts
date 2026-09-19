@@ -1,11 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@buildworth/database";
+import { requireAdminSession, NO_CACHE_HEADERS } from "@/lib/admin-auth";
 
-export async function GET() {
-  const sources = [
-    { sourceKey: "hackernews", name: "Hacker News", status: "HEALTHY", rateLimit: 120 },
-    { sourceKey: "reddit", name: "Reddit Tech & Ops", status: "HEALTHY", rateLimit: 60 },
-    { sourceKey: "github", name: "GitHub Issues", status: "HEALTHY", rateLimit: 80 },
-    { sourceKey: "producthunt", name: "Product Hunt", status: "HEALTHY", rateLimit: 60 },
-  ];
-  return NextResponse.json({ status: "ok", sources });
+export const dynamic = "force-dynamic";
+
+export async function GET(request: NextRequest) {
+  const auth = await requireAdminSession(request);
+  if (!auth.authorized) {
+    return auth.response;
+  }
+
+  const sources = await prisma.source.findMany({
+    orderBy: { name: "asc" },
+  });
+
+  return NextResponse.json({ status: "ok", sources }, { headers: NO_CACHE_HEADERS });
 }

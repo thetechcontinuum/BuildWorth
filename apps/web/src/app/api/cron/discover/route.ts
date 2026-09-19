@@ -1,116 +1,110 @@
 import { NextRequest, NextResponse } from "next/server";
-import { executeIntelligencePipeline } from "@buildworth/opportunity-engine";
+import { prisma } from "@buildworth/database";
+import { executeManualStagingIngestion } from "@buildworth/opportunity-engine";
 import { logger } from "@buildworth/observability";
-import { addStoredOpportunity, StoredOpportunity } from "@/lib/opportunity-store";
+import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const bufA = Buffer.from(a.trim());
+  const bufB = Buffer.from(b.trim());
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 export async function GET(request: NextRequest) {
-  return handleCron(request);
+  return handleScheduledIngestion(request);
 }
 
 export async function POST(request: NextRequest) {
-  return handleCron(request);
+  return handleScheduledIngestion(request);
 }
 
-async function handleCron(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const isVercelCron =
-    request.headers.get("x-vercel-cron") ||
-    request.headers.get("user-agent")?.includes("vercel-cron");
-  const cronSecret = process.env.CRON_SECRET;
-  const urlKey = request.nextUrl.searchParams.get("key");
-
-  const isAuthorized =
-    !cronSecret ||
-    isVercelCron ||
-    authHeader === `Bearer ${cronSecret}` ||
-    urlKey === cronSecret ||
-    urlKey === "run";
-
-  if (!isAuthorized) {
-    logger.warn("Unauthorized attempt to trigger /api/cron/discover");
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+async function handleScheduledIngestion(request: NextRequest) {
+  // 1. Strict Authenticated Caller Check
+  // Reject if secrets are passed in query params
+  if (
+    request.nextUrl.searchParams.has("secret") ||
+    request.nextUrl.searchParams.has("key") ||
+    request.nextUrl.searchParams.has("cron_secret")
+  ) {
+    return NextResponse.json({ error: "Query secrets are strictly forbidden" }, { status: 403 });
   }
 
-  logger.info("Executing 06:00 AM Cron Discovery Job for new startup opportunities...");
+  const cronSecret = process.env.CRON_SECRET;
+  const isVercelCron =
+    request.headers.get("x-vercel-cron") === "1" ||
+    request.headers.get("user-agent")?.includes("vercel-cron");
+
+  let isAuthorized = false;
+
+  if (isVercelCron) {
+    isAuthorized = true;
+  } else if (cronSecret && cronSecret.trim().length >= 16) {
+    const authHeader = request.headers.get("authorization");
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.slice("Bearer ".length).trim();
+      if (timingSafeEqualStr(token, cronSecret)) {
+        isAuthorized = true;
+      }
+    }
+  }
+
+  if (!isAuthorized) {
+    logger.warn("Unauthorized attempt to trigger production ingestion cron");
+    return NextResponse.json({ error: "Unauthorized: Valid Cron authentication required" }, { status: 401 });
+  }
+
+  logger.info("Executing scheduled production ingestion job...");
+
+  // Generate bounded idempotency key matching current 6-hour window or exact trigger
+  const hourBucket = Math.floor(Date.now() / (6 * 3600 * 1000));
+  const idempotencyKey = `cron-prod-ingest-${hourBucket}-${new Date().toISOString().slice(0, 10)}`;
 
   try {
-    const summary = await executeIntelligencePipeline();
-    const publishedOpportunities: StoredOpportunity[] = [];
+    const result = await executeManualStagingIngestion(prisma, {
+      idempotencyKey,
+      workerId: "cron-worker-" + crypto.randomBytes(4).toString("hex"),
+      leaseDurationMs: 45000,
+      executionTimeoutMs: 50000,
+      maxSources: 3,
+      maxFetchItems: 25,
+      maxRawSignals: 20,
+      maxCandidates: 3,
+      maxPublishedOpportunities: 3,
+      // Strictly approved genuine sources only:
+      targetSourceKeys: ["hackernews", "github", "krasia"],
+      cleanSyntheticPrior: false,
+    });
 
-    for (const rawOpp of summary.opportunitiesSynthesized) {
-      const storedItem: StoredOpportunity = {
-        slug: rawOpp.slug || `opp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        title: rawOpp.title,
-        summary:
-          rawOpp.oneSentenceSummary ||
-          "Automated market solution based on recurring developer friction.",
-        industry: "DevOps & Compliance",
-        customerType: "B2B",
-        opportunityScore: rawOpp.scorecard.opportunityScore || 78,
-        confidenceScore: rawOpp.scorecard.evidenceConfidenceScore || 0,
-        publicationQualityStatus: "HYPOTHESIS",
-        isDemoFixture: false,
-        costRange: {
-          minMinor: rawOpp.economics.estimatedMvpCost.minMinor || 450000,
-          maxMinor: rawOpp.economics.estimatedMvpCost.maxMinor || 950000,
-          currency: "USD",
-        },
-        timeToMvpWeeks: {
-          min: rawOpp.economics.estimatedTimeToMvpWeeks.min || 3,
-          max: rawOpp.economics.estimatedTimeToMvpWeeks.max || 6,
-        },
-        buyer: rawOpp.economicBuyer || "VP of Engineering or Head of Operations",
-        signalsCount: 0,
-        recommendedExperiment:
-          rawOpp.recommendedNextExperiment ||
-          "Pre-sell 5 pilot accounts with 14-day refund guarantee.",
-        jobsToBeDone: rawOpp.jobsToBeDone,
-        narrowMvpScope: rawOpp.narrowMvpScope,
-        existingWorkflow: rawOpp.existingWorkflow,
-        buyingTrigger: rawOpp.buyingTrigger,
-        competitors: (rawOpp.existingCompetitors || []).map((name) => ({
-          name,
-          weakness:
-            rawOpp.competitorWeaknesses?.[0] || "High enterprise pricing and complex setup.",
-        })),
-        dimensionBreakdown: rawOpp.scorecard.dimensions.map((d) => ({
-          name: d.name,
-          score: d.score,
-          maxScore: d.maxScore,
-          explanation: d.explanation,
-          isAssumption: true,
-        })),
-        publishedAt: new Date().toISOString(),
-        evidenceLinks: [],
-      };
-
-      addStoredOpportunity(storedItem);
-      publishedOpportunities.push(storedItem);
-    }
-
-    logger.info("06:00 AM Cron Discovery Job completed.", {
-      newOpportunitiesPublished: publishedOpportunities.length,
+    logger.info("Scheduled production ingestion completed", {
+      runId: result.runId,
+      status: result.status,
+      counters: result.counters,
     });
 
     return NextResponse.json({
-      success: true,
-      timestamp: new Date().toISOString(),
-      executionTimeMs: summary.executionTimeMs,
-      newOpportunitiesPublished: publishedOpportunities.length,
-      opportunities: publishedOpportunities,
+      success: result.status === "COMPLETED",
+      runId: result.runId,
+      status: result.status,
+      failureCode: result.failureCode || null,
+      counters: result.counters,
+      publishedSlugs: result.publishedSlugs,
+      startedAt: result.startedAt,
+      completedAt: result.completedAt || null,
     });
-  } catch (error) {
-    logger.error(
-      "Error executing 06:00 AM discovery cron job",
-      error instanceof Error ? error : new Error(String(error)),
-    );
+  } catch (error: any) {
+    logger.error("Error executing scheduled production ingestion job", error);
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error executing discovery cron",
+        error: "INTERNAL_INGESTION_ERROR",
+        message: error instanceof Error ? error.message : "Unknown error during ingestion",
       },
       { status: 500 },
     );

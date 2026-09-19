@@ -180,6 +180,16 @@ export default async function OpportunityDetailPage({
     );
   }
 
+  // Security & Boundary Guard: DRAFT opportunities are strictly inaccessible to non-administrators
+  const isDraftOpp = (opp as any).status === "DRAFT" || opp.publicationQualityStatus === "HYPOTHESIS";
+  if (isDraftOpp && (!sessionUser || sessionUser.role !== "ADMIN")) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
+        Opportunity blueprint not found.
+      </div>
+    );
+  }
+
   const isSnowflake = params.slug.includes("snowflake");
   const fullBlueprintFixture: OpportunityBlueprint = isSnowflake
     ? SNOWFLAKE_BLUEPRINT_DEV_FIXTURE
