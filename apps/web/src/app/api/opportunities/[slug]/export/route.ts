@@ -68,10 +68,13 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
       if (stored) {
         opp = await prisma.opportunity.upsert({
           where: { slug },
-          update: {},
+          update: {
+            status: "PUBLISHED",
+          },
           create: {
             slug: stored.slug,
             title: stored.title,
+            status: "PUBLISHED",
             oneSentenceSummary: stored.summary,
             problemStatement: stored.summary,
             jobsToBeDone: stored.jobsToBeDone || ["Validation", "Discovery"],
