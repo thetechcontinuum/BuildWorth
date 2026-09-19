@@ -14,7 +14,7 @@ import {
 export function calculateScenarioMetrics(
   input: FinancialScenarioInput,
   _costs: CostLineItemData[] = [],
-  benefits: BenefitDriverData[] = []
+  benefits: BenefitDriverData[] = [],
 ): FinancialMetricOutputs {
   const {
     activeCustomers,
@@ -28,7 +28,10 @@ export function calculateScenarioMetrics(
   // 1. Monthly Revenue
   let monthlyRevenueCents: TaggedCalculationResult<number>;
   if (activeCustomers < 0 || monthlyPriceCents < 0) {
-    monthlyRevenueCents = { status: "INVALID_ASSUMPTION", reason: "Negative customer count or price" };
+    monthlyRevenueCents = {
+      status: "INVALID_ASSUMPTION",
+      reason: "Negative customer count or price",
+    };
   } else {
     monthlyRevenueCents = { status: "CALCULATED", value: activeCustomers * monthlyPriceCents };
   }
@@ -36,15 +39,24 @@ export function calculateScenarioMetrics(
   // 2. Monthly Variable Cost
   let monthlyVariableCostCents: TaggedCalculationResult<number>;
   if (activeCustomers < 0 || variableCostPerCustomerCents < 0) {
-    monthlyVariableCostCents = { status: "INVALID_ASSUMPTION", reason: "Negative customer count or variable cost" };
+    monthlyVariableCostCents = {
+      status: "INVALID_ASSUMPTION",
+      reason: "Negative customer count or variable cost",
+    };
   } else {
-    monthlyVariableCostCents = { status: "CALCULATED", value: activeCustomers * variableCostPerCustomerCents };
+    monthlyVariableCostCents = {
+      status: "CALCULATED",
+      value: activeCustomers * variableCostPerCustomerCents,
+    };
   }
 
   // 3. Contribution Margin Per Customer
   let contributionMarginPerCustomerCents: TaggedCalculationResult<number>;
   if (monthlyPriceCents <= 0) {
-    contributionMarginPerCustomerCents = { status: "NOT_ENOUGH_DATA", reason: "Monthly price is unconfigured or zero" };
+    contributionMarginPerCustomerCents = {
+      status: "NOT_ENOUGH_DATA",
+      reason: "Monthly price is unconfigured or zero",
+    };
   } else {
     const cm = monthlyPriceCents - variableCostPerCustomerCents;
     if (cm < 0) {
@@ -60,7 +72,10 @@ export function calculateScenarioMetrics(
 
   // 4. Monthly Total Contribution Margin
   let monthlyContributionMarginCents: TaggedCalculationResult<number>;
-  if (monthlyRevenueCents.status === "CALCULATED" && monthlyVariableCostCents.status === "CALCULATED") {
+  if (
+    monthlyRevenueCents.status === "CALCULATED" &&
+    monthlyVariableCostCents.status === "CALCULATED"
+  ) {
     const totalCm = (monthlyRevenueCents.value ?? 0) - (monthlyVariableCostCents.value ?? 0);
     if (totalCm < 0 && activeCustomers > 0) {
       monthlyContributionMarginCents = {
@@ -78,7 +93,10 @@ export function calculateScenarioMetrics(
   // 5. Gross Margin Percentage
   let grossMarginPercent: TaggedCalculationResult<number>;
   if (monthlyPriceCents <= 0) {
-    grossMarginPercent = { status: "NOT_ENOUGH_DATA", reason: "Cannot calculate gross margin with zero price" };
+    grossMarginPercent = {
+      status: "NOT_ENOUGH_DATA",
+      reason: "Cannot calculate gross margin with zero price",
+    };
   } else {
     const cm = monthlyPriceCents - variableCostPerCustomerCents;
     const gmRatio = (cm / monthlyPriceCents) * 100;
@@ -96,7 +114,10 @@ export function calculateScenarioMetrics(
 
   // 6. Monthly Operating Profit (Before Tax)
   let monthlyOperatingProfitCents: TaggedCalculationResult<number>;
-  if (monthlyContributionMarginCents.status === "CALCULATED" || monthlyContributionMarginCents.status === "NEGATIVE_UNIT_ECONOMICS") {
+  if (
+    monthlyContributionMarginCents.status === "CALCULATED" ||
+    monthlyContributionMarginCents.status === "NEGATIVE_UNIT_ECONOMICS"
+  ) {
     const profit = (monthlyContributionMarginCents.value ?? 0) - monthlyFixedCostCents;
     monthlyOperatingProfitCents = { status: "CALCULATED", value: profit };
   } else {
@@ -110,8 +131,14 @@ export function calculateScenarioMetrics(
       status: "NEGATIVE_UNIT_ECONOMICS",
       reason: "Infinite break-even: variable cost exceeds revenue per customer",
     };
-  } else if (contributionMarginPerCustomerCents.status !== "CALCULATED" || (contributionMarginPerCustomerCents.value ?? 0) <= 0) {
-    breakEvenCustomers = { status: "NOT_ENOUGH_DATA", reason: "Zero or invalid contribution margin per customer" };
+  } else if (
+    contributionMarginPerCustomerCents.status !== "CALCULATED" ||
+    (contributionMarginPerCustomerCents.value ?? 0) <= 0
+  ) {
+    breakEvenCustomers = {
+      status: "NOT_ENOUGH_DATA",
+      reason: "Zero or invalid contribution margin per customer",
+    };
   } else if (monthlyFixedCostCents === 0) {
     breakEvenCustomers = { status: "CALCULATED", value: 0 };
   } else {
@@ -125,14 +152,20 @@ export function calculateScenarioMetrics(
   if (monthlyPriceCents < 0 || onboardingPriceCents < 0) {
     customerAnnualCostCents = { status: "INVALID_ASSUMPTION", reason: "Negative price inputs" };
   } else {
-    customerAnnualCostCents = { status: "CALCULATED", value: (monthlyPriceCents * 12) + onboardingPriceCents };
+    customerAnnualCostCents = {
+      status: "CALCULATED",
+      value: monthlyPriceCents * 12 + onboardingPriceCents,
+    };
   }
 
   // 9. Customer Annual Benefit
   let customerAnnualBenefitCents: TaggedCalculationResult<number>;
   if (benefits.length === 0) {
     // Check fallback base calculation
-    customerAnnualBenefitCents = { status: "NOT_ENOUGH_DATA", reason: "No quantified customer benefit drivers configured" };
+    customerAnnualBenefitCents = {
+      status: "NOT_ENOUGH_DATA",
+      reason: "No quantified customer benefit drivers configured",
+    };
   } else {
     const totalBenefit = benefits.reduce((acc, b) => acc + (b.annualValueCents || 0), 0);
     customerAnnualBenefitCents = { status: "CALCULATED", value: totalBenefit };
@@ -140,7 +173,10 @@ export function calculateScenarioMetrics(
 
   // 10. Customer Net Annual Benefit
   let customerNetAnnualBenefitCents: TaggedCalculationResult<number>;
-  if (customerAnnualBenefitCents.status === "CALCULATED" && customerAnnualCostCents.status === "CALCULATED") {
+  if (
+    customerAnnualBenefitCents.status === "CALCULATED" &&
+    customerAnnualCostCents.status === "CALCULATED"
+  ) {
     const net = (customerAnnualBenefitCents.value ?? 0) - (customerAnnualCostCents.value ?? 0);
     customerNetAnnualBenefitCents = { status: "CALCULATED", value: net };
   } else {
@@ -149,8 +185,14 @@ export function calculateScenarioMetrics(
 
   // 11. Customer ROI Percentage
   let customerRoiPercent: TaggedCalculationResult<number>;
-  if (customerAnnualCostCents.status !== "CALCULATED" || (customerAnnualCostCents.value ?? 0) <= 0) {
-    customerRoiPercent = { status: "INVALID_ASSUMPTION", reason: "Customer annual cost is zero or invalid" };
+  if (
+    customerAnnualCostCents.status !== "CALCULATED" ||
+    (customerAnnualCostCents.value ?? 0) <= 0
+  ) {
+    customerRoiPercent = {
+      status: "INVALID_ASSUMPTION",
+      reason: "Customer annual cost is zero or invalid",
+    };
   } else if (customerNetAnnualBenefitCents.status !== "CALCULATED") {
     customerRoiPercent = { status: "NOT_ENOUGH_DATA", reason: "Customer benefit not quantified" };
   } else {
@@ -162,9 +204,18 @@ export function calculateScenarioMetrics(
 
   // 12. Customer Payback Months
   let customerPaybackMonths: TaggedCalculationResult<number>;
-  if (customerAnnualBenefitCents.status !== "CALCULATED" || (customerAnnualBenefitCents.value ?? 0) <= 0) {
-    customerPaybackMonths = { status: "NOT_APPLICABLE", reason: "No positive customer annual benefit quantified" };
-  } else if (customerAnnualCostCents.status !== "CALCULATED" || (customerAnnualCostCents.value ?? 0) <= 0) {
+  if (
+    customerAnnualBenefitCents.status !== "CALCULATED" ||
+    (customerAnnualBenefitCents.value ?? 0) <= 0
+  ) {
+    customerPaybackMonths = {
+      status: "NOT_APPLICABLE",
+      reason: "No positive customer annual benefit quantified",
+    };
+  } else if (
+    customerAnnualCostCents.status !== "CALCULATED" ||
+    (customerAnnualCostCents.value ?? 0) <= 0
+  ) {
     customerPaybackMonths = { status: "CALCULATED", value: 0 };
   } else {
     const monthlyBenefit = (customerAnnualBenefitCents.value ?? 1) / 12;
@@ -177,8 +228,14 @@ export function calculateScenarioMetrics(
   let providerCacPaybackMonths: TaggedCalculationResult<number>;
   if (customerAcquisitionCostCents <= 0) {
     providerCacPaybackMonths = { status: "CALCULATED", value: 0 };
-  } else if (contributionMarginPerCustomerCents.status !== "CALCULATED" || (contributionMarginPerCustomerCents.value ?? 0) <= 0) {
-    providerCacPaybackMonths = { status: "NEGATIVE_UNIT_ECONOMICS", reason: "Cannot recover CAC with non-positive unit margin" };
+  } else if (
+    contributionMarginPerCustomerCents.status !== "CALCULATED" ||
+    (contributionMarginPerCustomerCents.value ?? 0) <= 0
+  ) {
+    providerCacPaybackMonths = {
+      status: "NEGATIVE_UNIT_ECONOMICS",
+      reason: "Cannot recover CAC with non-positive unit margin",
+    };
   } else {
     const monthlyCm = contributionMarginPerCustomerCents.value ?? 1;
     const payback = customerAcquisitionCostCents / monthlyCm;

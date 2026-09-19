@@ -8,11 +8,13 @@ const OUTPUT_DIR = path.resolve("docs/design/implementation/phase-1");
 
 function fetchUrl(urlPath) {
   return new Promise((resolve, reject) => {
-    http.get("http://localhost:3000" + urlPath, (res) => {
-      let data = "";
-      res.on("data", (chunk) => (data += chunk));
-      res.on("end", () => resolve({ status: res.statusCode, data }));
-    }).on("error", reject);
+    http
+      .get("http://localhost:3000" + urlPath, (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => resolve({ status: res.statusCode, data }));
+      })
+      .on("error", reject);
   });
 }
 
@@ -35,7 +37,10 @@ async function runInteractiveBrowserE2E() {
     if (!res.data.includes("Hypothesis — evidence not yet verified")) {
       throw new Error("Missing hypothesis badge in feed");
     }
-    if (res.data.includes("56 Verified Signals") || res.data.includes("100% Market Signal Backed")) {
+    if (
+      res.data.includes("56 Verified Signals") ||
+      res.data.includes("100% Market Signal Backed")
+    ) {
       throw new Error("Found fake signal counts in feed");
     }
     captureScreenshot("/opportunities", "feed-hypothesis-desktop.png", 1280, 900);
@@ -49,13 +54,21 @@ async function runInteractiveBrowserE2E() {
   // 2. Verify Hypothesis Detail Page
   try {
     const res = await fetchUrl("/opportunities/llm-prompt-regression-ci-interceptor");
-    if (!res.data.includes("Hypothesis — evidence not yet verified") && !res.data.includes("Hypothesis — Evidence not yet verified")) {
+    if (
+      !res.data.includes("Hypothesis — evidence not yet verified") &&
+      !res.data.includes("Hypothesis — Evidence not yet verified")
+    ) {
       throw new Error("Missing hypothesis detail banner");
     }
     if (!res.data.includes("Assumption")) {
       throw new Error("Missing assumption badges on unsupported claims");
     }
-    captureScreenshot("/opportunities/llm-prompt-regression-ci-interceptor", "opportunity-hypothesis-desktop.png", 1280, 1000);
+    captureScreenshot(
+      "/opportunities/llm-prompt-regression-ci-interceptor",
+      "opportunity-hypothesis-desktop.png",
+      1280,
+      1000,
+    );
     console.log("PASS 2: Hypothesis detail page renders unverified banner & assumption flags");
     passed++;
   } catch (err) {
@@ -66,11 +79,22 @@ async function runInteractiveBrowserE2E() {
   // 3. Verified Opportunity Detail: Market Evidence Section & Multi-source Counters
   try {
     const res = await fetchUrl("/opportunities/automated-soc2-evidence-collector");
-    if (!res.data.includes("Market Evidence") || !res.data.includes("Verified Signals") || !res.data.includes("Independent Sources")) {
+    if (
+      !res.data.includes("Market Evidence") ||
+      !res.data.includes("Verified Signals") ||
+      !res.data.includes("Independent Sources")
+    ) {
       throw new Error("Missing Market Evidence section or multi-source counters");
     }
-    captureScreenshot("/opportunities/automated-soc2-evidence-collector", "opportunity-verified-fixture-desktop.png", 1280, 1200);
-    console.log("PASS 3: Verified opportunity renders Market Evidence section & multi-source metrics");
+    captureScreenshot(
+      "/opportunities/automated-soc2-evidence-collector",
+      "opportunity-verified-fixture-desktop.png",
+      1280,
+      1200,
+    );
+    console.log(
+      "PASS 3: Verified opportunity renders Market Evidence section & multi-source metrics",
+    );
     passed++;
   } catch (err) {
     console.error("FAIL 3:", err.message);
@@ -80,10 +104,19 @@ async function runInteractiveBrowserE2E() {
   // 4. Evidence Type Filter Interactions
   try {
     const res = await fetchUrl("/opportunities/automated-soc2-evidence-collector");
-    if (!res.data.includes("Pain Existence") || !res.data.includes("Willingness to Pay") || !res.data.includes("Technical Feasibility")) {
+    if (
+      !res.data.includes("Pain Existence") ||
+      !res.data.includes("Willingness to Pay") ||
+      !res.data.includes("Technical Feasibility")
+    ) {
       throw new Error("Missing claim filters");
     }
-    captureScreenshot("/opportunities/automated-soc2-evidence-collector", "evidence-filter-desktop.png", 1280, 1100);
+    captureScreenshot(
+      "/opportunities/automated-soc2-evidence-collector",
+      "evidence-filter-desktop.png",
+      1280,
+      1100,
+    );
     console.log("PASS 4: Evidence filter interaction and active tab rendering verified");
     passed++;
   } catch (err) {
@@ -100,7 +133,12 @@ async function runInteractiveBrowserE2E() {
         throw new Error("Missing claim level evidence badges");
       }
     }
-    captureScreenshot("/opportunities/automated-soc2-evidence-collector", "claim-evidence-focus-desktop.png", 1280, 1100);
+    captureScreenshot(
+      "/opportunities/automated-soc2-evidence-collector",
+      "claim-evidence-focus-desktop.png",
+      1280,
+      1100,
+    );
     console.log("PASS 5: Claim-level evidence badge focus interaction verified");
     passed++;
   } catch (err) {
@@ -114,7 +152,12 @@ async function runInteractiveBrowserE2E() {
     if (!res.data.includes("Contradictions") && !res.data.includes("Contradicting")) {
       throw new Error("Missing contradictory evidence indicator");
     }
-    captureScreenshot("/opportunities/automated-soc2-evidence-collector", "contradictory-evidence-desktop.png", 1280, 1100);
+    captureScreenshot(
+      "/opportunities/automated-soc2-evidence-collector",
+      "contradictory-evidence-desktop.png",
+      1280,
+      1100,
+    );
     console.log("PASS 6: Contradicting evidence filter & penalty indicator interaction verified");
     passed++;
   } catch (err) {
@@ -128,7 +171,9 @@ async function runInteractiveBrowserE2E() {
     if (!res.data.includes('target="_blank"') || !res.data.includes('rel="noopener noreferrer"')) {
       throw new Error("Missing target=_blank or rel=noopener noreferrer on external links");
     }
-    console.log("PASS 7: External source links use secure target=_blank and rel=noopener noreferrer");
+    console.log(
+      "PASS 7: External source links use secure target=_blank and rel=noopener noreferrer",
+    );
     passed++;
   } catch (err) {
     console.error("FAIL 7:", err.message);
@@ -137,7 +182,12 @@ async function runInteractiveBrowserE2E() {
 
   // 8. Mobile Viewport Rendering (375x900)
   try {
-    captureScreenshot("/opportunities/automated-soc2-evidence-collector", "opportunity-detail-mobile.png", 375, 900);
+    captureScreenshot(
+      "/opportunities/automated-soc2-evidence-collector",
+      "opportunity-detail-mobile.png",
+      375,
+      900,
+    );
     console.log("PASS 8: Mobile viewport layout renders cleanly with 0 horizontal overflow");
     passed++;
   } catch (err) {
@@ -145,7 +195,9 @@ async function runInteractiveBrowserE2E() {
     failed++;
   }
 
-  console.log(`=== Browser E2E Interaction Results: ${passed} Passed, ${failed} Failed (Exit code ${failed === 0 ? 0 : 1}) ===`);
+  console.log(
+    `=== Browser E2E Interaction Results: ${passed} Passed, ${failed} Failed (Exit code ${failed === 0 ? 0 : 1}) ===`,
+  );
   process.exit(failed === 0 ? 0 : 1);
 }
 

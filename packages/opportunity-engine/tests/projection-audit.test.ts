@@ -45,7 +45,7 @@ describe("Projection Consistency Verification Logic", () => {
     ];
 
     const unresolved = assumptions
-      .filter(a => a.status === "UNTESTED" || a.status === "TESTING")
+      .filter((a) => a.status === "UNTESTED" || a.status === "TESTING")
       .sort((a, b) => {
         const scoreA = a.importanceScore * a.uncertaintyScore;
         const scoreB = b.importanceScore * b.uncertaintyScore;
@@ -53,7 +53,9 @@ describe("Projection Consistency Verification Logic", () => {
         return a.id.localeCompare(b.id);
       });
 
-    expect(unresolved[0].statement).toBe("AWS Cost Explorer API rate limits allow hourly polls per account");
+    expect(unresolved[0].statement).toBe(
+      "AWS Cost Explorer API rate limits allow hourly polls per account",
+    );
     expect(unresolved[0].id).toBe("as-2");
   });
 });

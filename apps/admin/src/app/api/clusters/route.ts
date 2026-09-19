@@ -1,19 +1,19 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@buildworth/database";
+import { requireAdminSession, NO_CACHE_HEADERS } from "@/lib/admin-auth";
 
-export async function GET() {
-  const clusters = [
-    {
-      id: "cluster-1",
-      title: "Automated SOC2 Git Evidence Collector",
-      signalCount: 28,
-      vertical: "DevOps",
-    },
-    {
-      id: "cluster-2",
-      title: "Snowflake Runaway Query Circuit Breaker",
-      signalCount: 42,
-      vertical: "FinOps",
-    },
-  ];
-  return NextResponse.json({ status: "ok", clusters });
+export const dynamic = "force-dynamic";
+
+export async function GET(request: NextRequest) {
+  const auth = await requireAdminSession(request);
+  if (!auth.authorized) {
+    return auth.response;
+  }
+
+  const clusters = await prisma.problemCluster.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
+  return NextResponse.json({ status: "ok", clusters }, { headers: NO_CACHE_HEADERS });
 }

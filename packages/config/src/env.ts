@@ -22,8 +22,8 @@ const EnvSchema = z.object({
   // AI Provider & Agnes AI configuration (https://agnes-ai.com)
   AI_PROVIDER: z.enum(["agnes", "mock", "openai", "gemini", "anthropic"]).default("agnes"),
   AGNES_AI_API_KEY: z.string().default(""),
-  AGNES_AI_BASE_URL: z.string().url().default("https://api.agnes-ai.com/v1"),
-  AGNES_AI_MODEL: z.string().default("agnes-default"),
+  AGNES_AI_BASE_URL: z.string().url().default("https://apihub.agnes-ai.com/v1"),
+  AGNES_AI_MODEL: z.string().default("agnes-2.5-flash"),
   AGNES_AI_EMBEDDING_MODEL: z.string().default("agnes-embed-default"),
 
   AI_DAILY_SPEND_LIMIT_CENTS: z.coerce.number().int().positive().default(500),

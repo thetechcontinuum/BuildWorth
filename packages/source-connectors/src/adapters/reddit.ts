@@ -12,20 +12,10 @@ export class RedditAdapter extends BaseSourceAdapter {
     "Uses Reddit OAuth 2.0 API under developer terms. Excerpts limited to 280 chars with permalink citation.";
   public readonly attributionRequired = true;
 
-  public async fetchSignals(limit = 20): Promise<RawIngestSignal[]> {
+  public async fetchSignals(limit = 20, _query?: string): Promise<RawIngestSignal[]> {
     logger.info(`Fetching Reddit signals from target communities (limit ${limit})...`);
-    return [
-      {
-        externalId: "rd-1f92a10",
-        sourceKey: this.sourceKey,
-        sourceUrl: "https://reddit.com/r/devops/comments/1f92a10",
-        authorFingerprint: "infra_guru",
-        title: "Tired of spending Fridays reconciling Terraform drift",
-        rawContent:
-          "We have 4 AWS accounts and Terraform state files get out of sync constantly. We had an outage last week because someone changed a security group manually in the console. Would pay $200/mo for a tool that just blocks console edits and creates a PR automatically.",
-        publishedAt: new Date(),
-        metadata: { subreddit: "devops", upvotes: 312, comments: 74 },
-      },
-    ];
+    // Unconfigured without OAuth credentials - produce zero items safely
+    return [];
   }
 }
+

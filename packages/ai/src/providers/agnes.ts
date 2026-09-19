@@ -9,6 +9,83 @@ import {
 import { aiSpendLedger, logger } from "@buildworth/observability";
 import { getEnv } from "@buildworth/config";
 
+export function normalizeBaseUrl(rawUrl?: string): string {
+  let url = (rawUrl || "https://apihub.agnes-ai.com/v1").trim();
+  url = url.replace(/\/+$/, "");
+  url = url.replace(/\/chat\/completions$/, "");
+  url = url.replace(/\/+$/, "");
+  while (url.endsWith("/v1/v1")) {
+    url = url.slice(0, -3);
+  }
+  if (!url.endsWith("/v1")) {
+    url = `${url}/v1`;
+  }
+  return url;
+}
+
+export function normalizeApiKey(rawKey?: string): string {
+  let key = (rawKey || "").trim();
+  if (key.toLowerCase().startsWith("bearer ")) {
+    key = key.slice(7).trim();
+  }
+  return key;
+}
+
+export function extractContentString(rawMsgContent: unknown): string {
+  if (typeof rawMsgContent === "string") {
+    return rawMsgContent;
+  }
+  if (Array.isArray(rawMsgContent)) {
+    return rawMsgContent
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+          return part.text;
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
+export function parseModelOutput<T>(
+  choice: { message?: { content?: unknown }; finish_reason?: string } | undefined,
+  schema: z.ZodSchema<T>,
+): T {
+  if (!choice) {
+    throw new Error("AI_OUTPUT_EMPTY");
+  }
+
+  if (choice.finish_reason === "length") {
+    throw new Error("AI_OUTPUT_TRUNCATED");
+  }
+
+  const rawContent = extractContentString(choice.message?.content).trim();
+  if (!rawContent) {
+    throw new Error("AI_OUTPUT_EMPTY");
+  }
+
+  let jsonStr = rawContent;
+  const fenceMatch = rawContent.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/i);
+  if (fenceMatch && fenceMatch[1]) {
+    jsonStr = fenceMatch[1].trim();
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch (err: any) {
+    throw new Error(`AI_OUTPUT_INVALID: JSON parse error: ${err?.message || "Invalid JSON"}`);
+  }
+
+  try {
+    return schema.parse(parsed);
+  } catch (err: any) {
+    throw new Error(`AI_OUTPUT_INVALID: Schema validation error: ${err?.message || "Invalid schema"}`);
+  }
+}
+
 export class AgnesAIProvider implements LLMProvider {
   public readonly name = "agnes-ai";
   private apiKey: string;
@@ -23,9 +100,9 @@ export class AgnesAIProvider implements LLMProvider {
     embeddingModel?: string;
   }) {
     const env = getEnv();
-    this.apiKey = config?.apiKey || env.AGNES_AI_API_KEY || "";
-    this.baseUrl = config?.baseUrl || env.AGNES_AI_BASE_URL || "https://api.agnes-ai.com/v1";
-    this.defaultModel = config?.model || env.AGNES_AI_MODEL || "agnes-default";
+    this.apiKey = normalizeApiKey(config?.apiKey || env.AGNES_AI_API_KEY || "");
+    this.baseUrl = normalizeBaseUrl(config?.baseUrl || env.AGNES_AI_BASE_URL || "https://apihub.agnes-ai.com/v1");
+    this.defaultModel = config?.model || env.AGNES_AI_MODEL || "agnes-2.5-flash";
     this.defaultEmbeddingModel =
       config?.embeddingModel || env.AGNES_AI_EMBEDDING_MODEL || "agnes-embed-default";
   }
@@ -38,72 +115,207 @@ export class AgnesAIProvider implements LLMProvider {
     const model = options?.model || this.defaultModel;
     const purpose = options?.purpose || "structured_completion";
 
-    logger.info(`Calling Agnes AI (${this.baseUrl}) model: ${model}`, { purpose });
-
-    // When API key is not yet configured, provide graceful deterministic structured data
     if (!this.apiKey || this.apiKey.trim() === "") {
-      logger.warn(
-        "Agnes AI API Key not configured. Using deterministic offline fallback response.",
-      );
-      return this.generateFallbackStructured(messages, schema, model, purpose);
+      logger.warn("Agnes AI API Key not configured.");
+      throw new Error("AI_PROVIDER_NOT_CONFIGURED");
     }
 
-    try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: options?.temperature ?? 0.1,
-          max_tokens: options?.maxTokens ?? 2000,
-          response_format: { type: "json_object" },
-        }),
-      });
+    const endpoint = `${this.baseUrl}/chat/completions`;
 
-      if (!response.ok) {
-        throw new Error(`Agnes AI API error ${response.status}: ${await response.text()}`);
+    const formatMessages = (msgs: ChatMessage[]): ChatMessage[] => {
+      const formatted = [...msgs];
+      const systemPromptIndex = formatted.findIndex((m) => m.role === "system");
+      const jsonInstruction =
+        "Respond strictly with a single valid JSON object matching the requested schema. Do not wrap with markdown code blocks or add any explanatory text outside JSON.";
+      if (systemPromptIndex >= 0 && formatted[systemPromptIndex]) {
+        const existing = formatted[systemPromptIndex];
+        formatted[systemPromptIndex] = {
+          role: "system",
+          content: `${existing?.content || ""}\n\n${jsonInstruction}`,
+        };
+      } else {
+        formatted.unshift({
+          role: "system",
+          content: jsonInstruction,
+        });
+      }
+      return formatted;
+    };
+
+    const callApi = async (reqMessages: ChatMessage[], isRetry = false): Promise<any> => {
+      let response: Response | null = null;
+      let lastNetErr: any = null;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages: reqMessages,
+              temperature: options?.temperature ?? 0.1,
+              max_tokens: isRetry ? 2500 : (options?.maxTokens ?? 2000),
+              response_format: { type: "json_object" },
+            }),
+          });
+          if (response.ok || (response.status !== 429 && response.status < 500)) {
+            break;
+          }
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 1200));
+          }
+        } catch (netErr: any) {
+          lastNetErr = netErr;
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 1200));
+          }
+        }
       }
 
-      const json = (await response.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      };
-      const rawContent = json.choices?.[0]?.message?.content || "{}";
-      const parsedJson = JSON.parse(rawContent);
-      const data = schema.parse(parsedJson);
+      if (!response) {
+        logger.error(
+          "Agnes AI fetch failed",
+          lastNetErr instanceof Error ? lastNetErr : new Error(String(lastNetErr)),
+        );
+        throw new Error(`AI_PROVIDER_UNAVAILABLE: ${lastNetErr?.message || "Network error"}`);
+      }
 
-      const promptTokens = json.usage?.prompt_tokens || 100;
-      const completionTokens = json.usage?.completion_tokens || 100;
-      const costCents = Math.max(1, Math.round((promptTokens + completionTokens) * 0.0005));
+      if (!response.ok) {
+        const status = response.status;
+        const requestId =
+          response.headers.get("x-request-id") ||
+          response.headers.get("request-id") ||
+          undefined;
 
-      aiSpendLedger.recordSpend({
+        let errorBodyText = "";
+        try {
+          errorBodyText = await response.text();
+        } catch {
+          // ignore
+        }
+
+        let providerCode = "";
+        try {
+          const errJson = JSON.parse(errorBodyText);
+          providerCode = errJson?.error?.code || errJson?.code || errJson?.error?.type || "";
+        } catch {
+          // not json
+        }
+
+        logger.error("Agnes AI request error", undefined, {
+          status,
+          providerCode,
+          requestId,
+        });
+
+        if (status === 401 || status === 403) {
+          throw new Error("AI_PROVIDER_AUTHENTICATION_FAILED");
+        }
+
+        if (status === 404) {
+          const lowerBody = errorBodyText.toLowerCase();
+          if (lowerBody.includes("model") || providerCode.toLowerCase().includes("model")) {
+            throw new Error("AI_MODEL_NOT_FOUND");
+          }
+          throw new Error("AI_PROVIDER_ENDPOINT_INVALID");
+        }
+
+        if (status === 429) {
+          throw new Error("AI_PROVIDER_RATE_LIMITED");
+        }
+
+        if (status >= 500) {
+          throw new Error(`AI_PROVIDER_UNAVAILABLE: HTTP ${status}`);
+        }
+
+        throw new Error(`AI_PROVIDER_UNAVAILABLE: HTTP ${status}`);
+      }
+
+      try {
+        return await response.json();
+      } catch {
+        throw new Error("AI_OUTPUT_INVALID: Invalid JSON response from provider");
+      }
+    };
+
+    const initialMessages = formatMessages(messages);
+    let json = await callApi(initialMessages, false);
+
+    let data: T;
+    let rawResponse = extractContentString(json?.choices?.[0]?.message?.content);
+
+    try {
+      data = parseModelOutput(json?.choices?.[0], schema);
+    } catch (firstErr: any) {
+      const errMsg = firstErr?.message || "";
+      const isRetryable =
+        errMsg.startsWith("AI_OUTPUT_TRUNCATED") ||
+        errMsg.startsWith("AI_OUTPUT_INVALID") ||
+        errMsg.startsWith("AI_OUTPUT_EMPTY");
+
+      if (!isRetryable) {
+        throw firstErr;
+      }
+
+      logger.warn("First AI structured output attempt failed, performing bounded retry", {
+        reason: errMsg,
         model,
-        promptTokens,
-        completionTokens,
-        costMinorUnits: costCents,
         purpose,
-        timestamp: new Date(),
       });
 
-      return {
-        data,
-        rawResponse: rawContent,
-        promptTokens,
-        completionTokens,
-        costMinorUnits: costCents,
-        model,
-      };
-    } catch (err) {
-      logger.error(
-        "Agnes AI request failed, falling back to deterministic response",
-        err instanceof Error ? err : new Error(String(err)),
-      );
-      return this.generateFallbackStructured(messages, schema, model, purpose);
+      const retryMessages: ChatMessage[] = [
+        ...initialMessages,
+        ...(rawResponse ? [{ role: "assistant" as const, content: rawResponse }] : []),
+        {
+          role: "user",
+          content:
+            "Your previous response was malformed, truncated, or failed JSON schema validation. Return strictly a single valid JSON object conforming directly to the required schema. Do NOT wrap in markdown fencing. Do NOT include any explanations outside JSON.",
+        },
+      ];
+
+      json = await callApi(retryMessages, true);
+      rawResponse = extractContentString(json?.choices?.[0]?.message?.content);
+
+      try {
+        data = parseModelOutput(json?.choices?.[0], schema);
+      } catch (retryErr: any) {
+        logger.error(
+          "Bounded AI retry failed",
+          retryErr instanceof Error ? retryErr : new Error(String(retryErr)),
+          {
+            model,
+            purpose,
+          },
+        );
+        throw retryErr;
+      }
     }
+
+    const promptTokens = json?.usage?.prompt_tokens || 100;
+    const completionTokens = json?.usage?.completion_tokens || 100;
+    const costCents = Math.max(1, Math.round((promptTokens + completionTokens) * 0.0005));
+
+    aiSpendLedger.recordSpend({
+      model,
+      promptTokens,
+      completionTokens,
+      costMinorUnits: costCents,
+      purpose,
+      timestamp: new Date(),
+    });
+
+    return {
+      data,
+      rawResponse,
+      promptTokens,
+      completionTokens,
+      costMinorUnits: costCents,
+      model,
+    };
   }
 
   public async generateEmbedding(text: string): Promise<EmbeddingResult> {
@@ -140,7 +352,11 @@ export class AgnesAIProvider implements LLMProvider {
       });
 
       if (!response.ok) {
-        throw new Error(`Agnes AI embeddings error ${response.status}`);
+        return {
+          embedding: this.deterministicEmbedding(text, 64),
+          dimensions: 64,
+          costMinorUnits: costCents,
+        };
       }
 
       const json = (await response.json()) as {
@@ -177,65 +393,6 @@ export class AgnesAIProvider implements LLMProvider {
         costMinorUnits: costCents,
       };
     }
-  }
-
-  private generateFallbackStructured<T>(
-    messages: ChatMessage[],
-    schema: z.ZodSchema<T>,
-    model: string,
-    purpose: string,
-  ): StructuredCompletionResult<T> {
-    const userMsg = messages.find((m) => m.role === "user")?.content || "";
-    let mockData: unknown;
-
-    if (userMsg.includes("Classify this signal") || purpose.includes("classification")) {
-      let signalType = "PAIN_COMPLAINT";
-      if (userMsg.toLowerCase().includes("would pay") || userMsg.toLowerCase().includes("budget")) {
-        signalType = "PURCHASE_INTENT";
-      } else if (
-        userMsg.toLowerCase().includes("workaround") ||
-        userMsg.toLowerCase().includes("csv")
-      ) {
-        signalType = "WORKAROUND_REQUEST";
-      }
-
-      mockData = {
-        signalType,
-        confidenceScore: 85,
-      };
-    } else {
-      mockData = {
-        signalType: "PAIN_COMPLAINT",
-        sanitizedExcerpt: "Extracted workflow friction excerpt.",
-        problemSummary: "Manual reconciliation process causing recurring quarterly delays.",
-        actorRole: "DevOps Engineer / Platform Lead",
-        workflowContext: "Continuous Integration & Cloud Compliance",
-        severityScore: 4,
-        frequencyScore: 4,
-        intentToPayScore: 3,
-        extractedEntities: ["Vercel", "GitHub Actions", "SOC2"],
-        confidenceScore: 88,
-      };
-    }
-
-    const costCents = 1;
-    aiSpendLedger.recordSpend({
-      model,
-      promptTokens: 120,
-      completionTokens: 85,
-      costMinorUnits: costCents,
-      purpose,
-      timestamp: new Date(),
-    });
-
-    return {
-      data: schema.parse(mockData),
-      rawResponse: JSON.stringify(mockData),
-      promptTokens: 120,
-      completionTokens: 85,
-      costMinorUnits: costCents,
-      model,
-    };
   }
 
   private deterministicEmbedding(text: string, dims = 64): number[] {

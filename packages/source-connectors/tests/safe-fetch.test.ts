@@ -8,7 +8,9 @@ describe("SSRF Defense & Connection Pinning Tests", () => {
   });
 
   it("blocks cloud metadata IP 169.254.169.254", async () => {
-    await expect(safeFetch("http://169.254.169.254/latest/meta-data")).rejects.toThrow("SSRF Blocked");
+    await expect(safeFetch("http://169.254.169.254/latest/meta-data")).rejects.toThrow(
+      "SSRF Blocked",
+    );
   });
 
   it("blocks private network CIDRs (10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12)", async () => {

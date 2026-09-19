@@ -10,7 +10,10 @@ describe("Production Fixture Isolation Tests", () => {
   });
 
   it("verifies migration files contain zero synthetic fixture URLs", () => {
-    const migrationPath = path.resolve(__dirname, "../../database/prisma/migrations/20260825000000_phase2_decision_grade_blueprint/migration.sql");
+    const migrationPath = path.resolve(
+      __dirname,
+      "../../database/prisma/migrations/20260825000000_phase2_decision_grade_blueprint/migration.sql",
+    );
     const migrationSql = fs.readFileSync(migrationPath, "utf8");
     expect(migrationSql).not.toContain("https://synthetic-fixture.example.com");
     expect(migrationSql).not.toContain("bp-dev-demo");

@@ -22,7 +22,9 @@
     "@buildworth/validation": "workspace:*",
     "zod": "^3.23.8",
     "@buildworth/scoring": "workspace:*",
-    "@buildworth/source-connectors": "workspace:*"
+    "@buildworth/source-connectors": "workspace:*",
+    "@buildworth/entitlements": "workspace:*",
+    "@buildworth/billing": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",

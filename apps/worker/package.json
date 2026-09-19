@@ -14,7 +14,8 @@
     "@buildworth/observability": "workspace:*",
     "@buildworth/scoring": "workspace:*",
     "@buildworth/shared": "workspace:*",
-    "@buildworth/opportunity-engine": "workspace:*"
+    "@buildworth/opportunity-engine": "workspace:*",
+    "@buildworth/billing": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",

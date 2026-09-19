@@ -1,8 +1,15 @@
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 
 async function runConcurrencySuite() {
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
   const prisma1 = new PrismaClient({ datasources: { db: { url: dbUrl } } });
   const prisma2 = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
@@ -11,14 +18,14 @@ async function runConcurrencySuite() {
   const oppA = await prisma1.opportunity.findFirstOrThrow({ where: { slug: "audit-test-opp" } });
   const startingRev = await prisma1.opportunityRevision.findFirst({
     where: { opportunityId: oppA.id },
-    orderBy: { revisionNumber: "desc" }
+    orderBy: { revisionNumber: "desc" },
   });
 
   async function writeRevision(prismaClient, oppId, reason) {
     return await prismaClient.$transaction(async (tx) => {
-      const lockKey = Math.abs(
-        oppId.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)
-      ) % 2147483647;
+      const lockKey =
+        Math.abs(oppId.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)) %
+        2147483647;
 
       await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`);
 
@@ -68,13 +75,21 @@ async function runConcurrencySuite() {
   console.log("Assigned Revision Numbers     :", res1.revisionNumber, "and", res2.revisionNumber);
   const finalOppA = await prisma1.opportunity.findUnique({ where: { id: oppA.id } });
   console.log("Final currentRevisionId       :", finalOppA.currentRevisionId);
-  console.log("Authoritative Projection Rev  :", res2.revisionId === finalOppA.currentRevisionId ? res2.revisionNumber : res1.revisionNumber);
+  console.log(
+    "Authoritative Projection Rev  :",
+    res2.revisionId === finalOppA.currentRevisionId ? res2.revisionNumber : res1.revisionNumber,
+  );
 
   const newAuditLogs = await prisma1.auditLog.findMany({
-    where: { entityType: "OPPORTUNITY_REVISION", opportunityRevisionId: { in: [res1.revisionId, res2.revisionId] } },
+    where: {
+      entityType: "OPPORTUNITY_REVISION",
+      opportunityRevisionId: { in: [res1.revisionId, res2.revisionId] },
+    },
   });
   console.log("Created Audit-Log Count       :", newAuditLogs.length);
-  console.log("Duplicate Revision Count      : 0 (Unique constraint @@unique([opportunityId, revisionNumber]) preserved)");
+  console.log(
+    "Duplicate Revision Count      : 0 (Unique constraint @@unique([opportunityId, revisionNumber]) preserved)",
+  );
   console.log("Same Opportunity Test Exit Code: 0");
 
   // Different Opportunity Concurrency Test
@@ -105,22 +120,31 @@ async function runConcurrencySuite() {
       estimatedMonthlyOpCostMinCents: 2000,
       estimatedMonthlyOpCostMaxCents: 5000,
       recommendedNextExperiment: "Survey",
-    }
+    },
   });
 
-  const lockKeyA = Math.abs(oppA.id.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)) % 2147483647;
-  const lockKeyB = Math.abs(oppB.id.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)) % 2147483647;
+  const lockKeyA =
+    Math.abs(oppA.id.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)) %
+    2147483647;
+  const lockKeyB =
+    Math.abs(oppB.id.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)) %
+    2147483647;
 
   console.log("Opportunity A Lock Key        :", lockKeyA);
   console.log("Opportunity B Lock Key        :", lockKeyB);
-  console.log("Independent Lock Keys         :", lockKeyA !== lockKeyB ? "CONFIRMED (Distinct 32-bit integers)" : "COLLISION");
+  console.log(
+    "Independent Lock Keys         :",
+    lockKeyA !== lockKeyB ? "CONFIRMED (Distinct 32-bit integers)" : "COLLISION",
+  );
 
   const [resA, resB] = await Promise.all([
     writeRevision(prisma1, oppA.id, "Parallel Opp A Write"),
     writeRevision(prisma2, oppB.id, "Parallel Opp B Write"),
   ]);
 
-  console.log("Parallel Execution Status     : SUCCESS (Both transactions completed independently)");
+  console.log(
+    "Parallel Execution Status     : SUCCESS (Both transactions completed independently)",
+  );
   console.log("Different Opportunity Exit Code: 0");
 
   await prisma1.$disconnect();

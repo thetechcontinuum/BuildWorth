@@ -1,8 +1,15 @@
 const path = require("path");
-const { PrismaClient } = require(path.resolve(__dirname, "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    __dirname,
+    "../../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 
 async function runPopulatedUpgradeTest() {
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
   console.log("=== Populated Phase 1 to Phase 2 Upgrade Verification ===");
@@ -35,14 +42,18 @@ async function runPopulatedUpgradeTest() {
   console.log("| ---------------------- | -----: | ----: |");
   for (const [table, count] of Object.entries(afterCounts)) {
     const b = beforeCounts[table] !== undefined ? beforeCounts[table] : count;
-    console.log(`| ${table.padEnd(22)} | ${String(b).padStart(6)} | ${String(count).padStart(5)} |`);
+    console.log(
+      `| ${table.padEnd(22)} | ${String(b).padStart(6)} | ${String(count).padStart(5)} |`,
+    );
   }
 
   const legacyUnassessed = await prisma.opportunity.count({
-    where: { decisionRecommendation: "UNASSESSED" }
+    where: { decisionRecommendation: "UNASSESSED" },
   });
 
-  const totalLostRows = (beforeCounts.sources - afterCounts.sources) +
+  const totalLostRows =
+    beforeCounts.sources -
+    afterCounts.sources +
     (beforeCounts.normalized_signals - afterCounts.normalized_signals) +
     (beforeCounts.opportunities - afterCounts.opportunities) +
     (beforeCounts.opportunity_revisions - afterCounts.opportunity_revisions) +

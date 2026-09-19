@@ -1,10 +1,16 @@
 const path = require("path");
-const { PrismaClient } = require(path.resolve("node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client"));
+const { PrismaClient } = require(
+  path.resolve(
+    "node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client",
+  ),
+);
 const { execSync } = require("child_process");
 
 async function executeRealCliDefectCycle() {
   console.log("=== Real CLI Audit & Complete Defect Cycle Against PostgreSQL ===");
-  const dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
+  const dbUrl =
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:postgres@localhost:5440/postgres?schema=public";
   const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 
   const runAuditCli = (envDbUrl = dbUrl) => {
@@ -17,14 +23,18 @@ async function executeRealCliDefectCycle() {
     } catch (err) {
       return {
         exitCode: err.status,
-        output: (err.stdout ? err.stdout.toString() : "") + (err.stderr ? err.stderr.toString() : "").trim(),
+        output:
+          (err.stdout ? err.stdout.toString() : "") +
+          (err.stderr ? err.stderr.toString() : "").trim(),
       };
     }
   };
 
   try {
     const evaluation = await prisma.founderFitEvaluation.findFirst({
-      where: { profileRevision: { profile: { user: { email: "strict.audit.persisted@buildworth.io" } } } },
+      where: {
+        profileRevision: { profile: { user: { email: "strict.audit.persisted@buildworth.io" } } },
+      },
       include: { profileRevision: { include: { skills: true } } },
     });
 
@@ -33,7 +43,7 @@ async function executeRealCliDefectCycle() {
     }
 
     const validHash = evaluation.inputHash;
-    const skillRecord = evaluation.profileRevision.skills.find(s => s.skillKey === "TYPESCRIPT");
+    const skillRecord = evaluation.profileRevision.skills.find((s) => s.skillKey === "TYPESCRIPT");
 
     console.log("1. Running Clean CLI Audit (Expect Exit 0)...");
     const res1 = runAuditCli();
@@ -65,7 +75,9 @@ async function executeRealCliDefectCycle() {
     console.log("   Summary line:", res3.output.split("\n").slice(-2).join(" | "));
     if (res3.exitCode !== 0) throw new Error("Step 5 failed");
 
-    console.log("6. Modifying persisted founder skill proficiency in PostgreSQL without recalculating...");
+    console.log(
+      "6. Modifying persisted founder skill proficiency in PostgreSQL without recalculating...",
+    );
     await prisma.founderSkill.update({
       where: { id: skillRecord.id },
       data: { proficiency: "BASIC" },
@@ -90,7 +102,9 @@ async function executeRealCliDefectCycle() {
     if (res5.exitCode !== 0) throw new Error("Step 9 failed");
 
     console.log("10. Running CLI Audit against unreachable database (Expect Exit 2)...");
-    const res6 = runAuditCli("postgresql://postgres:wrong@localhost:5999/nonexistent?connect_timeout=1");
+    const res6 = runAuditCli(
+      "postgresql://postgres:wrong@localhost:5999/nonexistent?connect_timeout=1",
+    );
     console.log("   Exit code:", res6.exitCode);
     console.log("   Summary line:", res6.output.split("\n").slice(-2).join(" | "));
     if (res6.exitCode !== 2) throw new Error("Step 10 failed");
@@ -103,7 +117,7 @@ async function executeRealCliDefectCycle() {
   }
 }
 
-executeRealCliDefectCycle().catch(err => {
+executeRealCliDefectCycle().catch((err) => {
   console.error("Defect cycle runner failed:", err);
   process.exit(1);
 });

@@ -1,12 +1,17 @@
 import React from "react";
 import { CheckCircle2, Lock } from "lucide-react";
+import { requireServerAdmin } from "@/lib/admin-page-guard";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Evaluation Benchmark Dataset — BuildWorth Admin",
   description: "Measure score calibration, unsupported claim rates, and publication safety gates.",
 };
 
-export default function EvaluationPage() {
+export default async function EvaluationPage() {
+  await requireServerAdmin();
+
   const metrics = [
     { name: "Unsupported Claim Rate", value: "0.8%", target: "< 2.0%", passed: true },
     { name: "Buyer Definition Quality", value: "97.2%", target: "> 95.0%", passed: true },

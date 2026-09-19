@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "pnpm --filter @buildworth/shared --filter @buildworth/config --filter @buildworth/validation --filter @buildworth/observability --filter @buildworth/database --filter @buildworth/scoring --filter @buildworth/ui --filter @buildworth/ai --filter @buildworth/source-connectors --filter @buildworth/opportunity-engine run build && next build",
+    "build": "pnpm --filter @buildworth/shared --filter @buildworth/config --filter @buildworth/validation --filter @buildworth/observability --filter @buildworth/database --filter @buildworth/scoring --filter @buildworth/ui --filter @buildworth/ai --filter @buildworth/source-connectors --filter @buildworth/entitlements --filter @buildworth/billing --filter @buildworth/opportunity-engine run build && next build",
     "start": "next start -p 3000",
     "lint": "tsc --noEmit",
     "type-check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "db:generate": "pnpm --filter @buildworth/database run db:generate",
     "test:fixture-isolation": "node scripts/test-fixture-isolation.js",
     "test:e2e": "node scripts/run-e2e-browser-suite.js"
@@ -26,8 +27,11 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.3.0",
+    "@buildworth/billing": "workspace:*",
+    "@buildworth/entitlements": "workspace:*",
     "@buildworth/opportunity-engine": "workspace:*",
-    "@buildworth/source-connectors": "workspace:*"
+    "@buildworth/source-connectors": "workspace:*",
+    "@prisma/client": "^5.16.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",

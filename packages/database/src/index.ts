@@ -7,3 +7,5 @@ export * from "./auth-session.js";
 export * from "./auth-identity.js";
 export * from "./rate-limiter.js";
 export * from "./email-delivery.js";
+export * from "./admin-provision.js";
+export * from "./admin-user-management.js";

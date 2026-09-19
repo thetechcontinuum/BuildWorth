@@ -1,0 +1,250 @@
+name: Phase 4 Release Gate
+
+on:
+  push:
+    branches:
+      - feat/phase4-monetization
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-unit:
+    name: Static Analysis, Contracts & Unit Matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Prisma schema formatting
+        run: pnpm --filter @buildworth/database exec prisma format --check
+
+      - name: Validate Prisma schema
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/buildworth?schema=public"
+        run: pnpm --filter @buildworth/database exec prisma validate
+
+      - name: Generate Prisma client
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/buildworth?schema=public"
+        run: pnpm --filter @buildworth/database run db:generate
+
+      - name: Run repository linter
+        run: pnpm run lint
+
+      - name: Run typecheck
+        run: pnpm run typecheck
+
+      - name: Run Entitlements unit suite
+        run: pnpm --filter @buildworth/entitlements run test:run
+
+      - name: Run Billing unit & tamper suite
+        run: pnpm --filter @buildworth/billing run test:run
+
+      - name: Run Opportunity Engine unit suite
+        run: pnpm --filter @buildworth/opportunity-engine run test:run
+
+      - name: Run monorepo root test matrix
+        run: pnpm run test
+
+      - name: Run production build
+        run: pnpm run build
+
+  database-release-gates:
+    name: Database Migrations & Release Audits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Prisma Client generation & build packages
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/buildworth?schema=public"
+        run: |
+          pnpm --filter @buildworth/database run db:generate
+          pnpm run build
+
+      - name: Start Disposable PostgreSQL & Run Clean Migration from Zero
+        run: |
+          docker run --name buildworth-p2-test -p 5440:5432 -e POSTGRES_PASSWORD=postgres -d pgvector/pgvector:pg16
+          sleep 4
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run test:phase4d:clean-migration
+
+      - name: Run Phase 4D Populated Upgrade Migration Rehearsal
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run test:migration:phase4d
+
+      - name: Run Phase 4A Entitlements Isolation Suite
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database exec prisma migrate deploy
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run catalog:entitlements
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run test:phase4a
+
+      - name: Run Phase 4B Billing & Webhook Suite
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run test:phase4b
+
+      - name: Run Phase 4C Radar & Outbox Suite
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run test:phase4c
+
+      - name: Run Phase 4D Content Access & Quota Suite
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run test:phase4d
+
+      - name: Run Phase 4D Pricing & Checkout Conversion Suite
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run test:phase4d:conversion
+
+      - name: Run Phase 4D Commercial Events & Privacy Suite
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run test:phase4d:events
+
+      - name: Run Phase 4D 46-Stage Defect & Restoration Cycle
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/postgres?schema=public" \
+          pnpm --filter @buildworth/database run test:phase4d:defect-cycle
+
+      - name: Deploy Schema and Populate Fixture for Audits
+        run: |
+          docker exec -i buildworth-p2-test psql -U postgres -d postgres -c "CREATE DATABASE buildworth_audit_ci;" || true
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database exec prisma migrate deploy
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database run catalog:entitlements
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          node packages/database/scripts/test-phase4c-seed-fixture.js
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          node packages/database/scripts/test-phase4d-seed-fixture.js
+
+      - name: Run Entitlements Audit
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database run audit:entitlements
+
+      - name: Run Billing & Subscription Audit
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database run audit:billing
+
+      - name: Run Opportunity Radar Audit
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database run audit:radar
+
+      - name: Run Premium Content & Export Audit
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database run audit:premium-access
+
+      - name: Run Evidence Lineage Audit
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database run audit:evidence
+
+      - name: Run Venture Projections Audit
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database run audit:projections
+
+      - name: Run Strict Founder Fit Evaluation Audit
+        run: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5440/buildworth_audit_ci?schema=public" \
+          pnpm --filter @buildworth/database run audit:founder-fit
+
+  browser-e2e:
+    name: Browser E2E & Leakage Release Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Google Chrome for headless E2E
+        run: |
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+          sudo apt-get update
+          sudo apt-get --only-upgrade install google-chrome-stable || sudo apt-get install -y google-chrome-stable
+
+      - name: Run Prisma Client generation & build packages
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/buildworth?schema=public"
+        run: |
+          pnpm --filter @buildworth/database run db:generate
+          pnpm run build
+
+      - name: Start Disposable PostgreSQL & Run Browser E2E
+        run: |
+          docker run --name buildworth-p2-test -p 5440:5432 -e POSTGRES_PASSWORD=postgres -d pgvector/pgvector:pg16
+          sleep 4
+          pnpm --filter @buildworth/web run test:e2e
+
+      - name: Upload E2E artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-failure-evidence
+          path: |
+            docs/design/implementation/phase-4d/
+            apps/web/.next/
+          retention-days: 3

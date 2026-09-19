@@ -1,10 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { calculateFounderFit } from "../src/founder-fit/calculator.js";
 import { normalizeSkillKey } from "../src/founder-fit/taxonomy-data.js";
-import {
-  FounderProfileData,
-  OpportunityFounderRequirementsData,
-} from "@buildworth/shared";
+import { FounderProfileData, OpportunityFounderRequirementsData } from "@buildworth/shared";
 
 describe("Founder Fit Deterministic Calculator & Release Integrity Tests (v2.0.0)", () => {
   it("normalizes skill aliases correctly without mutating canonical taxonomy keys", () => {
@@ -24,10 +21,10 @@ describe("Founder Fit Deterministic Calculator & Release Integrity Tests (v2.0.0
       { skillKey: "DEVOPS", proficiency: "WORKING" },
     ],
     domainExpertise: [
-      { industryOrDomain: "DevOps & Compliance", yearsExperienceBand: "3-5 years" }
+      { industryOrDomain: "DevOps & Compliance", yearsExperienceBand: "3-5 years" },
     ],
     distributionAssets: [
-      { assetType: "Twitter / X", audienceSizeBand: "1k-5k", description: "Tech builder audience" }
+      { assetType: "Twitter / X", audienceSizeBand: "1k-5k", description: "Tech builder audience" },
     ],
     preferences: {
       preferredIndustries: ["DevOps & Compliance", "B2B SaaS"],
@@ -63,8 +60,20 @@ describe("Founder Fit Deterministic Calculator & Release Integrity Tests (v2.0.0
     targetIndustries: ["DevOps & Compliance"],
     targetGeographies: ["Global"],
     requiredSkills: [
-      { skillKey: "TYPESCRIPT", minimumProficiency: "WORKING", preferredProficiency: "ADVANCED", importance: 5, isOutsourceable: false },
-      { skillKey: "POSTGRESQL", minimumProficiency: "BASIC", preferredProficiency: "WORKING", importance: 4, isOutsourceable: true },
+      {
+        skillKey: "TYPESCRIPT",
+        minimumProficiency: "WORKING",
+        preferredProficiency: "ADVANCED",
+        importance: 5,
+        isOutsourceable: false,
+      },
+      {
+        skillKey: "POSTGRESQL",
+        minimumProficiency: "BASIC",
+        preferredProficiency: "WORKING",
+        importance: 4,
+        isOutsourceable: true,
+      },
     ],
   };
 
@@ -82,7 +91,13 @@ describe("Founder Fit Deterministic Calculator & Release Integrity Tests (v2.0.0
     targetIndustries: ["Data Engineering & FinOps"],
     targetGeographies: ["Global"],
     requiredSkills: [
-      { skillKey: "TYPESCRIPT", minimumProficiency: "WORKING", preferredProficiency: "ADVANCED", importance: 5, isOutsourceable: false },
+      {
+        skillKey: "TYPESCRIPT",
+        minimumProficiency: "WORKING",
+        preferredProficiency: "ADVANCED",
+        importance: 5,
+        isOutsourceable: false,
+      },
     ],
   };
 
@@ -149,7 +164,7 @@ describe("Founder Fit Deterministic Calculator & Release Integrity Tests (v2.0.0
       decisionRecommendation: "BUILD_CANDIDATE",
     });
 
-    expect(result.blockers.some(b => !b.isRemovable)).toBe(true);
+    expect(result.blockers.some((b) => !b.isRemovable)).toBe(true);
     expect(result.recommendationCategory).toBe("BLOCKED");
   });
 
@@ -167,7 +182,7 @@ describe("Founder Fit Deterministic Calculator & Release Integrity Tests (v2.0.0
       decisionRecommendation: "BUILD_CANDIDATE",
     });
 
-    expect(result.blockers.every(b => b.isRemovable)).toBe(true);
+    expect(result.blockers.every((b) => b.isRemovable)).toBe(true);
     expect(result.recommendationCategory).toBe("POSSIBLE_WITH_GAPS");
   });
 });

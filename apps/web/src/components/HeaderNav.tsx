@@ -55,6 +55,12 @@ export function HeaderNav() {
               <Link href="/opportunities" className="hover:text-zinc-100 transition-colors">
                 Opportunities
               </Link>
+              <Link href="/admin/drafts" className="hover:text-amber-400 text-amber-400/90 transition-colors flex items-center gap-1">
+                Drafts <span className="text-[10px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">STAGING</span>
+              </Link>
+              <Link href="/watchlist" className="hover:text-zinc-100 transition-colors">
+                Watchlist
+              </Link>
               <Link href="/compare" className="hover:text-zinc-100 transition-colors">
                 Compare
               </Link>

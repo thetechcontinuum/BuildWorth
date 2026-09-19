@@ -1,10 +1,12 @@
 import { PrismaClient } from "@prisma/client";
 import crypto from "crypto";
+import { sendMagicLinkEmail } from "./email-delivery.js";
 
 export interface MagicLinkRequestResult {
   success: boolean;
   message: string;
   testToken?: string; // Captured ONLY in TEST/DEVELOPMENT environments
+  error?: string;
 }
 
 export interface VerifyTokenResult {
@@ -35,11 +37,14 @@ export function isValidEmail(email: string): boolean {
 export async function initiatePasswordlessLogin(
   prisma: PrismaClient,
   rawEmail: string,
-  options: { isTestEnv?: boolean } = {}
+  options: { isTestEnv?: boolean } = {},
 ): Promise<MagicLinkRequestResult> {
   if (!isValidEmail(rawEmail)) {
     // Return generic message to prevent leaking validation specifics / email enumeration
-    return { success: false, message: "If this is a valid email, a verification link has been sent." };
+    return {
+      success: false,
+      message: "If this is a valid email, a verification link has been sent.",
+    };
   }
 
   const email = normalizeEmail(rawEmail);
@@ -67,6 +72,23 @@ export async function initiatePasswordlessLogin(
 
   // If in isolated test mode, return testToken for automated tests
   const isTest = options.isTestEnv || process.env.NODE_ENV === "test";
+
+  // Dispatch real email delivery when email transport is active
+  if (!isTest) {
+    const deliveryResult = await sendMagicLinkEmail({
+      email,
+      token: rawVerificationToken,
+    });
+
+    if (!deliveryResult.delivered) {
+      return {
+        success: false,
+        message: "Failed to dispatch verification email.",
+        error: deliveryResult.error || "EMAIL_DELIVERY_FAILED",
+      };
+    }
+  }
+
   return {
     success: true,
     message: "If this is a valid email, a verification link has been sent.",
@@ -77,7 +99,7 @@ export async function initiatePasswordlessLogin(
 export async function verifyPasswordlessToken(
   prisma: PrismaClient,
   rawToken: string,
-  rawEmail?: string
+  rawEmail?: string,
 ): Promise<VerifyTokenResult> {
   if (!rawToken || rawToken.length < 32) {
     return { success: false, error: "INVALID_OR_EXPIRED_TOKEN" };
@@ -164,7 +186,7 @@ export async function verifyPasswordlessToken(
 
 export async function resolveHashedServerSession(
   prisma: PrismaClient,
-  rawSessionToken: string | null | undefined
+  rawSessionToken: string | null | undefined,
 ) {
   if (!rawSessionToken || rawSessionToken.length < 32) return null;
 
@@ -194,7 +216,7 @@ export async function resolveHashedServerSession(
 
 export async function revokeHashedServerSession(
   prisma: PrismaClient,
-  rawSessionToken: string
+  rawSessionToken: string,
 ): Promise<boolean> {
   try {
     const hashedSessionToken = hashToken(rawSessionToken);

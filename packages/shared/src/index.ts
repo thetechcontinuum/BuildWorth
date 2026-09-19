@@ -9,3 +9,6 @@ export * from "./utils/sanitization.js";
 export * from "./types/economics.js";
 export * from "./types/blueprint.js";
 export * from "./types/founder-fit.js";
+export * from "./types/entitlements.js";
+export * from "./types/content-policy.js";
+export * from "./types/commercial-events.js";
