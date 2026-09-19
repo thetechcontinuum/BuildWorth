@@ -18,9 +18,13 @@ describe("Source Registry & Adapters", () => {
     expect(adapter).toBeDefined();
     if (!adapter) return;
 
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("fetch failed"));
+
     const result = await runAdapterIngestion(adapter);
     expect(result.totalIngested).toBe(0);
     expect(result.signals.length).toBe(0);
+
+    mockFetch.mockRestore();
   });
 
   it("successfully ingests and sanitizes real API responses when available", async () => {

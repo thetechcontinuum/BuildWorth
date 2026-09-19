@@ -200,7 +200,7 @@ async function runPhase4dBrowserE2ESuite() {
         assertionsPassed++;
       } else {
         console.error(`  ⨯ [FAILED] ${msg}`, extra);
-        throw new Error(`Assertion failed: ${msg}`);
+        throw new Error(`Assertion failed: ${msg}. Extra: ${JSON.stringify(extra)}`);
       }
     }
 
@@ -300,7 +300,7 @@ async function runPhase4dBrowserE2ESuite() {
       },
       body: { format: "PDF" },
     });
-    assert(freeExportRes.status === 403, "Free export returns 403 Forbidden");
+    assert(freeExportRes.status === 403, "Free export returns 403 Forbidden", { status: freeExportRes.status, body: freeExportRes.data });
     const freeLedgersAfter = await prisma.usageLedger.count({
       where: { userId: userFree.id, unitsConsumed: { gt: 0 } },
     });

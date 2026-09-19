@@ -53,11 +53,11 @@ async function runCleanMigrationTest() {
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
       ORDER BY table_name ASC;
     `;
-    console.log(`\nAuthoritative Public Table Count: ${tableNamesRes.length} (Expected: 80)`);
+    console.log(`\nAuthoritative Public Table Count: ${tableNamesRes.length} (Expected: 81)`);
     console.table(tableNamesRes.map((r) => r.table_name));
 
-    if (tableNamesRes.length !== 80) {
-      throw new Error(`Expected 80 public tables, found ${tableNamesRes.length}`);
+    if (tableNamesRes.length !== 81) {
+      throw new Error(`Expected 81 public tables, found ${tableNamesRes.length}`);
     }
 
     // 5. Check zero fabricated business rows immediately after migration
