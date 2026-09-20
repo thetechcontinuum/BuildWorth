@@ -37,27 +37,31 @@ async function handleScheduledIngestion(request: NextRequest) {
   }
 
   const cronSecret = process.env.CRON_SECRET;
-  const isVercelCron =
-    request.headers.get("x-vercel-cron") === "1" ||
-    request.headers.get("user-agent")?.includes("vercel-cron");
-
-  let isAuthorized = false;
-
-  if (isVercelCron) {
-    isAuthorized = true;
-  } else if (cronSecret && cronSecret.trim().length >= 16) {
-    const authHeader = request.headers.get("authorization");
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.slice("Bearer ".length).trim();
-      if (timingSafeEqualStr(token, cronSecret)) {
-        isAuthorized = true;
-      }
-    }
+  if (!cronSecret || cronSecret.trim().length < 16) {
+    logger.error("Production ingestion cron rejected: CRON_SECRET is missing or misconfigured");
+    return NextResponse.json({ error: "Unauthorized: Valid Cron authentication required" }, { status: 401 });
   }
 
-  if (!isAuthorized) {
-    logger.warn("Unauthorized attempt to trigger production ingestion cron");
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    logger.warn("Unauthorized attempt to trigger production ingestion cron: missing or non-Bearer authorization header");
     return NextResponse.json({ error: "Unauthorized: Valid Cron authentication required" }, { status: 401 });
+  }
+
+  const token = authHeader.slice("Bearer ".length).trim();
+  if (!timingSafeEqualStr(token, cronSecret)) {
+    logger.warn("Unauthorized attempt to trigger production ingestion cron: invalid bearer token");
+    return NextResponse.json({ error: "Unauthorized: Valid Cron authentication required" }, { status: 401 });
+  }
+
+  // Diagnostic metadata only - attacker-controlled headers must never replace Authorization
+  const hasVercelCronHeader = request.headers.get("x-vercel-cron") === "1";
+  const cronSchedule = request.headers.get("x-vercel-cron-schedule") || null;
+  if (hasVercelCronHeader || cronSchedule) {
+    logger.info("Cron invocation authenticated with Vercel diagnostic headers present", {
+      hasVercelCronHeader,
+      cronSchedule,
+    });
   }
 
   logger.info("Executing scheduled production ingestion job...");
