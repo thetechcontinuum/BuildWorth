@@ -4,6 +4,7 @@ import { logger } from "@buildworth/observability";
 export interface GetDiscoveryFeedOptions {
   limit?: number;
   market?: string;
+  maxItemsPerSource?: number;
 }
 
 /**
@@ -13,8 +14,14 @@ export function deriveMarketRegion(sourceKey?: string, sourceFamily?: string, in
   if (sourceKey === "krasia" || sourceKey === "e27") {
     return "Asia / Pan-Asia";
   }
-  if (sourceKey === "eustartups") {
+  if (sourceKey === "eustartups" || sourceKey === "siliconcanals") {
     return "Europe";
+  }
+  if (sourceKey === "lobsters") {
+    return "Global / Developer Ecosystem";
+  }
+  if (sourceKey === "techcrunch") {
+    return "North America & Global";
   }
   if (sourceKey === "github") {
     return "Global / Developer Ecosystem";
@@ -50,6 +57,7 @@ export async function getDailyDiscoveryFeed(
   options: GetDiscoveryFeedOptions = {},
 ): Promise<DiscoveryFeedResponseDTO> {
   const limit = Math.min(10, Math.max(1, options.limit || 5));
+  const maxItemsPerSource = Math.max(1, options.maxItemsPerSource || 2);
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
 
@@ -62,7 +70,7 @@ export async function getDailyDiscoveryFeed(
         status: { in: ["DRAFT", "IN_REVIEW"] },
       },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 25,
       include: {
         scorecards: { orderBy: { createdAt: "desc" }, take: 1 },
         evidenceLinks: {
@@ -84,6 +92,7 @@ export async function getDailyDiscoveryFeed(
 
     const seenUrls = new Set<string>();
     const seenTitles = new Set<string>();
+    const sourceCounts = new Map<string, number>();
     const items: DiscoveryFeedItemDTO[] = [];
 
     for (const opp of candidates) {
@@ -135,6 +144,13 @@ export async function getDailyDiscoveryFeed(
         });
       }
 
+      // Enforce public feed primary source limits to ensure diversity
+      const effectiveSourceKey = primarySourceKey || "unknown";
+      const currentSourceCount = sourceCounts.get(effectiveSourceKey) || 0;
+      if (currentSourceCount >= maxItemsPerSource) {
+        continue;
+      }
+
       // Deduplication by primary URL and title
       const urlKey = primaryCanonicalUrl.toLowerCase().trim();
       const titleKey = opp.title.toLowerCase().trim();
@@ -144,6 +160,7 @@ export async function getDailyDiscoveryFeed(
 
       if (urlKey) seenUrls.add(urlKey);
       if (titleKey) seenTitles.add(titleKey);
+      sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
 
       // Extract observed facts directly from signal excerpts
       const observedFacts = observations.map((o) => o.excerpt).slice(0, 3);

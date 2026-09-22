@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@buildworth/database";
 import { executeManualStagingIngestion, verifyCronAuthorization } from "@buildworth/opportunity-engine";
 import { logger } from "@buildworth/observability";
@@ -71,7 +72,7 @@ async function handleScheduledIngestion(request: NextRequest) {
       maxCandidates: 3,
       maxPublishedOpportunities: 3,
       // Strictly approved genuine sources only:
-      targetSourceKeys: ["hackernews", "github", "krasia"],
+      targetSourceKeys: ["hackernews", "github", "krasia", "siliconcanals", "lobsters"],
       cleanSyntheticPrior: false,
     });
 
@@ -80,6 +81,16 @@ async function handleScheduledIngestion(request: NextRequest) {
       status: result.status,
       counters: result.counters,
     });
+
+    if (result.status === "COMPLETED") {
+      try {
+        revalidatePath("/");
+        revalidatePath("/opportunities");
+        revalidateTag("discovery-feed");
+      } catch (revErr: any) {
+        logger.warn("Cache revalidation notice after cron execution", { error: revErr?.message });
+      }
+    }
 
     return NextResponse.json({
       success: result.status === "COMPLETED",

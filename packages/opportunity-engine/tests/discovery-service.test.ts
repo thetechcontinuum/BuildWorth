@@ -6,6 +6,9 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
     expect(deriveMarketRegion("krasia", "DISCOVERY")).toBe("Asia / Pan-Asia");
     expect(deriveMarketRegion("e27", "DISCOVERY")).toBe("Asia / Pan-Asia");
     expect(deriveMarketRegion("eustartups", "DISCOVERY")).toBe("Europe");
+    expect(deriveMarketRegion("siliconcanals", "DISCOVERY")).toBe("Europe");
+    expect(deriveMarketRegion("lobsters", "COMMUNITY")).toBe("Global / Developer Ecosystem");
+    expect(deriveMarketRegion("techcrunch", "DISCOVERY")).toBe("North America & Global");
     expect(deriveMarketRegion("github", "DEVELOPER_ECOSYSTEM")).toBe("Global / Developer Ecosystem");
     expect(deriveMarketRegion("hackernews", "COMMUNITY")).toBe("Global / North America & Europe");
     expect(deriveMarketRegion("unknown", "CUSTOM", "Enterprise")).toBe("Global / Remote");
@@ -165,6 +168,59 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
     expect(feed.success).toBe(true);
     expect(feed.totalCount).toBe(1);
     expect(feed.items[0].slug).toBe("idea-a");
+  });
+
+  it("enforces primary-source limits so no single source dominates the feed", async () => {
+    const makeMockOpp = (id: string, slug: string, title: string, sourceKey: string, url: string) => ({
+      id,
+      slug,
+      title,
+      oneSentenceSummary: `Summary for ${title}`,
+      problemStatement: `Problem for ${title}`,
+      status: "DRAFT",
+      publicationQualityStatus: "HYPOTHESIS",
+      createdAt: new Date(),
+      evidenceLinks: [
+        {
+          normalizedSignal: {
+            id: `sig-${id}`,
+            canonicalUrl: url,
+            sanitizedExcerpt: `Excerpt for ${title}`,
+            rawSignal: {
+              sourceUrl: url,
+              source: { key: sourceKey, name: sourceKey.toUpperCase(), sourceFamily: "COMMUNITY" },
+            },
+          },
+        },
+      ],
+    });
+
+    const candidates = [
+      makeMockOpp("1", "opp-hn-1", "HN Problem 1", "hackernews", "https://news.ycombinator.com/item?id=1"),
+      makeMockOpp("2", "opp-hn-2", "HN Problem 2", "hackernews", "https://news.ycombinator.com/item?id=2"),
+      makeMockOpp("3", "opp-hn-3", "HN Problem 3", "hackernews", "https://news.ycombinator.com/item?id=3"),
+      makeMockOpp("4", "opp-sc-1", "European Problem 1", "siliconcanals", "https://siliconcanals.com/post-1"),
+      makeMockOpp("5", "opp-lob-1", "Dev Problem 1", "lobsters", "https://lobste.rs/s/post-1"),
+    ];
+
+    const mockPrisma = {
+      opportunity: {
+        findMany: async () => candidates,
+      },
+    };
+
+    // With maxItemsPerSource = 2 and limit = 5, the 3rd HN post should be skipped, allowing SC and Lobsters to appear
+    const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5, maxItemsPerSource: 2 });
+    expect(feed.success).toBe(true);
+    expect(feed.totalCount).toBe(4); // 2 from HN, 1 from SC, 1 from Lobsters
+
+    const hnItems = feed.items.filter((i) => i.canonicalUrl.includes("ycombinator"));
+    const scItems = feed.items.filter((i) => i.canonicalUrl.includes("siliconcanals"));
+    const lobItems = feed.items.filter((i) => i.canonicalUrl.includes("lobste.rs"));
+
+    expect(hnItems.length).toBe(2);
+    expect(scItems.length).toBe(1);
+    expect(lobItems.length).toBe(1);
   });
 
   it("handles empty day state without inventing mock posts or fabricating dates", async () => {

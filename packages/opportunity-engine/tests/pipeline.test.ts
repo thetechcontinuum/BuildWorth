@@ -59,7 +59,7 @@ describe("End-to-End Intelligence Pipeline", () => {
 
   it("executes full ingestion -> clustering -> opportunity synthesis pipeline", async () => {
     const result = await executeIntelligencePipeline(mockAi);
-    expect(result.sourcesScanned).toBe(7);
+    expect(result.sourcesScanned).toBe(10);
     expect(result.totalSignalsIngested).toBeGreaterThan(0);
     expect(result.problemSpacesDiscovered).toBeGreaterThan(0);
     expect(result.opportunitiesSynthesized.length).toBeGreaterThan(0);

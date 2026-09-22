@@ -95,10 +95,11 @@ export default async function AdminHomePage() {
     select: { lastSuccessfulCollection: true, name: true },
   });
 
-  // 4. Ingestion Run metrics
+  // 4. Ingestion Run metrics & Health checks
   let totalRuns = 0;
   let failedRuns = 0;
   let latestRun: any = null;
+  let latestCompletedRun: any = null;
 
   try {
     totalRuns = await prisma.ingestionRun.count();
@@ -108,7 +109,14 @@ export default async function AdminHomePage() {
     latestRun = await prisma.ingestionRun.findFirst({
       orderBy: { createdAt: "desc" },
     });
+    latestCompletedRun = await prisma.ingestionRun.findFirst({
+      where: { status: "COMPLETED" },
+      orderBy: { completedAt: "desc" },
+    });
   } catch {}
+
+  const twentySixHoursAgo = new Date(Date.now() - 26 * 60 * 60 * 1000);
+  const isCronStale = !latestCompletedRun || new Date(latestCompletedRun.completedAt || latestCompletedRun.createdAt) < twentySixHoursAgo;
 
   // 5. Real AI Spend ledger metrics
   let recordedSpendCents = 0;
@@ -134,6 +142,23 @@ export default async function AdminHomePage() {
           Authoritative database-backed metrics, ingestion monitoring, and operations control.
         </p>
       </div>
+
+      {isCronStale && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3 text-amber-300 text-xs">
+          <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-semibold text-amber-200">Scheduled Cron Stale Alert</div>
+            <div>
+              No successful production ingestion run recorded within the last 26 hours.
+              {latestCompletedRun ? (
+                <span> Last success was on {new Date(latestCompletedRun.completedAt || latestCompletedRun.createdAt).toLocaleString()}.</span>
+              ) : (
+                <span> No successful durable run recorded yet.</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Manual Pipeline Execution */}
       <AdminPipelineTrigger />

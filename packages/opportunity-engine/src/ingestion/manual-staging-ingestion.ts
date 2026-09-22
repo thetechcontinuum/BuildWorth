@@ -78,7 +78,18 @@ export interface ManualIngestionRunResult {
   summary?: any;
 }
 
-const ALLOWLISTED_SOURCE_KEYS = ["hackernews", "reddit", "github", "producthunt", "krasia", "e27", "eustartups"];
+const ALLOWLISTED_SOURCE_KEYS = [
+  "hackernews",
+  "reddit",
+  "github",
+  "producthunt",
+  "krasia",
+  "e27",
+  "eustartups",
+  "siliconcanals",
+  "lobsters",
+  "techcrunch",
+];
 
 export function formatMeaningfulTitle(text: string, maxLen = 75): string {
   const cleaned = text
@@ -866,6 +877,54 @@ export async function executeManualStagingIngestion(
         attributionRequired: true,
         termsNotes: "Access blocked by publisher Cloudflare HTTP/2 403 bot protection. Verification failed on live feed probe; kept disabled per policy.",
       },
+      {
+        key: "siliconcanals",
+        name: "Silicon Canals",
+        description: "European startup intelligence and ecosystem news",
+        sourceFamily: "DISCOVERY",
+        baseUrl: "https://siliconcanals.com/feed/",
+        adapterType: "GENERIC_RSS",
+        accessMethod: "RSS",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official public RSS feed via siliconcanals.com/feed/. Editorial European tech and startup intelligence with attribution.",
+      },
+      {
+        key: "lobsters",
+        name: "Lobsters",
+        description: "Community developer discussions and computing problem friction",
+        sourceFamily: "COMMUNITY",
+        baseUrl: "https://lobste.rs/rss",
+        adapterType: "GENERIC_RSS",
+        accessMethod: "RSS",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official public RSS feed via lobste.rs/rss. Community developer discussions and external technical problem articles.",
+      },
+      {
+        key: "techcrunch",
+        name: "TechCrunch",
+        description: "Global startup, venture ecosystem, and technology market news",
+        sourceFamily: "DISCOVERY",
+        baseUrl: "https://techcrunch.com/feed/",
+        adapterType: "GENERIC_RSS",
+        accessMethod: "RSS",
+        isEnabled: false,
+        policyStatus: "REVIEW_REQUIRED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Feed available via techcrunch.com/feed/; kept disabled with status REVIEW_REQUIRED pending formal RSS commercial use and syndication compliance review.",
+      },
     ];
 
     try {
@@ -1116,7 +1175,10 @@ export async function executeManualStagingIngestion(
                 data: {
                   rawSignalId: rawRecord.id,
                   sourceId: src.id,
-                  signalType: src.key === "krasia" || src.key === "e27" ? "MARKET_ACTIVITY" : "PAIN",
+                  signalType:
+                    src.key === "krasia" || src.key === "e27" || src.key === "siliconcanals" || src.key === "techcrunch"
+                      ? "MARKET_ACTIVITY"
+                      : "PAIN",
                   evidenceOrigin: "COLLECTED",
                   originalUrl: raw.sourceUrl,
                   canonicalUrl,
