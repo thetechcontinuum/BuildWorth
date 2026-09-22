@@ -226,4 +226,89 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
       expect(overlappingResult.failureCode).toBe("CONCURRENT_RUN_IN_PROGRESS");
     });
   });
+
+  describe("Route-level /api/cron/discover handler authorization tests", () => {
+    // Simulates the exact route handler logic in apps/web/src/app/api/cron/discover/route.ts
+    const simulateRouteHandler = (req: {
+      headers: Record<string, string | null>;
+      searchParams: Record<string, string>;
+      secretEnv: string | null;
+    }) => {
+      const hasQueryParamsSecret =
+        "secret" in req.searchParams ||
+        "key" in req.searchParams ||
+        "cron_secret" in req.searchParams;
+
+      const authResult = verifyCronAuthorization({
+        authorizationHeader: req.headers["authorization"],
+        hasQueryParamsSecret,
+        serverCronSecret: req.secretEnv,
+        userAgent: req.headers["user-agent"],
+        vercelCronHeader: req.headers["x-vercel-cron"],
+        vercelCronSchedule: req.headers["x-vercel-cron-schedule"],
+      });
+
+      if (!authResult.authorized) {
+        return {
+          status: authResult.statusCode,
+          body: { error: authResult.error },
+        };
+      }
+
+      return {
+        status: 200,
+        body: { success: true, diagnostics: authResult.diagnostics },
+      };
+    };
+
+    it("route returns 401 on unauthenticated GET request", () => {
+      const res = simulateRouteHandler({
+        headers: {},
+        searchParams: {},
+        secretEnv: VALID_SECRET,
+      });
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe("Unauthorized: Valid Cron authentication required");
+    });
+
+    it("route returns 401 when attacker spoofs user-agent and vercel-cron headers without bearer", () => {
+      const res = simulateRouteHandler({
+        headers: {
+          "user-agent": "vercel-cron/1.0",
+          "x-vercel-cron": "1",
+        },
+        searchParams: {},
+        secretEnv: VALID_SECRET,
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it("route returns 403 when query-string secret is passed", () => {
+      const res = simulateRouteHandler({
+        headers: {
+          authorization: `Bearer ${VALID_SECRET}`,
+        },
+        searchParams: { secret: VALID_SECRET },
+        secretEnv: VALID_SECRET,
+      });
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("Query secrets are strictly forbidden");
+    });
+
+    it("route returns 200 on authorized Vercel cron invocation", () => {
+      const res = simulateRouteHandler({
+        headers: {
+          authorization: `Bearer ${VALID_SECRET}`,
+          "user-agent": "vercel-cron/1.0",
+          "x-vercel-cron": "1",
+          "x-vercel-cron-schedule": "0 0 * * *",
+        },
+        searchParams: {},
+        secretEnv: VALID_SECRET,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.diagnostics?.hasVercelCronHeader).toBe(true);
+    });
+  });
 });

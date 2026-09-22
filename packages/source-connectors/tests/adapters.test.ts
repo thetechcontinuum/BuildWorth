@@ -4,14 +4,18 @@ import { runAdapterIngestion } from "../src/runner.js";
 import { KrAsiaAdapter } from "../src/adapters/krasia.js";
 import { E27Adapter } from "../src/adapters/e27.js";
 import { deriveIndependenceKey } from "../src/sanitizer.js";
+import * as safeFetchModule from "../src/safe-fetch.js";
 
 describe("Source Registry & Adapters", () => {
-  it("has 7 registered adapters by default including Asian and European discovery sources", () => {
+  it("has 10 registered adapters by default including Asian, European, and developer discovery sources", () => {
     const adapters = sourceRegistry.getAllAdapters();
-    expect(adapters.length).toBe(7);
+    expect(adapters.length).toBe(10);
     expect(sourceRegistry.getAdapter("krasia")).toBeDefined();
     expect(sourceRegistry.getAdapter("e27")).toBeDefined();
     expect(sourceRegistry.getAdapter("eustartups")).toBeDefined();
+    expect(sourceRegistry.getAdapter("siliconcanals")).toBeDefined();
+    expect(sourceRegistry.getAdapter("lobsters")).toBeDefined();
+    expect(sourceRegistry.getAdapter("techcrunch")).toBeDefined();
   });
 
   it("returns zero items cleanly when external API is unreachable or unconfigured", async () => {
@@ -160,6 +164,108 @@ describe("Source Registry & Adapters", () => {
     it("returns zero items cleanly without fabricating mock data when access is restricted", async () => {
       const adapter = sourceRegistry.getAdapter("eustartups");
       expect(adapter).toBeDefined();
+      const signals = await adapter!.fetchSignals();
+      expect(signals.length).toBe(0);
+    });
+  });
+
+  describe("Silicon Canals RSS Adapter (Europe)", () => {
+    it("parses RSS XML, assigns Europe market, and enforces 280-char sanitized excerpts", async () => {
+      const adapter = sourceRegistry.getAdapter("siliconcanals");
+      expect(adapter).toBeDefined();
+
+      const mockXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<channel>
+  <title>Silicon Canals</title>
+  <item>
+    <title><![CDATA[Amsterdam AI compliance startup secures €3M to automate EU AI Act audits]]></title>
+    <link>https://siliconcanals.com/amsterdam-ai-compliance-startup-secures-funding/</link>
+    <guid>https://siliconcanals.com/?p=9821</guid>
+    <pubDate>Mon, 21 Sep 2026 11:00:00 +0000</pubDate>
+    <dc:creator><![CDATA[Editorial Team]]></dc:creator>
+    <description><![CDATA[The Netherlands-based regulatory automation firm has developed continuous model monitoring tools to assist enterprise compliance teams with forthcoming European risk assessments.]]></description>
+  </item>
+</channel>
+</rss>`;
+
+      const mockSafeFetch = vi.spyOn(safeFetchModule, "safeFetch").mockResolvedValueOnce({
+        status: 200,
+        headers: { "content-type": "application/rss+xml" },
+        data: mockXml,
+        finalUrl: "https://siliconcanals.com/feed/",
+        pinnedIp: "104.26.14.7",
+      });
+
+      const signals = await adapter!.fetchSignals();
+      expect(signals.length).toBe(1);
+      const sig = signals[0];
+      expect(sig.sourceKey).toBe("siliconcanals");
+      expect(sig.sourceUrl).toBe("https://siliconcanals.com/amsterdam-ai-compliance-startup-secures-funding/");
+      expect(sig.title).toContain("Amsterdam AI compliance startup");
+      expect(sig.rawContent.length).toBeLessThanOrEqual(280);
+      expect(sig.metadata?.market).toBe("Europe");
+      expect(sig.metadata?.sourceFamily).toBe("DISCOVERY");
+
+      mockSafeFetch.mockRestore();
+    });
+  });
+
+  describe("Lobsters RSS Adapter (Global Developer Community)", () => {
+    it("models as COMMUNITY and separates discussion URL from external article link", async () => {
+      const adapter = sourceRegistry.getAdapter("lobsters");
+      expect(adapter).toBeDefined();
+
+      const mockXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+  <title>Lobsters</title>
+  <item>
+    <title><![CDATA[Database connection pool exhaustion under serverless spiky workloads]]></title>
+    <link>https://example-eng-blog.com/serverless-db-pool-exhaustion</link>
+    <guid>https://lobste.rs/s/abc123/database_connection_pool_exhaustion</guid>
+    <comments>https://lobste.rs/s/abc123/database_connection_pool_exhaustion#comments</comments>
+    <pubDate>Sun, 20 Sep 2026 14:00:00 +0000</pubDate>
+    <author>infra_dev</author>
+    <description><![CDATA[Detailed analysis of how lambda concurrency spikes overwhelm RDS postgres connection pools without proxy layers.]]></description>
+  </item>
+</channel>
+</rss>`;
+
+      const mockSafeFetch = vi.spyOn(safeFetchModule, "safeFetch").mockResolvedValueOnce({
+        status: 200,
+        headers: { "content-type": "application/rss+xml" },
+        data: mockXml,
+        finalUrl: "https://lobste.rs/rss",
+        pinnedIp: "104.21.32.1",
+      });
+
+      const signals = await adapter!.fetchSignals();
+      expect(signals.length).toBe(1);
+      const sig = signals[0];
+      expect(sig.sourceKey).toBe("lobsters");
+      expect(sig.sourceUrl).toBe("https://example-eng-blog.com/serverless-db-pool-exhaustion");
+      expect(sig.metadata?.discussionUrl).toBe("https://lobste.rs/s/abc123/database_connection_pool_exhaustion");
+      expect(sig.metadata?.externalArticleUrl).toBe("https://example-eng-blog.com/serverless-db-pool-exhaustion");
+      expect(sig.metadata?.sourceFamily).toBe("COMMUNITY");
+      expect(sig.metadata?.market).toBe("Global / Developer Ecosystem");
+
+      mockSafeFetch.mockRestore();
+    });
+  });
+
+  describe("TechCrunch Adapter (REVIEW_REQUIRED status)", () => {
+    it("reports disabled status under REVIEW_REQUIRED pending RSS compliance review", () => {
+      const adapter = sourceRegistry.getAdapter("techcrunch");
+      expect(adapter).toBeDefined();
+      const health = adapter!.getHealth();
+      expect(health.isEnabled).toBe(false);
+      expect(health.policyStatus).toBe("REVIEW_REQUIRED");
+      expect(health.errorMessage).toContain("compliance confirmation");
+    });
+
+    it("returns zero items cleanly without fabricating fallback items", async () => {
+      const adapter = sourceRegistry.getAdapter("techcrunch");
       const signals = await adapter!.fetchSignals();
       expect(signals.length).toBe(0);
     });
