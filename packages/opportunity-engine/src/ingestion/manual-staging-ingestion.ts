@@ -78,7 +78,7 @@ export interface ManualIngestionRunResult {
   summary?: any;
 }
 
-const ALLOWLISTED_SOURCE_KEYS = ["hackernews", "reddit", "github", "producthunt", "krasia", "e27"];
+const ALLOWLISTED_SOURCE_KEYS = ["hackernews", "reddit", "github", "producthunt", "krasia", "e27", "eustartups"];
 
 export function formatMeaningfulTitle(text: string, maxLen = 75): string {
   const cleaned = text
@@ -849,6 +849,22 @@ export async function executeManualStagingIngestion(
         permittedExcerptLength: 280,
         attributionRequired: true,
         termsNotes: "Access blocked by publisher Cloudflare 403 bot protection and robots.txt AI training restrictions. Kept disabled until official partnership API is provisioned.",
+      },
+      {
+        key: "eustartups",
+        name: "EU-Startups",
+        description: "European startup intelligence and ecosystem news",
+        sourceFamily: "DISCOVERY",
+        baseUrl: "https://www.eu-startups.com/feed/",
+        adapterType: "GENERIC_RSS",
+        accessMethod: "RSS",
+        isEnabled: false,
+        policyStatus: "REVIEW_REQUIRED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Access blocked by publisher Cloudflare HTTP/2 403 bot protection. Verification failed on live feed probe; kept disabled per policy.",
       },
     ];
 
@@ -1642,10 +1658,11 @@ export async function executeManualStagingIngestion(
       }
 
       // 6b. Cluster genuinely different problems into separate candidates
-      if (unmatchedPool.length > 0 && publishedCount < maxPublishedOpportunities) {
+      if (unmatchedPool.length > 0 && candidateEvaluations.length < maxCandidates) {
         const newClusters = clusterSignals(unmatchedPool, 0.75);
         totalClustersDiscovered += newClusters.length;
-        for (const cl of newClusters.slice(0, maxPublishedOpportunities - publishedCount)) {
+        const availableCandidateSlots = Math.max(0, maxCandidates - candidateEvaluations.length);
+        for (const cl of newClusters.slice(0, availableCandidateSlots)) {
           const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
           for (const sigId of cl.signalIds) {
             const normSig = await prisma.normalizedSignal.findUnique({
@@ -1730,7 +1747,7 @@ export async function executeManualStagingIngestion(
             metrics: qualityResult.metrics,
           });
 
-          if (isVerified) {
+          if (isVerified && publishedCount < maxPublishedOpportunities) {
             publishedSlugs.push(generatedSlug);
             publishedCount++;
           }
@@ -1741,10 +1758,10 @@ export async function executeManualStagingIngestion(
       // 6c. Cold initial clustering when no previous opportunity exists
       const clusters = clusterCandidates.length > 0 ? clusterSignals(clusterCandidates, 0.75) : [];
       totalClustersDiscovered = clusters.length;
-      const boundedClusters = clusters.slice(0, maxPublishedOpportunities);
+      const boundedClusters = clusters.slice(0, maxCandidates);
 
       for (const cl of boundedClusters) {
-        if (Date.now() > deadline || publishedCount >= maxPublishedOpportunities) break;
+        if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates) break;
 
         const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
         for (const sigId of cl.signalIds) {
@@ -1825,7 +1842,7 @@ export async function executeManualStagingIngestion(
           metrics: qualityResult.metrics,
         });
 
-        if (isVerified) {
+        if (isVerified && publishedCount < maxPublishedOpportunities) {
           publishedSlugs.push(generatedSlug);
           publishedCount++;
         }

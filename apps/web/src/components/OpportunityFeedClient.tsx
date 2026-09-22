@@ -15,8 +15,10 @@ import {
 import { ScoreBadge, ConfidenceMeter } from "@buildworth/ui";
 import { StoredOpportunity, INITIAL_OPPORTUNITIES } from "@/lib/opportunity-store";
 import { WatchOpportunityButton } from "@/components/WatchOpportunityButton";
+import { DiscoveryFeedSection } from "@/components/DiscoveryFeedSection";
 
 export function OpportunityFeedClient() {
+  const [activeTab, setActiveTab] = useState<"VERIFIED" | "DISCOVERY">("VERIFIED");
   const [opportunities] = useState<StoredOpportunity[]>(INITIAL_OPPORTUNITIES);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndustry, setSelectedIndustry] = useState<string>("ALL");
@@ -83,7 +85,44 @@ export function OpportunityFeedClient() {
         </div>
       </div>
 
-      {/* Search and Filters Bar */}
+      {/* Feed Mode Switcher */}
+      <div className="flex border-b border-zinc-800 text-sm font-medium">
+        <button
+          onClick={() => setActiveTab("VERIFIED")}
+          className={`pb-3 px-4 border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === "VERIFIED"
+              ? "border-indigo-500 text-white"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <span>Verified Opportunities</span>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            Policy v2.0.0
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("DISCOVERY")}
+          className={`pb-3 px-4 border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === "DISCOVERY"
+              ? "border-amber-500 text-white"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-400" />
+          <span>New Ideas to Explore</span>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            Early Signals
+          </span>
+        </button>
+      </div>
+
+      {activeTab === "DISCOVERY" ? (
+        <DiscoveryFeedSection />
+      ) : (
+        <>
+          {/* Search and Filters Bar */}
       <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 space-y-4">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -381,6 +420,8 @@ export function OpportunityFeedClient() {
           })
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ export * from "./adapters/github.js";
 export * from "./adapters/producthunt.js";
 export * from "./adapters/krasia.js";
 export * from "./adapters/e27.js";
+export * from "./adapters/eustartups.js";
 export * from "./adapters/generic-rss.js";
 export * from "./registry.js";
 export * from "./runner.js";

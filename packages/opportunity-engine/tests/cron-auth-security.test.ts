@@ -117,6 +117,43 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
       expect(JSON.stringify(res)).not.toContain(VALID_SECRET);
       expect(JSON.stringify(res)).not.toContain("bad_secret");
     });
+
+    it("ensures spoofed headers never bypass authentication or authorize ingestion", () => {
+      // Attacker attempts every combination of spoofed headers without the bearer token
+      const spoofedAttempts = [
+        { userAgent: "vercel-cron/1.0" },
+        { vercelCronHeader: "1" },
+        { vercelCronSchedule: "0 0 * * *" },
+        { userAgent: "vercel-cron/1.0", vercelCronHeader: "1" },
+        { userAgent: "vercel-cron/1.0", vercelCronSchedule: "0 0 * * *" },
+        { vercelCronHeader: "1", vercelCronSchedule: "0 0 * * *" },
+        { userAgent: "vercel-cron/1.0", vercelCronHeader: "1", vercelCronSchedule: "0 0 * * *" },
+      ];
+
+      for (const attempt of spoofedAttempts) {
+        const res = verifyCronAuthorization({
+          serverCronSecret: VALID_SECRET,
+          authorizationHeader: null,
+          ...attempt,
+        });
+        expect(res.authorized).toBe(false);
+        expect(res.statusCode).toBe(401);
+      }
+    });
+
+    it("verifies legitimate invocation with valid Bearer token and Vercel headers is accepted", () => {
+      const res = verifyCronAuthorization({
+        serverCronSecret: VALID_SECRET,
+        authorizationHeader: `Bearer ${VALID_SECRET}`,
+        userAgent: "vercel-cron/1.0",
+        vercelCronHeader: "1",
+        vercelCronSchedule: "0 0 * * *",
+      });
+      expect(res.authorized).toBe(true);
+      expect(res.statusCode).toBe(200);
+      expect(res.diagnostics?.hasVercelCronHeader).toBe(true);
+      expect(res.diagnostics?.cronSchedule).toBe("0 0 * * *");
+    });
   });
 
   describe("Lease-protected overlapping execution invariants", () => {

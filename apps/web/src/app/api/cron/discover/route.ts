@@ -1,21 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@buildworth/database";
-import { executeManualStagingIngestion } from "@buildworth/opportunity-engine";
+import { executeManualStagingIngestion, verifyCronAuthorization } from "@buildworth/opportunity-engine";
 import { logger } from "@buildworth/observability";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function timingSafeEqualStr(a: string, b: string): boolean {
-  const bufA = Buffer.from(a.trim());
-  const bufB = Buffer.from(b.trim());
-  if (bufA.length !== bufB.length) {
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
-}
 
 export async function GET(request: NextRequest) {
   return handleScheduledIngestion(request);
@@ -26,41 +16,40 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleScheduledIngestion(request: NextRequest) {
-  // 1. Strict Authenticated Caller Check
-  // Reject if secrets are passed in query params
-  if (
+  // 1. Strict Authenticated Caller Check via shared verifyCronAuthorization
+  const hasQueryParamsSecret =
     request.nextUrl.searchParams.has("secret") ||
     request.nextUrl.searchParams.has("key") ||
-    request.nextUrl.searchParams.has("cron_secret")
-  ) {
-    return NextResponse.json({ error: "Query secrets are strictly forbidden" }, { status: 403 });
-  }
+    request.nextUrl.searchParams.has("cron_secret");
 
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || cronSecret.trim().length < 16) {
-    logger.error("Production ingestion cron rejected: CRON_SECRET is missing or misconfigured");
-    return NextResponse.json({ error: "Unauthorized: Valid Cron authentication required" }, { status: 401 });
-  }
+  const authResult = verifyCronAuthorization({
+    authorizationHeader: request.headers.get("authorization"),
+    hasQueryParamsSecret,
+    serverCronSecret: process.env.CRON_SECRET,
+    userAgent: request.headers.get("user-agent"),
+    vercelCronHeader: request.headers.get("x-vercel-cron"),
+    vercelCronSchedule: request.headers.get("x-vercel-cron-schedule"),
+  });
 
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    logger.warn("Unauthorized attempt to trigger production ingestion cron: missing or non-Bearer authorization header");
-    return NextResponse.json({ error: "Unauthorized: Valid Cron authentication required" }, { status: 401 });
-  }
-
-  const token = authHeader.slice("Bearer ".length).trim();
-  if (!timingSafeEqualStr(token, cronSecret)) {
-    logger.warn("Unauthorized attempt to trigger production ingestion cron: invalid bearer token");
-    return NextResponse.json({ error: "Unauthorized: Valid Cron authentication required" }, { status: 401 });
+  if (!authResult.authorized) {
+    if (authResult.statusCode === 403) {
+      return NextResponse.json({ error: authResult.error }, { status: 403 });
+    }
+    logger.warn("Unauthorized attempt to trigger production ingestion cron", {
+      statusCode: authResult.statusCode,
+      hasAuthHeader: !!request.headers.get("authorization"),
+    });
+    return NextResponse.json(
+      { error: authResult.error || "Unauthorized: Valid Cron authentication required" },
+      { status: authResult.statusCode },
+    );
   }
 
   // Diagnostic metadata only - attacker-controlled headers must never replace Authorization
-  const hasVercelCronHeader = request.headers.get("x-vercel-cron") === "1";
-  const cronSchedule = request.headers.get("x-vercel-cron-schedule") || null;
-  if (hasVercelCronHeader || cronSchedule) {
+  if (authResult.diagnostics?.hasVercelCronHeader || authResult.diagnostics?.cronSchedule) {
     logger.info("Cron invocation authenticated with Vercel diagnostic headers present", {
-      hasVercelCronHeader,
-      cronSchedule,
+      hasVercelCronHeader: authResult.diagnostics.hasVercelCronHeader,
+      cronSchedule: authResult.diagnostics.cronSchedule,
     });
   }
 

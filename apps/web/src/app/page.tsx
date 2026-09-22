@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Activity } from "lucide-react";
 import { ScoreBadge, ConfidenceMeter } from "@buildworth/ui";
 import { formatMoneyRange } from "@buildworth/shared";
+import { DiscoveryFeedSection } from "@/components/DiscoveryFeedSection";
 
 export default function HomePage() {
   const featuredOpportunities = [
@@ -124,6 +125,9 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+
+      {/* Discovery Feed Section: New ideas to explore */}
+      <DiscoveryFeedSection />
     </div>
   );
 }
