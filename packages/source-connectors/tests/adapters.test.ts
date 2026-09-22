@@ -6,11 +6,12 @@ import { E27Adapter } from "../src/adapters/e27.js";
 import { deriveIndependenceKey } from "../src/sanitizer.js";
 
 describe("Source Registry & Adapters", () => {
-  it("has 6 registered adapters by default including Asian discovery sources", () => {
+  it("has 7 registered adapters by default including Asian and European discovery sources", () => {
     const adapters = sourceRegistry.getAllAdapters();
-    expect(adapters.length).toBe(6);
+    expect(adapters.length).toBe(7);
     expect(sourceRegistry.getAdapter("krasia")).toBeDefined();
     expect(sourceRegistry.getAdapter("e27")).toBeDefined();
+    expect(sourceRegistry.getAdapter("eustartups")).toBeDefined();
   });
 
   it("returns zero items cleanly when external API is unreachable or unconfigured", async () => {
@@ -141,6 +142,25 @@ describe("Source Registry & Adapters", () => {
     it("returns zero items cleanly without fabricating mock data when access is restricted", async () => {
       const adapter = new E27Adapter();
       const signals = await adapter.fetchSignals();
+      expect(signals.length).toBe(0);
+    });
+  });
+
+  describe("EU-Startups Adapter (Access Verification & Restriction Handling)", () => {
+    it("reports disabled status with documented Cloudflare 403 challenge blockers", () => {
+      const adapter = sourceRegistry.getAdapter("eustartups");
+      expect(adapter).toBeDefined();
+      expect(adapter?.sourceKey).toBe("eustartups");
+      expect(adapter?.adapterType).toBe("GENERIC_RSS");
+      const health = adapter?.getHealth();
+      expect(health?.isEnabled).toBe(false);
+      expect(health?.errorMessage).toContain("Cloudflare HTTP/2 403 challenge");
+    });
+
+    it("returns zero items cleanly without fabricating mock data when access is restricted", async () => {
+      const adapter = sourceRegistry.getAdapter("eustartups");
+      expect(adapter).toBeDefined();
+      const signals = await adapter!.fetchSignals();
       expect(signals.length).toBe(0);
     });
   });

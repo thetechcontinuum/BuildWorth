@@ -20,3 +20,4 @@ export * from "./access/content-policy-service.js";
 export * from "./exports/export-service.js";
 export * from "./ingestion/manual-staging-ingestion.js";
 export * from "./ingestion/cron-auth.js";
+export * from "./discovery/discovery-service.js";

@@ -74,11 +74,19 @@ export default async function AdminHomePage() {
     },
   });
 
-  // 3. Source health metrics
-  const totalSources = await prisma.source.count();
-  const enabledSourcesCount = await prisma.source.count({
-    where: { isEnabled: true },
+  // 3. Source health metrics & per-source status
+  const allDbSources = await prisma.source.findMany({
+    include: {
+      runs: {
+        orderBy: { startedAt: "desc" },
+        take: 5,
+      },
+    },
+    orderBy: { name: "asc" },
   });
+
+  const totalSources = allDbSources.length;
+  const enabledSourcesCount = allDbSources.filter((s: any) => s.isEnabled).length;
   const disabledSourcesCount = totalSources - enabledSourcesCount;
 
   const latestCollection = await prisma.source.findFirst({
@@ -238,18 +246,25 @@ export default async function AdminHomePage() {
                   <div className="text-white font-mono font-bold">{latestRun.totalFetched}</div>
                 </div>
                 <div className="p-2.5 rounded-lg bg-zinc-900/40 border border-zinc-800/60">
-                  <div className="text-zinc-500 text-[10px] uppercase">Candidates</div>
-                  <div className="text-white font-mono font-bold">{latestRun.candidatesCount}</div>
+                  <div className="text-zinc-500 text-[10px] uppercase">Early Ideas Created</div>
+                  <div className="text-amber-400 font-mono font-bold">{latestRun.candidatesCount}</div>
                 </div>
                 <div className="p-2.5 rounded-lg bg-zinc-900/40 border border-zinc-800/60">
-                  <div className="text-zinc-500 text-[10px] uppercase">Published</div>
-                  <div className="text-white font-mono font-bold">{latestRun.publishedCount}</div>
+                  <div className="text-zinc-500 text-[10px] uppercase">Verified Published</div>
+                  <div className="text-emerald-400 font-mono font-bold">{latestRun.publishedCount}</div>
                 </div>
               </div>
-              <div className="text-[11px] text-zinc-500">
-                Started: {new Date(latestRun.createdAt).toLocaleString()}
-                {latestRun.failureCode && (
-                  <span className="text-rose-400 ml-2 font-mono">[{latestRun.failureCode}]</span>
+              <div className="flex flex-wrap items-center justify-between text-[11px] text-zinc-500 pt-1 border-t border-zinc-800/60">
+                <div>
+                  Started: {new Date(latestRun.createdAt).toLocaleString()}
+                  {latestRun.failureCode && (
+                    <span className="text-rose-400 ml-2 font-mono">[{latestRun.failureCode}]</span>
+                  )}
+                </div>
+                {latestRun.completedAt && (
+                  <div className="font-mono text-zinc-400">
+                    Duration: {Math.max(1, Math.round((new Date(latestRun.completedAt).getTime() - new Date(latestRun.createdAt).getTime()) / 1000))}s
+                  </div>
                 )}
               </div>
             </div>
@@ -298,6 +313,106 @@ export default async function AdminHomePage() {
               </span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Sources Health & Per-Source Operational Status */}
+      <div className="p-6 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Database className="w-4 h-4 text-indigo-400" /> Source Registry & Operational Health
+          </h2>
+          <span className="text-xs text-zinc-500 font-mono">
+            {enabledSourcesCount} of {totalSources} Active
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs text-zinc-300">
+            <thead>
+              <tr className="border-b border-zinc-800 text-zinc-500 text-[11px] uppercase tracking-wider">
+                <th className="pb-3 font-medium">Source</th>
+                <th className="pb-3 font-medium">Family</th>
+                <th className="pb-3 font-medium">Status</th>
+                <th className="pb-3 font-medium">Last Successful Collection</th>
+                <th className="pb-3 font-medium">Recent Runs & Status</th>
+                <th className="pb-3 font-medium">Policy Notes / Errors</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-900">
+              {allDbSources.map((source: any) => {
+                const latestRun = source.runs?.[0];
+                const failedRunsCount = (source.runs || []).filter((r: any) => r.status === "FAILED").length;
+
+                return (
+                  <tr key={source.id} className="hover:bg-zinc-900/30 transition-colors">
+                    <td className="py-3 pr-3 font-medium text-white flex items-center gap-2">
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          source.isEnabled ? "bg-emerald-400" : "bg-zinc-600"
+                        }`}
+                      />
+                      <span>{source.name}</span>
+                      <span className="text-zinc-500 font-mono text-[10px]">({source.key})</span>
+                    </td>
+                    <td className="py-3 pr-3 font-mono text-[11px] text-zinc-400">
+                      {source.sourceFamily || "COMMUNITY"}
+                    </td>
+                    <td className="py-3 pr-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase ${
+                          source.isEnabled
+                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                            : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                        }`}
+                      >
+                        {source.isEnabled ? "ENABLED" : "DISABLED"}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-3 font-mono text-[11px] text-zinc-400">
+                      {source.lastSuccessfulCollection
+                        ? new Date(source.lastSuccessfulCollection).toLocaleString()
+                        : "Never"}
+                    </td>
+                    <td className="py-3 pr-3">
+                      {latestRun ? (
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
+                              latestRun.status === "SUCCESS"
+                                ? "bg-emerald-500/10 text-emerald-400"
+                                : "bg-rose-500/10 text-rose-400"
+                            }`}
+                          >
+                            {latestRun.status}
+                          </span>
+                          <span className="text-zinc-500 text-[10px]">
+                            ({latestRun.signalsIngested} signals)
+                          </span>
+                          {failedRunsCount > 0 && (
+                            <span className="text-rose-400 text-[10px] font-mono">
+                              [{failedRunsCount} err]
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-zinc-600 text-[10px]">No runs</span>
+                      )}
+                    </td>
+                    <td className="py-3 text-[11px] text-zinc-400 max-w-xs truncate" title={source.termsNotes || latestRun?.errorMessage || ""}>
+                      {latestRun?.errorMessage ? (
+                        <span className="text-rose-400">{latestRun.errorMessage}</span>
+                      ) : source.termsNotes ? (
+                        <span className="text-zinc-500">{source.termsNotes}</span>
+                      ) : (
+                        <span className="text-zinc-600">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

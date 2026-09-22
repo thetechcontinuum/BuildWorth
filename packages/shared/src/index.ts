@@ -12,3 +12,4 @@ export * from "./types/founder-fit.js";
 export * from "./types/entitlements.js";
 export * from "./types/content-policy.js";
 export * from "./types/commercial-events.js";
+export * from "./types/discovery.js";

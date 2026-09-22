@@ -5,6 +5,7 @@ import { GitHubIssuesAdapter } from "./adapters/github.js";
 import { ProductHuntAdapter } from "./adapters/producthunt.js";
 import { KrAsiaAdapter } from "./adapters/krasia.js";
 import { E27Adapter } from "./adapters/e27.js";
+import { EUStartupsAdapter } from "./adapters/eustartups.js";
 import { GenericRssAdapter, GenericRssConfig } from "./adapters/generic-rss.js";
 import { SourceHealthStatus } from "./types.js";
 
@@ -18,6 +19,7 @@ export class SourceRegistry {
     this.register(new ProductHuntAdapter());
     this.register(new KrAsiaAdapter());
     this.register(new E27Adapter());
+    this.register(new EUStartupsAdapter());
   }
 
   public register(adapter: BaseSourceAdapter): void {
