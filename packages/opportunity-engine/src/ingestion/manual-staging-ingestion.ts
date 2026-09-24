@@ -1277,7 +1277,7 @@ export async function executeManualStagingIngestion(
     const clusterCandidates: ClusterCandidate[] = [];
 
     for (const item of sanitizedSignalsToProcess) {
-      if (Date.now() > deadline - 4000 || clusterCandidates.length >= maxCandidates) break;
+      if (Date.now() > deadline - 4000) break;
 
       try {
         const classification = await classifySignal(aiProvider, item.excerpt, item.title);
@@ -1358,6 +1358,8 @@ export async function executeManualStagingIngestion(
     // 5. Semantic Clustering & Evidence Expansion Path
     const candidateEvaluations: any[] = [];
     let totalClustersDiscovered = 0;
+    let matchedToTargetCount = 0;
+    let unmatchedPoolCount = 0;
 
     // Query for an existing target persisted candidate to expand evidence for
     const existingCandidates = await prisma.opportunity.findMany({
@@ -1426,6 +1428,8 @@ export async function executeManualStagingIngestion(
           unmatchedPool.push(item);
         }
       }
+      matchedToTargetCount = matchedToTarget.length;
+      unmatchedPoolCount = unmatchedPool.length;
 
       const newTargetVerifiedSignals: Array<{
         normalizedSignal: any;
@@ -1918,6 +1922,9 @@ export async function executeManualStagingIngestion(
       normalizedSignalsCount,
       historicalSignalsCount,
       currentSignalsCount,
+      candidatesClassifiedCount: clusterCandidates.length,
+      matchedToTargetCount,
+      unmatchedPoolCount,
       perSourceStats,
       candidateEvaluations,
     };
@@ -1938,6 +1945,8 @@ export async function executeManualStagingIngestion(
       publishedSlugs,
       historicalSignalsCount,
       currentSignalsCount,
+      candidatesClassifiedCount: clusterCandidates.length,
+      clustersDiscovered: totalClustersDiscovered,
       candidateEvaluationsCount: candidateEvaluations.length,
     });
 
