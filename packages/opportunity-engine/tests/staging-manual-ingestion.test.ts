@@ -644,4 +644,130 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       expect(wtpLinks.length).toBe(0);
     });
   });
+
+  describe("Pipeline Throughput & Candidate Bound Integrity", () => {
+    it("classifies all signals even when signal count exceeds maxCandidates, clustering into separate candidates", async () => {
+      // Return 6 distinct signals from HN
+      fetchSpy.mockImplementation(async (url: any) => {
+        const urlStr = String(url);
+        if (urlStr.includes("algolia")) {
+          return {
+            ok: true,
+            json: async () => ({
+              hits: [
+                {
+                  objectID: "sig-topic-a-1",
+                  title: "Kafka schema registry migration issues in production",
+                  story_text: "Our schema migrations in Kafka fail constantly during deploys.",
+                  author: "dev_a1",
+                  created_at: new Date().toISOString(),
+                },
+                {
+                  objectID: "sig-topic-a-2",
+                  title: "Kafka schema evolution causes consumer downtime",
+                  story_text: "Managing schema evolution across teams is causing severe drift.",
+                  author: "dev_a2",
+                  created_at: new Date().toISOString(),
+                },
+                {
+                  objectID: "sig-topic-b-1",
+                  title: "FinOps Kubernetes cloud billing reconciliation headache",
+                  story_text: "Reconciling spot instances across multi-region EKS is impossible.",
+                  author: "dev_b1",
+                  created_at: new Date().toISOString(),
+                },
+                {
+                  objectID: "sig-topic-b-2",
+                  title: "Kubernetes pod cost allocation attribution gap",
+                  story_text: "We cannot attribute AWS costs to specific engineering squads.",
+                  author: "dev_b2",
+                  created_at: new Date().toISOString(),
+                },
+                {
+                  objectID: "sig-topic-c-1",
+                  title: "SOC2 compliance audit evidence collection takes weeks",
+                  story_text: "Gathering screenshot evidence manually for SOC2 audits is painful.",
+                  author: "dev_c1",
+                  created_at: new Date().toISOString(),
+                },
+                {
+                  objectID: "sig-topic-c-2",
+                  title: "Continuous compliance monitoring for AWS IAM policies",
+                  story_text: "Auditors need automated evidence trails for IAM changes.",
+                  author: "dev_c2",
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }),
+          } as any;
+        }
+        return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
+      });
+
+      const clusterEmbeddingAi: any = {
+        name: "test-cluster-ai",
+        generateStructured: async (messages: any) => {
+          const userMsg = messages.find((m: any) => m.role === "user")?.content || "";
+          if (userMsg.includes("Classify this")) {
+            return {
+              data: { signalType: "PROBLEM_STATEMENT", confidenceScore: 90 },
+              rawResponse: JSON.stringify({ signalType: "PROBLEM_STATEMENT", confidenceScore: 90 }),
+            };
+          }
+          const isKafka = userMsg.includes("Kafka");
+          const isK8s = userMsg.includes("Kubernetes") || userMsg.includes("FinOps") || userMsg.includes("billing");
+          const problemSummary = isKafka
+            ? "Kafka schema registry migration issues in production"
+            : isK8s
+            ? "FinOps Kubernetes cloud billing reconciliation headache"
+            : "SOC2 compliance audit evidence collection takes weeks";
+          const workflowContext = isKafka ? "Kafka Schema" : isK8s ? "FinOps K8s" : "SOC2 Compliance";
+
+          const data = {
+            signalType: "PROBLEM_STATEMENT",
+            sanitizedExcerpt: userMsg.slice(0, 100),
+            problemSummary,
+            actorRole: "Platform Engineer",
+            workflowContext,
+            severityScore: 4,
+            frequencyScore: 4,
+            intentToPayScore: 3,
+            extractedEntities: ["Cloud Infrastructure"],
+            confidenceScore: 85,
+          };
+          return { data, rawResponse: JSON.stringify(data) };
+        },
+        generateEmbedding: async (text: string) => {
+          const emb = new Array(64).fill(0);
+          if (text.includes("Kafka")) {
+            emb[0] = 1.0;
+          } else if (text.includes("Kubernetes") || text.includes("FinOps") || text.includes("billing")) {
+            emb[20] = 1.0;
+          } else {
+            emb[40] = 1.0;
+          }
+          return { embedding: emb, dimensions: 64, costMinorUnits: 0 };
+        },
+      };
+
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-throughput-clustering-005",
+        aiProvider: clusterEmbeddingAi,
+        maxCandidates: 3,
+        maxRawSignals: 20,
+      });
+
+      expect(run.status).toBe("COMPLETED");
+
+      // Verify that all 6 signals were classified and embedded despite maxCandidates = 3
+      const completedRun = prisma._store.ingestionRuns.find((r: any) => r.idempotencyKey === "run-throughput-clustering-005");
+      expect(completedRun).toBeDefined();
+      expect(completedRun.summary.candidatesClassifiedCount).toBe(6);
+
+      // Verify that clusters were formed and opportunities were created up to maxCandidates
+      expect(completedRun.summary.clustersDiscovered).toBeGreaterThanOrEqual(2);
+      expect(prisma._store.opportunities.length).toBeGreaterThanOrEqual(2);
+      expect(prisma._store.opportunities.length).toBeLessThanOrEqual(3);
+    });
+  });
 });
