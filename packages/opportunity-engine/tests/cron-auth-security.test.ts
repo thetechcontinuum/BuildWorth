@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { verifyCronAuthorization } from "../src/ingestion/cron-auth.js";
+import { verifyCronAuthorization, getDailyCronIdempotencyKey } from "../src/ingestion/cron-auth.js";
 import { executeManualStagingIngestion } from "../src/index.js";
 
 describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", () => {
@@ -310,5 +310,167 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
       expect(res.body.success).toBe(true);
       expect(res.body.diagnostics?.hasVercelCronHeader).toBe(true);
     });
+
+    it("route returns 200 on authorized GitHub Actions fallback invocation (without Vercel headers)", () => {
+      const res = simulateRouteHandler({
+        headers: {
+          authorization: `Bearer ${VALID_SECRET}`,
+          "user-agent": "GitHub-Actions-Ingestion-Fallback",
+        },
+        searchParams: {},
+        secretEnv: VALID_SECRET,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.diagnostics?.hasVercelCronHeader).toBe(false);
+    });
+  });
+
+  describe("Deterministic per-UTC-day idempotency across callers", () => {
+    it("produces identical idempotency keys for both Vercel Cron and fallback callers on the same UTC day", () => {
+      // 00:00 UTC (Vercel Cron schedule)
+      const vercelCronTime = new Date("2026-09-25T00:00:15.000Z");
+      // 01:15 UTC (GitHub Actions scheduled fallback)
+      const fallbackTime = new Date("2026-09-25T01:15:30.000Z");
+      // 08:30 UTC (manual recovery dispatch on the same day)
+      const manualDispatchTime = new Date("2026-09-25T08:30:00.000Z");
+
+      const key1 = getDailyCronIdempotencyKey(vercelCronTime);
+      const key2 = getDailyCronIdempotencyKey(fallbackTime);
+      const key3 = getDailyCronIdempotencyKey(manualDispatchTime);
+
+      expect(key1).toBe("cron-prod-ingest-2026-09-25");
+      expect(key2).toBe("cron-prod-ingest-2026-09-25");
+      expect(key3).toBe("cron-prod-ingest-2026-09-25");
+      expect(key1).toBe(key2);
+      expect(key2).toBe(key3);
+    });
+
+    it("produces a different idempotency key on the next UTC day", () => {
+      const day1 = new Date("2026-09-25T23:59:59.000Z");
+      const day2 = new Date("2026-09-26T00:00:01.000Z");
+
+      expect(getDailyCronIdempotencyKey(day1)).toBe("cron-prod-ingest-2026-09-25");
+      expect(getDailyCronIdempotencyKey(day2)).toBe("cron-prod-ingest-2026-09-26");
+      expect(getDailyCronIdempotencyKey(day1)).not.toBe(getDailyCronIdempotencyKey(day2));
+    });
+
+    it("prevents duplicate execution when either caller runs first on the same day", async () => {
+      const store = {
+        ingestionRuns: [] as any[],
+        sources: [
+          { id: "src-hn", key: "hackernews", name: "Hacker News", isEnabled: true, permittedExcerptLength: 280 },
+          { id: "src-gh", key: "github", name: "GitHub", isEnabled: true, permittedExcerptLength: 280 },
+        ],
+        sourceRuns: [] as any[],
+        rawSignals: [] as any[],
+        normalizedSignals: [] as any[],
+        opportunities: [] as any[],
+        scorecards: [] as any[],
+        revisions: [] as any[],
+        blueprints: [] as any[],
+        evidenceLinks: [] as any[],
+        auditLogs: [] as any[],
+      };
+
+      const mockPrisma: any = {
+        _store: store,
+        $transaction: async (fn: any) => fn(mockPrisma),
+        $executeRawUnsafe: async () => {},
+        ingestionRun: {
+          findUnique: async ({ where }: any) => {
+            return store.ingestionRuns.find((r) => r.idempotencyKey === where.idempotencyKey) || null;
+          },
+          findFirst: async ({ where }: any) => {
+            return store.ingestionRuns.find((r) => {
+              if (where.status && r.status !== where.status) return false;
+              if (where.lockedUntil?.gt && !(r.lockedUntil > where.lockedUntil.gt)) return false;
+              return true;
+            }) || null;
+          },
+          create: async ({ data }: any) => {
+            const record = { id: "run-" + (store.ingestionRuns.length + 1), ...data, createdAt: new Date() };
+            store.ingestionRuns.push(record);
+            return record;
+          },
+          update: async ({ where, data }: any) => {
+            const item = store.ingestionRuns.find((r) => r.id === where.id);
+            if (!item) throw new Error("Not found");
+            Object.assign(item, data);
+            return item;
+          },
+        },
+        source: {
+          findMany: async ({ where, take }: any) => {
+            let list = store.sources.filter((s) => {
+              if (where?.isEnabled !== undefined && s.isEnabled !== where.isEnabled) return false;
+              return true;
+            });
+            if (take) list = list.slice(0, take);
+            return list;
+          },
+          create: async ({ data }: any) => {
+            const rec = { id: "src-" + (store.sources.length + 1), ...data };
+            store.sources.push(rec);
+            return rec;
+          },
+          update: async ({ where, data }: any) => {
+            const item = store.sources.find((s) => s.id === where.id);
+            if (item) Object.assign(item, data);
+            return item;
+          },
+        },
+        sourceRun: {
+          create: async ({ data }: any) => data,
+          update: async ({ data }: any) => data,
+        },
+        rawSignal: {
+          findUnique: async () => null,
+          create: async ({ data }: any) => ({ id: "raw-1", ...data }),
+        },
+        normalizedSignal: {
+          findMany: async () => [],
+          findFirst: async () => null,
+          findUnique: async () => null,
+          create: async ({ data }: any) => ({ id: "norm-1", ...data }),
+        },
+        opportunity: {
+          findMany: async () => [],
+          findUnique: async () => null,
+          create: async ({ data }: any) => ({ id: "opp-1", ...data }),
+          update: async ({ data }: any) => data,
+        },
+        auditLog: {
+          create: async ({ data }: any) => {
+            store.auditLogs.push(data);
+            return data;
+          },
+        },
+      };
+
+      const sharedKey = getDailyCronIdempotencyKey(new Date("2026-09-25T01:15:00.000Z"));
+
+
+      // Caller 1 (e.g. Vercel Cron or Fallback running first) executes successfully
+      const firstResult = await executeManualStagingIngestion(mockPrisma, {
+        idempotencyKey: sharedKey,
+        workerId: "caller-1",
+      });
+      expect(firstResult.status).toBe("COMPLETED");
+      expect(firstResult.isExisting).toBeFalsy();
+
+      // Caller 2 (e.g. Fallback scheduled 01:15 UTC when Vercel already ran, or vice-versa)
+      const secondResult = await executeManualStagingIngestion(mockPrisma, {
+        idempotencyKey: sharedKey,
+        workerId: "caller-2",
+      });
+      expect(secondResult.status).toBe("COMPLETED");
+      expect(secondResult.isExisting).toBe(true);
+      expect(secondResult.runId).toBe(firstResult.runId);
+
+      // Verify only ONE IngestionRun was created in the database
+      expect(store.ingestionRuns).toHaveLength(1);
+    });
   });
 });
+

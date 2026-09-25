@@ -1,0 +1,68 @@
+name: Production Ingestion Fallback
+
+on:
+  schedule:
+    # 01:15 UTC every day (approx 75 minutes after 00:00 UTC Vercel cron window)
+    - cron: "15 1 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: production-ingestion-cron
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fallback-ingestion:
+    name: Invoke Production Ingestion Endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger Daily Ingestion Job
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret is not configured in repository secrets."
+            exit 1
+          fi
+
+          echo "Invoking production discovery cron endpoint..."
+          TARGET_URL="https://build-worth-web.vercel.app/api/cron/discover"
+
+          # Perform invocation with Bearer token authentication in Authorization header
+          # Secrets are masked by GitHub Actions runner and never printed in URLs or command output
+          HTTP_RESPONSE=$(curl -sS -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}" \
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: GitHub-Actions-Ingestion-Fallback/1.0" \
+            -H "Content-Type: application/json" \
+            --max-time 120 \
+            "$TARGET_URL")
+
+          HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed -e '/HTTP_STATUS:/,$d')
+          HTTP_STATUS=$(echo "$HTTP_RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+          TIME_TOTAL=$(echo "$HTTP_RESPONSE" | grep "TIME_TOTAL:" | cut -d: -f2)
+
+          echo "Response HTTP Status: $HTTP_STATUS (Elapsed: ${TIME_TOTAL}s)"
+
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "::error::Production cron invocation failed with HTTP $HTTP_STATUS"
+            echo "Sanitized Response Body:"
+            echo "$HTTP_BODY" | jq '.' 2>/dev/null || echo "$HTTP_BODY" | head -n 20
+            exit 1
+          fi
+
+          echo "Invocation succeeded. Sanitized result summary:"
+          # Parse and log sanitized counters and status without leaking internal secrets
+          echo "$HTTP_BODY" | jq '{
+            success: .success,
+            runId: .runId,
+            status: .status,
+            counters: .counters,
+            publishedSlugs: .publishedSlugs,
+            startedAt: .startedAt,
+            completedAt: .completedAt
+          }' 2>/dev/null || echo "$HTTP_BODY"
