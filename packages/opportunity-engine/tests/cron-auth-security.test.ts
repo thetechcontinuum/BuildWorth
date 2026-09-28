@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
+import { MockDeterministicProvider } from "@buildworth/ai";
 import { verifyCronAuthorization, getDailyCronIdempotencyKey } from "../src/ingestion/cron-auth.js";
 import { executeManualStagingIngestion } from "../src/index.js";
+
 
 describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", () => {
   const VALID_SECRET = "production_cron_secret_high_entropy_32_characters_long";
@@ -449,12 +451,13 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
       };
 
       const sharedKey = getDailyCronIdempotencyKey(new Date("2026-09-25T01:15:00.000Z"));
-
+      const mockAi = new MockDeterministicProvider();
 
       // Caller 1 (e.g. Vercel Cron or Fallback running first) executes successfully
       const firstResult = await executeManualStagingIngestion(mockPrisma, {
         idempotencyKey: sharedKey,
         workerId: "caller-1",
+        aiProvider: mockAi,
       });
       expect(firstResult.status).toBe("COMPLETED");
       expect(firstResult.isExisting).toBeFalsy();
@@ -463,6 +466,7 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
       const secondResult = await executeManualStagingIngestion(mockPrisma, {
         idempotencyKey: sharedKey,
         workerId: "caller-2",
+        aiProvider: mockAi,
       });
       expect(secondResult.status).toBe("COMPLETED");
       expect(secondResult.isExisting).toBe(true);
@@ -471,6 +475,7 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
       // Verify only ONE IngestionRun was created in the database
       expect(store.ingestionRuns).toHaveLength(1);
     });
+
   });
 });
 
