@@ -1,4 +1,4 @@
-import { AdapterType, RawIngestSignal, SourceAccessMethod, SourceHealthStatus } from "../types.js";
+import { AdapterType, RawIngestSignal, SourceAccessMethod, SourceHealthStatus, FetchSignalsOptions } from "../types.js";
 import { TokenBucketRateLimiter } from "../rate-limiter.js";
 
 export abstract class BaseSourceAdapter {
@@ -19,7 +19,10 @@ export abstract class BaseSourceAdapter {
     return this.rateLimiter;
   }
 
-  public abstract fetchSignals(limit?: number, query?: string): Promise<RawIngestSignal[]>;
+  public abstract fetchSignals(
+    optionsOrLimit?: number | FetchSignalsOptions,
+    query?: string,
+  ): Promise<RawIngestSignal[]>;
 
   public getHealth(): SourceHealthStatus {
     return {

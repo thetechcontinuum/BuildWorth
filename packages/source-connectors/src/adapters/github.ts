@@ -1,5 +1,5 @@
 import { BaseSourceAdapter } from "./base.js";
-import { RawIngestSignal } from "../types.js";
+import { RawIngestSignal, FetchSignalsOptions } from "../types.js";
 import { logger } from "@buildworth/observability";
 
 export class GitHubIssuesAdapter extends BaseSourceAdapter {
@@ -12,16 +12,33 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
     "Uses GitHub REST/GraphQL API with Personal Access Tokens. Extracts publicly indexed repository problem issues.";
   public readonly attributionRequired = true;
 
-  public async fetchSignals(limit = 20, query?: string): Promise<RawIngestSignal[]> {
-    logger.info(`Fetching GitHub issues signals (limit ${limit}${query ? `, query: ${query}` : ""})...`);
+  public async fetchSignals(
+    optionsOrLimit?: number | FetchSignalsOptions,
+    explicitQuery?: string,
+  ): Promise<RawIngestSignal[]> {
+    const options: FetchSignalsOptions =
+      typeof optionsOrLimit === "number"
+        ? { limit: optionsOrLimit, query: explicitQuery }
+        : optionsOrLimit || {};
+
+    const limit = Math.min(options.limit || 20, 20);
+    const query = options.query || explicitQuery;
+    const page = options.page || 1;
+
+    logger.info(`Fetching GitHub issues signals (limit ${limit}, page ${page}${query ? `, query: ${query}` : ""})...`);
     try {
-      const q =
+      let q =
         query && query.trim().length > 0
           ? `is:public is:issue state:open ${query.trim()}`
           : `is:public is:issue state:open sort:updated`;
 
+      if (options.checkpoint) {
+        // e.g. updated date checkpoint
+        q += ` updated:<${options.checkpoint}`;
+      }
+
       const res = await fetch(
-        `https://api.github.com/search/issues?q=${encodeURIComponent(q)}&per_page=${Math.min(limit, 20)}`,
+        `https://api.github.com/search/issues?q=${encodeURIComponent(q)}&per_page=${limit}&page=${page}`,
         {
           headers: { "User-Agent": "BuildWorth-Staging/1.0" },
         },
@@ -40,7 +57,11 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
               title: item.title ? String(item.title).slice(0, 150) : undefined,
               rawContent: String(item.body || item.title || "").slice(0, 280),
               publishedAt: item.created_at ? new Date(item.created_at) : new Date(),
-              metadata: { comments: item.comments || 0 },
+              metadata: {
+                comments: item.comments || 0,
+                updatedAt: item.updated_at,
+                page,
+              },
             }));
         }
       }

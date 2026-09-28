@@ -1044,10 +1044,18 @@ export async function executeManualStagingIngestion(
       fetched: number;
       newRawSignals: number;
       duplicates: number;
+      rejected: number;
+      persisted: number;
       persistedUrls: string[];
     }> = {};
 
-    for (const src of activeSources) {
+    // Fair source budgeting: Divide total item limit across all active sources
+    // so no single source starves the other active sources
+    const eligibleSourcesCount = Math.max(1, activeSources.length);
+    const perSourceBaseBudget = Math.max(3, Math.floor(maxFetchItems / eligibleSourcesCount));
+
+    for (let srcIndex = 0; srcIndex < activeSources.length; srcIndex++) {
+      const src = activeSources[srcIndex];
       if (Date.now() > deadline || totalFetched >= maxFetchItems) break;
 
       let adapter = sourceRegistry.getAdapter(src.key);
@@ -1070,6 +1078,8 @@ export async function executeManualStagingIngestion(
         fetched: 0,
         newRawSignals: 0,
         duplicates: 0,
+        rejected: 0,
+        persisted: 0,
         persistedUrls: [] as string[],
       };
       perSourceStats[src.key] = currentStats;
@@ -1088,13 +1098,46 @@ export async function executeManualStagingIngestion(
       try {
         const rawSignals: any[] = [];
         const slotsAvailable = maxFetchItems - totalFetched;
-        const maxPerSource = Math.ceil(maxFetchItems / 2); // e.g. 15 per active fetching source
-        const srcSlots = Math.min(slotsAvailable, maxPerSource);
+        // Ensure remaining sources get slots by capping each source to perSourceBaseBudget
+        // or remaining slots if it's the last source
+        const isLastSource = srcIndex === activeSources.length - 1;
+        const srcSlots = isLastSource
+          ? Math.min(slotsAvailable, perSourceBaseBudget * 2)
+          : Math.min(slotsAvailable, perSourceBaseBudget);
+
+        // Checkpoint state recovery: Query latest RawSignal for this source to pass checkpoint/since
+        let latestCheckpoint: string | undefined = undefined;
+        try {
+          const latestSignal = await prisma.rawSignal.findFirst({
+            where: { sourceId: src.id },
+            orderBy: { createdAt: "desc" },
+            select: { publishedAt: true, createdAt: true, externalId: true },
+          });
+          if (latestSignal) {
+            const latestDate = latestSignal.publishedAt || latestSignal.createdAt;
+            if (src.key === "hackernews") {
+              latestCheckpoint = String(Math.floor(new Date(latestDate).getTime() / 1000));
+            } else if (src.key === "github") {
+              latestCheckpoint = new Date(latestDate).toISOString();
+            } else {
+              latestCheckpoint = latestSignal.externalId;
+            }
+          }
+        } catch (cpErr: any) {
+          logger.warn("Checkpoint lookup warning", { source: src.key, error: cpErr?.message });
+        }
 
         if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github")) {
           const queriesToRun = targetQueries.slice(0, 2);
-          const perQuery = Math.max(3, Math.floor(srcSlots / queriesToRun.length));
-          const fetchPromises = queriesToRun.map((q) => adapter.fetchSignals(perQuery, q));
+          const perQuery = Math.max(2, Math.floor(srcSlots / queriesToRun.length));
+          const fetchPromises = queriesToRun.map((q) =>
+            adapter.fetchSignals({
+              limit: perQuery,
+              query: q,
+              checkpoint: latestCheckpoint,
+              page: 1,
+            })
+          );
           const results = await Promise.all(fetchPromises);
           for (const list of results) {
             rawSignals.push(...list);
@@ -1102,11 +1145,19 @@ export async function executeManualStagingIngestion(
 
           if (rawSignals.length < srcSlots) {
             const remaining = srcSlots - rawSignals.length;
-            const generalSignals = await adapter.fetchSignals(Math.min(5, remaining));
+            const generalSignals = await adapter.fetchSignals({
+              limit: Math.min(5, remaining),
+              checkpoint: latestCheckpoint,
+              page: 1,
+            });
             rawSignals.push(...generalSignals);
           }
         } else {
-          const generalSignals = await adapter.fetchSignals(Math.min(15, srcSlots));
+          const generalSignals = await adapter.fetchSignals({
+            limit: Math.min(15, srcSlots),
+            checkpoint: latestCheckpoint,
+            page: 1,
+          });
           rawSignals.push(...generalSignals);
         }
 
@@ -1115,7 +1166,10 @@ export async function executeManualStagingIngestion(
         currentStats.fetched += boundedRawSignals.length;
 
         for (const raw of boundedRawSignals) {
-          if (!raw.rawContent || raw.rawContent.trim().length < 10) continue;
+          if (!raw.rawContent || raw.rawContent.trim().length < 10) {
+            currentStats.rejected++;
+            continue;
+          }
 
           const maxExcerpt = Math.min(280, src.permittedExcerptLength || 280);
           const sanitizedExcerpt = sanitizeRawContent(raw.rawContent, maxExcerpt);
@@ -1152,6 +1206,7 @@ export async function executeManualStagingIngestion(
               rawSignalsCount++;
               srcIngestedCount++;
               currentStats.newRawSignals++;
+              currentStats.persisted++;
               currentStats.persistedUrls.push(canonicalUrl);
             }
           } else {

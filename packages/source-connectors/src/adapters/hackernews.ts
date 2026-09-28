@@ -1,5 +1,5 @@
 import { BaseSourceAdapter } from "./base.js";
-import { RawIngestSignal } from "../types.js";
+import { RawIngestSignal, FetchSignalsOptions } from "../types.js";
 import { logger } from "@buildworth/observability";
 
 export class HackerNewsAdapter extends BaseSourceAdapter {
@@ -12,13 +12,34 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
     "Uses Algolia HN search API and Firebase official open APIs. Permitted non-commercial and commercial indexing.";
   public readonly attributionRequired = true;
 
-  public async fetchSignals(limit = 20, query?: string): Promise<RawIngestSignal[]> {
-    logger.info(`Fetching HN market signals (limit ${limit}${query ? `, query: ${query}` : ""})...`);
+  public async fetchSignals(
+    optionsOrLimit?: number | FetchSignalsOptions,
+    explicitQuery?: string,
+  ): Promise<RawIngestSignal[]> {
+    const options: FetchSignalsOptions =
+      typeof optionsOrLimit === "number"
+        ? { limit: optionsOrLimit, query: explicitQuery }
+        : optionsOrLimit || {};
+
+    const limit = Math.min(options.limit || 20, 20);
+    const query = options.query || explicitQuery;
+    const page = options.page || 0;
+
+    logger.info(`Fetching HN market signals (limit ${limit}, page ${page}${query ? `, query: ${query}` : ""})...`);
     try {
-      const url =
-        query && query.trim().length > 0
-          ? `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query.trim())}&tags=story&hitsPerPage=${Math.min(limit, 20)}`
-          : `https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${Math.min(limit, 20)}`;
+      let url = "";
+      if (query && query.trim().length > 0) {
+        url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query.trim())}&tags=story&hitsPerPage=${limit}&page=${page}`;
+      } else {
+        url = `https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${limit}&page=${page}`;
+      }
+
+      if (options.checkpoint) {
+        const ts = parseInt(options.checkpoint, 10);
+        if (!isNaN(ts) && ts > 0) {
+          url += `&numericFilters=created_at_i<${ts}`;
+        }
+      }
 
       const res = await fetch(url, {
         headers: { "User-Agent": "BuildWorth-Staging/1.0" },
@@ -37,7 +58,12 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
               title: h.title ? String(h.title).slice(0, 150) : undefined,
               rawContent: String(h.story_text || h.title || "").slice(0, 280),
               publishedAt: h.created_at ? new Date(h.created_at) : new Date(),
-              metadata: { points: h.points || 0, commentsCount: h.num_comments || 0 },
+              metadata: {
+                points: h.points || 0,
+                commentsCount: h.num_comments || 0,
+                createdAtI: h.created_at_i,
+                page,
+              },
             }));
         }
       }

@@ -32,10 +32,26 @@ export interface DiscoveryFeedItemDTO {
   status: "DRAFT" | "HYPOTHESIS";
 }
 
+export interface MarketSignalFeedItemDTO {
+  id: string;
+  sourceKey: string;
+  sourceName: string;
+  sourceFamily: string;
+  title: string;
+  excerpt: string;
+  canonicalUrl: string;
+  publishedAt: string;
+  discoveredAt: string;
+  market: string;
+  label: "Market signal — not a validated business opportunity";
+}
+
 export interface DiscoveryFeedResponseDTO {
   success: boolean;
   totalCount: number;
   asOf: string;
   hasItemsToday: boolean;
-  items: DiscoveryFeedItemDTO[];
+  marketSignals: MarketSignalFeedItemDTO[];
+  opportunityHypotheses: DiscoveryFeedItemDTO[];
+  items: DiscoveryFeedItemDTO[]; // Preserved for backwards compatibility
 }

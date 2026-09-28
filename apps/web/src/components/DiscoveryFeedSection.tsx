@@ -11,18 +11,25 @@ import {
   Lightbulb,
   FileText,
   Clock,
+  Radio,
+  Compass,
 } from "lucide-react";
-import { DiscoveryFeedItemDTO, DiscoveryFeedResponseDTO } from "@buildworth/shared";
+import {
+  DiscoveryFeedItemDTO,
+  MarketSignalFeedItemDTO,
+  DiscoveryFeedResponseDTO,
+} from "@buildworth/shared";
 
 export function DiscoveryFeedSection() {
   const [data, setData] = useState<DiscoveryFeedResponseDTO | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"signals" | "hypotheses">("signals");
 
   useEffect(() => {
     let isMounted = true;
     async function loadFeed() {
       try {
-        const res = await fetch("/api/discovery/feed?limit=5", { cache: "no-store" });
+        const res = await fetch("/api/discovery/feed?limit=6&signalsLimit=12", { cache: "no-store" });
         if (res.ok) {
           const json = await res.json();
           if (isMounted) setData(json);
@@ -39,32 +46,70 @@ export function DiscoveryFeedSection() {
     };
   }, []);
 
-  const items = data?.items || [];
+  const marketSignals = data?.marketSignals || [];
+  const hypotheses = data?.opportunityHypotheses || data?.items || [];
   const hasItemsToday = data?.hasItemsToday ?? false;
 
   return (
     <section className="space-y-6 pt-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="p-1 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
               <Sparkles className="w-4 h-4" />
             </span>
-            <h2 className="text-xl font-bold text-white tracking-tight">New Ideas to Explore</h2>
+            <h2 className="text-xl font-bold text-white tracking-tight">Market Opportunity Feed</h2>
           </div>
           <p className="text-sm text-zinc-400 mt-1">
-            Early problem signals and friction patterns detected from live sources. Early hypotheses, not yet fully verified under Policy v2.0.0.
+            Real-time market signals from independent sources and early unverified opportunity hypotheses.
           </p>
         </div>
 
-        {!hasItemsToday && items.length > 0 && (
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 self-start sm:self-auto font-mono">
-            <Clock className="w-3.5 h-3.5 text-zinc-500" />
-            <span>Showing latest authentic items</span>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {!hasItemsToday && (marketSignals.length > 0 || hypotheses.length > 0) && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 font-mono">
+              <Clock className="w-3.5 h-3.5 text-zinc-500" />
+              <span>Showing latest authentic items</span>
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* Section Tabs */}
+      <div className="flex items-center gap-2 border-b border-zinc-800">
+        <button
+          onClick={() => setActiveTab("signals")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "signals"
+              ? "border-amber-500 text-white"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <Radio className="w-4 h-4 text-amber-400" />
+          <span>New Market Signals</span>
+          <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-zinc-800 text-zinc-300 font-mono">
+            {marketSignals.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("hypotheses")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "hypotheses"
+              ? "border-indigo-500 text-white"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <Compass className="w-4 h-4 text-indigo-400" />
+          <span>Opportunity Hypotheses</span>
+          <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-zinc-800 text-zinc-300 font-mono">
+            {hypotheses.length}
+          </span>
+        </button>
+      </div>
+
+      {/* Tab Content */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map((idx) => (
@@ -78,28 +123,112 @@ export function DiscoveryFeedSection() {
             </div>
           ))}
         </div>
-      ) : items.length === 0 ? (
-        <div className="p-8 rounded-xl bg-zinc-900/40 border border-zinc-800 text-center space-y-3">
-          <div className="inline-flex p-3 rounded-full bg-zinc-800/50 text-zinc-400 mb-1">
-            <AlertCircle className="w-6 h-6" />
+      ) : activeTab === "signals" ? (
+        /* Section 1: New Market Signals */
+        marketSignals.length === 0 ? (
+          <div className="p-8 rounded-xl bg-zinc-900/40 border border-zinc-800 text-center space-y-3">
+            <div className="inline-flex p-3 rounded-full bg-zinc-800/50 text-zinc-400 mb-1">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-semibold text-white">No New Market Signals Collected Yet Today</h3>
+            <p className="text-sm text-zinc-400 max-w-md mx-auto">
+              The ingestion engine connects directly to authorized public sources (Hacker News, GitHub, KrASIA, Silicon Canals, Lobsters). When authentic signals are collected, they appear here immediately without fabricated content.
+            </p>
           </div>
-          <h3 className="text-base font-semibold text-white">No New Early Ideas Collected Yet Today</h3>
-          <p className="text-sm text-zinc-400 max-w-md mx-auto">
-            Ingestion runs are actively scanning authorized independent feeds. When fresh qualifying market friction is detected, genuine early ideas appear here automatically without fabricated placeholders.
-          </p>
-        </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {marketSignals.map((sig) => (
+              <MarketSignalCard key={sig.id} signal={sig} />
+            ))}
+          </div>
+        )
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {items.map((item) => (
-            <DiscoveryCard key={item.id || item.slug} item={item} />
-          ))}
-        </div>
+        /* Section 2: Opportunity Hypotheses */
+        hypotheses.length === 0 ? (
+          <div className="p-8 rounded-xl bg-zinc-900/40 border border-zinc-800 text-center space-y-3">
+            <div className="inline-flex p-3 rounded-full bg-zinc-800/50 text-zinc-400 mb-1">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-semibold text-white">No Opportunity Hypotheses Synthesized Yet Today</h3>
+            <p className="text-sm text-zinc-400 max-w-md mx-auto">
+              Opportunity hypotheses require strong empirical evidence clusters from independent sources before synthesis under Policy v2.0.0. Hypotheses remain unverified until corroborating evidence is established.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {hypotheses.map((item) => (
+              <HypothesisCard key={item.id || item.slug} item={item} />
+            ))}
+          </div>
+        )
       )}
     </section>
   );
 }
 
-function DiscoveryCard({ item }: { item: DiscoveryFeedItemDTO }) {
+function MarketSignalCard({ signal }: { signal: MarketSignalFeedItemDTO }) {
+  const pubDateFormatted = signal.publishedAt
+    ? new Date(signal.publishedAt).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "Recent";
+
+  return (
+    <div className="p-5 rounded-xl bg-zinc-900/60 border border-zinc-800 hover:border-zinc-700/80 transition-all flex flex-col justify-between space-y-4">
+      <div className="space-y-3">
+        {/* Source and Market Badge */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+            {signal.sourceName}
+          </span>
+          <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded">
+            <Globe className="w-3 h-3 text-zinc-500" />
+            {signal.market}
+          </span>
+        </div>
+
+        {/* Title */}
+        <h3 className="text-base font-semibold text-white leading-snug line-clamp-2">
+          {signal.title}
+        </h3>
+
+        {/* Excerpt */}
+        <p className="text-sm text-zinc-400 leading-relaxed line-clamp-3">
+          {signal.excerpt}
+        </p>
+
+        {/* Mandatory Label */}
+        <div className="pt-2">
+          <span className="inline-block text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded">
+            {signal.label}
+          </span>
+        </div>
+      </div>
+
+      {/* Footer: Date & Canonical Link */}
+      <div className="pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500">
+        <div className="flex items-center gap-1">
+          <Calendar className="w-3 h-3 text-zinc-600" />
+          <span>Source: <strong className="text-zinc-400 font-mono">{pubDateFormatted}</strong></span>
+        </div>
+        {signal.canonicalUrl && (
+          <a
+            href={signal.canonicalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 font-medium"
+          >
+            Source <ExternalLink className="w-3 h-3" />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HypothesisCard({ item }: { item: DiscoveryFeedItemDTO }) {
   const pubDateFormatted = item.publicationDate
     ? new Date(item.publicationDate).toLocaleDateString("en-US", {
         month: "short",
@@ -107,13 +236,6 @@ function DiscoveryCard({ item }: { item: DiscoveryFeedItemDTO }) {
         year: "numeric",
       })
     : "Recent";
-
-  const discoveredDateFormatted = item.discoveredAt
-    ? new Date(item.discoveredAt).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      })
-    : null;
 
   return (
     <div className="p-6 rounded-xl bg-zinc-900/60 border border-zinc-800 hover:border-zinc-700/80 transition-all flex flex-col justify-between space-y-5">
@@ -191,9 +313,9 @@ function DiscoveryCard({ item }: { item: DiscoveryFeedItemDTO }) {
           <Calendar className="w-3 h-3 text-zinc-600" />
           <span>Source Date: <strong className="text-zinc-400 font-mono">{pubDateFormatted}</strong></span>
         </div>
-        {discoveredDateFormatted && (
+        {item.discoveredAt && (
           <div className="text-[10px] text-zinc-600">
-            Discovered: {discoveredDateFormatted}
+            Discovered: {new Date(item.discoveredAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
           </div>
         )}
       </div>

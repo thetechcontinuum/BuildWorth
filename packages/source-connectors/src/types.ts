@@ -11,6 +11,14 @@ export type AdapterType =
   | "GENERIC_RSS";
 export type SourceAccessMethod = "API" | "OAUTH_API" | "GRAPHQL" | "RSS";
 
+export interface FetchSignalsOptions {
+  limit?: number;
+  query?: string;
+  page?: number;
+  checkpoint?: string;
+  since?: Date;
+}
+
 export interface RawIngestSignal {
   externalId: string;
   sourceKey: string;

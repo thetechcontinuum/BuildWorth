@@ -1,5 +1,5 @@
 import { BaseSourceAdapter } from "./base.js";
-import { RawIngestSignal } from "../types.js";
+import { RawIngestSignal, FetchSignalsOptions } from "../types.js";
 import { safeFetch } from "../safe-fetch.js";
 import { logger } from "@buildworth/observability";
 import { detectPromptInjection, sanitizeToPlainText } from "@buildworth/shared";
@@ -38,11 +38,28 @@ export class SiliconCanalsAdapter extends BaseSourceAdapter {
       .trim();
   }
 
-  public async fetchSignals(limit = 20, query?: string): Promise<RawIngestSignal[]> {
-    logger.info(`Fetching Silicon Canals European market signals (limit ${limit})...`);
+  public async fetchSignals(
+    optionsOrLimit?: number | FetchSignalsOptions,
+    explicitQuery?: string,
+  ): Promise<RawIngestSignal[]> {
+    const options: FetchSignalsOptions =
+      typeof optionsOrLimit === "number"
+        ? { limit: optionsOrLimit, query: explicitQuery }
+        : optionsOrLimit || {};
+
+    const limit = options.limit || 20;
+    const query = options.query || explicitQuery;
+    const page = options.page || 0;
+
+    logger.info(`Fetching Silicon Canals European market signals (limit ${limit}, page ${page}${query ? `, query: ${query}` : ""})...`);
 
     try {
-      const response = await safeFetch("https://siliconcanals.com/feed/", {
+      const feedUrl =
+        page > 1
+          ? `https://siliconcanals.com/feed/?paged=${page}`
+          : "https://siliconcanals.com/feed/";
+
+      const response = await safeFetch(feedUrl, {
         timeoutMs: 8000,
         maxSizeBytes: 1024 * 1024,
         headers: {
@@ -65,9 +82,12 @@ export class SiliconCanalsAdapter extends BaseSourceAdapter {
       const itemBlocks = xml.match(/<item\b[\s\S]*?<\/item>/gi) || [];
       if (itemBlocks.length === 0) return [];
 
+      const offset = (page > 0 ? page - 1 : 0) * Math.min(limit, 10);
+      const slicedBlocks = itemBlocks.slice(offset);
+
       const signals: RawIngestSignal[] = [];
 
-      for (const block of itemBlocks) {
+      for (const block of slicedBlocks) {
         const titleMatch =
           block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i) ||
           block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
