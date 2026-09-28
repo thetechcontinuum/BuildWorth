@@ -78,3 +78,14 @@ export function verifyCronAuthorization(options: VerifyCronAuthOptions): VerifyC
     },
   };
 }
+
+/**
+ * Generates a deterministic, shared idempotency key for a given UTC date.
+ * Guarantees that both Vercel Cron (00:00 UTC) and the GitHub Actions fallback (01:15 UTC),
+ * or manual recovery on the same day, resolve to the exact same idempotency key.
+ */
+export function getDailyCronIdempotencyKey(date: Date = new Date()): string {
+  const utcDateStr = date.toISOString().slice(0, 10);
+  return `cron-prod-ingest-${utcDateStr}`;
+}
+

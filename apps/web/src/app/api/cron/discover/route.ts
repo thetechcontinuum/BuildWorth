@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@buildworth/database";
-import { executeManualStagingIngestion, verifyCronAuthorization } from "@buildworth/opportunity-engine";
+import { executeManualStagingIngestion, verifyCronAuthorization, getDailyCronIdempotencyKey } from "@buildworth/opportunity-engine";
 import { logger } from "@buildworth/observability";
 import crypto from "crypto";
 
@@ -56,9 +56,9 @@ async function handleScheduledIngestion(request: NextRequest) {
 
   logger.info("Executing scheduled production ingestion job...");
 
-  // Generate bounded idempotency key matching current 6-hour window or exact trigger
-  const hourBucket = Math.floor(Date.now() / (6 * 3600 * 1000));
-  const idempotencyKey = `cron-prod-ingest-${hourBucket}-${new Date().toISOString().slice(0, 10)}`;
+  // Deterministic per-UTC-day idempotency key shared across primary Vercel Cron and fallback schedulers
+  const idempotencyKey = getDailyCronIdempotencyKey();
+
 
   try {
     const result = await executeManualStagingIngestion(prisma, {
