@@ -48,6 +48,7 @@ export interface ManualIngestionOptions {
   maxFetchItems?: number;
   maxRawSignals?: number;
   maxCandidates?: number;
+  maxClassifiedSignals?: number;
   maxHistoricalSignals?: number;
   maxPublishedOpportunities?: number;
   targetSourceKeys?: string[];
@@ -600,6 +601,7 @@ export async function executeManualStagingIngestion(
     maxFetchItems = 30,
     maxRawSignals = 20,
     maxCandidates = 5,
+    maxClassifiedSignals,
     maxHistoricalSignals = 20,
     maxPublishedOpportunities = 3,
     targetSourceKeys,
@@ -1278,7 +1280,8 @@ export async function executeManualStagingIngestion(
     const clusterCandidates: ClusterCandidate[] = [];
 
     for (const item of sanitizedSignalsToProcess) {
-      if (Date.now() > deadline - 4000) break;
+      if (Date.now() > deadline - 12000) break;
+      if (typeof maxClassifiedSignals === "number" && clusterCandidates.length >= maxClassifiedSignals) break;
 
       try {
         const classification = await classifySignal(aiProvider, item.excerpt, item.title);
