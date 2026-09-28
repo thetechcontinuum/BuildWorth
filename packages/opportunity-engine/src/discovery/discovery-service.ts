@@ -1,10 +1,11 @@
-import { DiscoveryFeedItemDTO, DiscoveryFeedResponseDTO } from "@buildworth/shared";
+import { DiscoveryFeedItemDTO, DiscoveryFeedResponseDTO, MarketSignalFeedItemDTO } from "@buildworth/shared";
 import { logger } from "@buildworth/observability";
 
 export interface GetDiscoveryFeedOptions {
   limit?: number;
   market?: string;
   maxItemsPerSource?: number;
+  signalsLimit?: number;
 }
 
 /**
@@ -39,17 +40,18 @@ export function deriveMarketRegion(sourceKey?: string, sourceFamily?: string, in
 }
 
 /**
- * Builds the public daily "New ideas to explore" discovery feed.
+ * Builds the public daily discovery feed separated into two clearly labeled sections:
+ * 1. New Market Signals — authentic, newly collected articles/discussions with source metadata,
+ *    clearly labeled: "Market signal — not a validated business opportunity". No invented buyer demand or WTP.
+ * 2. Opportunity Hypotheses — synthesized problem hypotheses when the pipeline has enough evidence.
  *
  * Guarantees:
- * 1. Strictly allowlisted public fields via DiscoveryFeedItemDTO - NEVER leaks Pro blueprint fields,
- *    internal IDs, private user data, or unreviewed text.
+ * 1. Strictly allowlisted public fields via DTOs - NEVER leaks Pro blueprint fields,
+ *    internal IDs, private user data, raw LLM outputs, or unreviewed text.
  * 2. Never marks a DRAFT or HYPOTHESIS candidate as VERIFIED.
  * 3. Shows original source publication date separately from the feed discovery timestamp.
- * 4. Clearly separates observed evidence facts from AI business hypotheses.
- * 5. Returns up to limit (target 3-5) distinct genuine posts, deduplicated by canonicalUrl,
- *    content hash, and duplicate group key.
- * 6. Never fabricates posts or resets timestamps when today has no new posts; displays
+ * 4. Deduplicated by canonicalUrl and content hash.
+ * 5. Never fabricates posts or resets timestamps when today has no new posts; displays
  *    latest authentic posts with actual dates and clear metadata.
  */
 export async function getDailyDiscoveryFeed(
@@ -57,12 +59,13 @@ export async function getDailyDiscoveryFeed(
   options: GetDiscoveryFeedOptions = {},
 ): Promise<DiscoveryFeedResponseDTO> {
   const limit = Math.min(10, Math.max(1, options.limit || 5));
+  const signalsLimit = Math.min(20, Math.max(1, options.signalsLimit || 10));
   const maxItemsPerSource = Math.max(1, options.maxItemsPerSource || 2);
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
 
   try {
-    // 1. Fetch genuine candidates that have evidence links
+    // 1. Fetch genuine candidates that have evidence links (Opportunity Hypotheses)
     const candidates = await prisma.opportunity.findMany({
       where: {
         isDemoFixture: false,
@@ -93,10 +96,10 @@ export async function getDailyDiscoveryFeed(
     const seenUrls = new Set<string>();
     const seenTitles = new Set<string>();
     const sourceCounts = new Map<string, number>();
-    const items: DiscoveryFeedItemDTO[] = [];
+    const opportunityHypotheses: DiscoveryFeedItemDTO[] = [];
 
     for (const opp of candidates) {
-      if (items.length >= limit) break;
+      if (opportunityHypotheses.length >= limit) break;
 
       // Extract genuine evidence observations
       const observations: Array<{
@@ -179,7 +182,7 @@ export async function getDailyDiscoveryFeed(
       const market = deriveMarketRegion(primarySourceKey, primarySourceFamily, opp.industry);
       const pubDate = primaryPublishedAt ? primaryPublishedAt.toISOString() : opp.createdAt.toISOString();
 
-      items.push({
+      opportunityHypotheses.push({
         id: opp.id,
         slug: opp.slug,
         title: opp.title,
@@ -199,14 +202,66 @@ export async function getDailyDiscoveryFeed(
       });
     }
 
-    const hasItemsToday = items.some((item) => new Date(item.discoveredAt) >= todayStart);
+    // 2. Fetch authentic New Market Signals directly from NormalizedSignal & RawSignal
+    const marketSignals: MarketSignalFeedItemDTO[] = [];
+    const signalSeenUrls = new Set<string>();
+
+    const rawSignalRecords = prisma.rawSignal?.findMany
+      ? await prisma.rawSignal.findMany({
+          where: {
+            source: {
+              isEnabled: true,
+              policyStatus: { not: "BLOCKED" },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: signalsLimit * 3,
+          include: {
+            source: true,
+            normalizedSignal: true,
+          },
+        }).catch(() => [])
+      : [];
+
+    for (const raw of rawSignalRecords) {
+      if (marketSignals.length >= signalsLimit) break;
+      const canonical = raw.normalizedSignal?.canonicalUrl || raw.sourceUrl;
+      const urlKey = canonical.toLowerCase().trim();
+      if (!urlKey || signalSeenUrls.has(urlKey)) continue;
+      signalSeenUrls.add(urlKey);
+
+      const src = raw.source;
+      const pubDate = raw.publishedAt || raw.createdAt || new Date();
+      const discDate = raw.createdAt || new Date();
+      const market = deriveMarketRegion(src?.key, src?.sourceFamily);
+
+      marketSignals.push({
+        id: raw.id,
+        sourceKey: src?.key || "unknown",
+        sourceName: src?.name || "Market Source",
+        sourceFamily: src?.sourceFamily || "COMMUNITY",
+        title: raw.title || raw.normalizedSignal?.sourceTitle || "Market Discussion",
+        excerpt: raw.normalizedSignal?.sanitizedExcerpt || raw.rawContent.slice(0, 280),
+        canonicalUrl: canonical,
+        publishedAt: (pubDate instanceof Date ? pubDate : new Date(pubDate)).toISOString(),
+        discoveredAt: (discDate instanceof Date ? discDate : new Date(discDate)).toISOString(),
+        market,
+        label: "Market signal — not a validated business opportunity",
+      });
+    }
+
+    const hasItemsToday =
+      opportunityHypotheses.some((item) => new Date(item.discoveredAt) >= todayStart) ||
+      marketSignals.some((sig) => new Date(sig.discoveredAt) >= todayStart);
 
     return {
       success: true,
-      totalCount: items.length,
+      totalCount: opportunityHypotheses.length + marketSignals.length,
       asOf: new Date().toISOString(),
       hasItemsToday,
-      items,
+      marketSignals,
+      opportunityHypotheses,
+      items: opportunityHypotheses, // backwards compatibility
     };
   } catch (err: any) {
     logger.error("Failed to compile daily discovery feed", err);
@@ -215,6 +270,8 @@ export async function getDailyDiscoveryFeed(
       totalCount: 0,
       asOf: new Date().toISOString(),
       hasItemsToday: false,
+      marketSignals: [],
+      opportunityHypotheses: [],
       items: [],
     };
   }

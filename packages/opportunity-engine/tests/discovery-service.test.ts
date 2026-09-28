@@ -228,12 +228,98 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
       opportunity: {
         findMany: async () => [],
       },
+      rawSignal: {
+        findMany: async () => [],
+      },
     };
 
     const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
     expect(feed.success).toBe(true);
     expect(feed.totalCount).toBe(0);
     expect(feed.items).toHaveLength(0);
+    expect(feed.marketSignals).toHaveLength(0);
+    expect(feed.opportunityHypotheses).toHaveLength(0);
     expect(feed.hasItemsToday).toBe(false);
+  });
+
+  it("populates authentic MarketSignalFeedItemDTO items separately with required labels and fields", async () => {
+    const mockPublishedAt = new Date("2026-09-24T12:00:00Z");
+    const mockCreatedAt = new Date("2026-09-25T00:30:00Z");
+
+    const mockRawSignals = [
+      {
+        id: "raw-hn-1",
+        title: "Ask HN: Why is managing cloud ingress certificates still brittle?",
+        rawContent: "We run into frequent edge certificate expiries and renewals breaking staging environments.",
+        sourceUrl: "https://news.ycombinator.com/item?id=9928192",
+        publishedAt: mockPublishedAt,
+        createdAt: mockCreatedAt,
+        source: {
+          key: "hackernews",
+          name: "Hacker News",
+          sourceFamily: "COMMUNITY",
+          isEnabled: true,
+          policyStatus: "ALLOWED",
+        },
+        normalizedSignal: {
+          id: "norm-1",
+          canonicalUrl: "https://news.ycombinator.com/item?id=9928192",
+          sourceTitle: "Ask HN: Why is managing cloud ingress certificates still brittle?",
+          sanitizedExcerpt: "We run into frequent edge certificate expiries and renewals breaking staging environments.",
+        },
+      },
+      {
+        id: "raw-sc-1",
+        title: "Amsterdam AI compliance startup secures €3M seed",
+        rawContent: "New regulatory reporting obligations in the EU create pressing requirements for automated data tracing.",
+        sourceUrl: "https://siliconcanals.com/news/amsterdam-compliance-seed/",
+        publishedAt: mockPublishedAt,
+        createdAt: mockCreatedAt,
+        source: {
+          key: "siliconcanals",
+          name: "Silicon Canals",
+          sourceFamily: "DISCOVERY",
+          isEnabled: true,
+          policyStatus: "ALLOWED",
+        },
+        normalizedSignal: {
+          id: "norm-2",
+          canonicalUrl: "https://siliconcanals.com/news/amsterdam-compliance-seed/",
+          sourceTitle: "Amsterdam AI compliance startup secures €3M seed",
+          sanitizedExcerpt: "New regulatory reporting obligations in the EU create pressing requirements for automated data tracing.",
+        },
+      },
+    ];
+
+    const mockPrisma = {
+      opportunity: {
+        findMany: async () => [],
+      },
+      rawSignal: {
+        findMany: async () => mockRawSignals,
+      },
+    };
+
+    const feed = await getDailyDiscoveryFeed(mockPrisma as any, { signalsLimit: 5 });
+    expect(feed.success).toBe(true);
+    expect(feed.marketSignals).toHaveLength(2);
+    expect(feed.opportunityHypotheses).toHaveLength(0);
+
+    const sig1 = feed.marketSignals[0];
+    expect(sig1.id).toBe("raw-hn-1");
+    expect(sig1.sourceKey).toBe("hackernews");
+    expect(sig1.sourceName).toBe("Hacker News");
+    expect(sig1.sourceFamily).toBe("COMMUNITY");
+    expect(sig1.title).toBe("Ask HN: Why is managing cloud ingress certificates still brittle?");
+    expect(sig1.label).toBe("Market signal — not a validated business opportunity");
+    expect(sig1.market).toBe("Global / North America & Europe");
+    expect(sig1.canonicalUrl).toBe("https://news.ycombinator.com/item?id=9928192");
+    expect(sig1.publishedAt).toBe(mockPublishedAt.toISOString());
+    expect(sig1.discoveredAt).toBe(mockCreatedAt.toISOString());
+
+    // Never invents product ideas, buyer demand, or willingness to pay on market signals
+    expect((sig1 as any).proposedSolution).toBeUndefined();
+    expect((sig1 as any).buyerDemand).toBeUndefined();
+    expect((sig1 as any).willingnessToPay).toBeUndefined();
   });
 });

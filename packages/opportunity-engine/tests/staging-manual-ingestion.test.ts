@@ -115,6 +115,12 @@ function createMockPrisma() {
         }
         return null;
       },
+      findFirst: async ({ where }: any) => {
+        return store.rawSignals.find((r) => {
+          if (where.sourceId && r.sourceId !== where.sourceId) return false;
+          return true;
+        }) || null;
+      },
       create: async ({ data }: any) => {
         const rec = { id: "raw-" + (store.rawSignals.length + 1), ...data };
         store.rawSignals.push(rec);
@@ -768,6 +774,35 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       expect(completedRun.summary.clustersDiscovered).toBeGreaterThanOrEqual(2);
       expect(prisma._store.opportunities.length).toBeGreaterThanOrEqual(2);
       expect(prisma._store.opportunities.length).toBeLessThanOrEqual(3);
+    });
+
+    it("distributes fetch budget fairly across active sources and records per-source counters", async () => {
+      const prisma = createMockPrisma();
+      const ai = new MockDeterministicProvider();
+
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-fair-budgeting-006",
+        aiProvider: ai,
+        maxFetchItems: 12,
+        maxSources: 4,
+        targetSourceKeys: ["hackernews", "github", "reddit", "producthunt"],
+      });
+
+      expect(run.status).toBe("COMPLETED");
+      const summary = run.summary;
+      expect(summary).toBeDefined();
+      expect(summary.perSourceStats).toBeDefined();
+
+      const stats = summary.perSourceStats;
+      // All target sources should have run records with detailed counters
+      for (const key of ["hackernews", "github", "reddit", "producthunt"]) {
+        expect(stats[key]).toBeDefined();
+        expect(typeof stats[key].fetched).toBe("number");
+        expect(typeof stats[key].newRawSignals).toBe("number");
+        expect(typeof stats[key].duplicates).toBe("number");
+        expect(typeof stats[key].rejected).toBe("number");
+        expect(typeof stats[key].persisted).toBe("number");
+      }
     });
   });
 });

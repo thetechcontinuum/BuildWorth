@@ -1,5 +1,5 @@
 import { BaseSourceAdapter } from "./base.js";
-import { RawIngestSignal } from "../types.js";
+import { RawIngestSignal, FetchSignalsOptions } from "../types.js";
 import { logger } from "@buildworth/observability";
 
 export class KrAsiaAdapter extends BaseSourceAdapter {
@@ -72,10 +72,27 @@ export class KrAsiaAdapter extends BaseSourceAdapter {
     return { isSyndicated: false };
   }
 
-  public async fetchSignals(limit = 20, query?: string): Promise<RawIngestSignal[]> {
-    logger.info(`Fetching KrASIA market signals (limit ${limit}${query ? `, query: ${query}` : ""})...`);
+  public async fetchSignals(
+    optionsOrLimit?: number | FetchSignalsOptions,
+    explicitQuery?: string,
+  ): Promise<RawIngestSignal[]> {
+    const options: FetchSignalsOptions =
+      typeof optionsOrLimit === "number"
+        ? { limit: optionsOrLimit, query: explicitQuery }
+        : optionsOrLimit || {};
+
+    const limit = options.limit || 20;
+    const query = options.query || explicitQuery;
+    const page = options.page || 0;
+
+    logger.info(`Fetching KrASIA market signals (limit ${limit}, page ${page}${query ? `, query: ${query}` : ""})...`);
     try {
-      const res = await fetch("https://console.kr-asia.com/feed", {
+      const feedUrl =
+        page > 1
+          ? `https://console.kr-asia.com/feed?paged=${page}`
+          : "https://console.kr-asia.com/feed";
+
+      const res = await fetch(feedUrl, {
         headers: { "User-Agent": "BuildWorth-Staging/1.0" },
       });
 
@@ -91,9 +108,13 @@ export class KrAsiaAdapter extends BaseSourceAdapter {
         return [];
       }
 
+      // If page is specified but URL returned full items, offset accordingly
+      const offset = (page > 0 ? page - 1 : 0) * Math.min(limit, 10);
+      const slicedBlocks = itemBlocks.slice(offset);
+
       const signals: RawIngestSignal[] = [];
 
-      for (const block of itemBlocks) {
+      for (const block of slicedBlocks) {
         const titleMatch = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i) || block.match(/<title>([\s\S]*?)<\/title>/i);
         const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/i);
         const guidMatch = block.match(/<guid[^>]*>([\s\S]*?)<\/guid>/i);
