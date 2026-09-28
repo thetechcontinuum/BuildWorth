@@ -5,9 +5,9 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "prisma generate && tsc -p tsconfig.json",
     "clean": "rm -rf dist",
-    "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check": "prisma generate && tsc -p tsconfig.json --noEmit",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "node dist/seed.js",
