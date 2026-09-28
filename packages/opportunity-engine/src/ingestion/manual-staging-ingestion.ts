@@ -1241,9 +1241,10 @@ export async function executeManualStagingIngestion(
         where: {
           clusterMemberships: { none: {} },
           verificationStatus: { not: "REJECTED" },
+          canonicalUrl: { notIn: KNOWN_SYNTHETIC_FIXTURE_URLS },
           rawSignal: {
             AND: [
-              { canonicalUrl: { notIn: KNOWN_SYNTHETIC_FIXTURE_URLS } },
+              { sourceUrl: { notIn: KNOWN_SYNTHETIC_FIXTURE_URLS } },
               { externalId: { notIn: KNOWN_SYNTHETIC_FIXTURE_EXTERNAL_IDS } },
             ],
           },
@@ -1729,6 +1730,7 @@ export async function executeManualStagingIngestion(
         totalClustersDiscovered += newClusters.length;
         const availableCandidateSlots = Math.max(0, maxCandidates - candidateEvaluations.length);
         for (const cl of newClusters.slice(0, availableCandidateSlots)) {
+          if (Date.now() > deadline) break;
           const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
           for (const sigId of cl.signalIds) {
             const normSig = await prisma.normalizedSignal.findUnique({
