@@ -13,6 +13,7 @@ import {
   Clock,
   Radio,
   Compass,
+  RotateCw,
 } from "lucide-react";
 import {
   DiscoveryFeedItemDTO,
@@ -23,27 +24,32 @@ import {
 export function DiscoveryFeedSection() {
   const [data, setData] = useState<DiscoveryFeedResponseDTO | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"signals" | "hypotheses">("signals");
 
-  useEffect(() => {
-    let isMounted = true;
-    async function loadFeed() {
-      try {
-        const res = await fetch("/api/discovery/feed?limit=6&signalsLimit=12", { cache: "no-store" });
-        if (res.ok) {
-          const json = await res.json();
-          if (isMounted) setData(json);
-        }
-      } catch {
-        // fail silently, keep fallback
-      } finally {
-        if (isMounted) setLoading(false);
+  const loadFeed = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/discovery/feed?limit=6&signalsLimit=12", { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(`Failed to load discovery feed (HTTP ${res.status})`);
       }
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error || "Failed to load discovery feed");
+      }
+      setData(json);
+    } catch (err: any) {
+      setError(err?.message || "An unexpected error occurred while fetching discovery signals.");
+      setData(null);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
     loadFeed();
-    return () => {
-      isMounted = false;
-    };
   }, []);
 
   const marketSignals = data?.marketSignals || [];
@@ -122,6 +128,23 @@ export function DiscoveryFeedSection() {
               <div className="h-16 bg-zinc-800/60 rounded" />
             </div>
           ))}
+        </div>
+      ) : error ? (
+        <div className="p-12 text-center rounded-xl bg-red-950/20 border border-red-900/40 space-y-3">
+          <div className="inline-flex p-3 rounded-full bg-red-900/30 text-red-400 mb-1">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-semibold text-white">Failed to Load Market Signals</h3>
+          <p className="text-sm text-red-300/80 max-w-md mx-auto">{error}</p>
+          <div className="pt-2">
+            <button
+              onClick={loadFeed}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-xs font-medium text-zinc-200 hover:text-white hover:border-zinc-600 transition-all"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+              <span>Retry</span>
+            </button>
+          </div>
         </div>
       ) : activeTab === "signals" ? (
         /* Section 1: New Market Signals */

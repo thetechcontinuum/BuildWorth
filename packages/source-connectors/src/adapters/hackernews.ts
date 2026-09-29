@@ -29,7 +29,7 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
     try {
       let url = "";
       if (query && query.trim().length > 0) {
-        url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query.trim())}&tags=story&hitsPerPage=${limit}&page=${page}`;
+        url = `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent(query.trim())}&tags=story&hitsPerPage=${limit}&page=${page}`;
       } else {
         url = `https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${limit}&page=${page}`;
       }

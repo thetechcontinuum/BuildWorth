@@ -41,6 +41,13 @@ async function runFixtureIsolationTest() {
   const chunksDir = path.resolve(__dirname, "../.next/static/chunks");
   if (fs.existsSync(chunksDir)) {
     const files = fs.readdirSync(chunksDir);
+    const fixtureSlugs = [
+      "automated-soc2-evidence-collector",
+      "llm-prompt-regression-ci-interceptor",
+      "snowflake-runaway-query-circuit-breaker",
+      "postgres-pool-exhaustion-watchdog-nextjs",
+    ];
+
     for (const f of files) {
       const filePath = path.join(chunksDir, f);
       if (fs.statSync(filePath).isDirectory()) continue;
@@ -53,8 +60,15 @@ async function runFixtureIsolationTest() {
         console.error("[SECURITY DEFECT] Found dev fixture ID in client JS chunk:", f);
         process.exit(1);
       }
+      // Check for INITIAL_OPPORTUNITIES fixture slugs leaked into client feed chunks
+      for (const slug of fixtureSlugs) {
+        if (content.includes(slug)) {
+          console.error(`[SECURITY DEFECT] Found INITIAL_OPPORTUNITIES fixture slug "${slug}" in client JS chunk:`, f);
+          process.exit(1);
+        }
+      }
     }
-    console.log("   ✓ Client JavaScript chunks contain 0 synthetic fixture URLs or dev demo IDs");
+    console.log("   ✓ Client JavaScript chunks contain 0 synthetic fixture URLs, dev demo IDs, or INITIAL_OPPORTUNITIES fixtures");
   }
 
   console.log(

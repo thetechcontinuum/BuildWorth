@@ -18,4 +18,30 @@ describe("Production Fixture Isolation Tests", () => {
     expect(migrationSql).not.toContain("https://synthetic-fixture.example.com");
     expect(migrationSql).not.toContain("bp-dev-demo");
   });
+
+  it("verifies INITIAL_OPPORTUNITIES fixture slugs are never exposed as fallback in production client feed", () => {
+    const fixtureSlugs = [
+      "automated-soc2-evidence-collector",
+      "llm-prompt-regression-ci-interceptor",
+      "snowflake-runaway-query-circuit-breaker",
+      "postgres-pool-exhaustion-watchdog-nextjs",
+    ];
+
+    const feedClientPath = path.resolve(__dirname, "../../../apps/web/src/components/OpportunityFeedClient.tsx");
+    const feedClientContent = fs.readFileSync(feedClientPath, "utf8");
+
+    // Client component must not import INITIAL_OPPORTUNITIES or hardcode fixture slugs
+    expect(feedClientContent).not.toContain("INITIAL_OPPORTUNITIES");
+    for (const slug of fixtureSlugs) {
+      expect(feedClientContent).not.toContain(slug);
+    }
+  });
+
+  it("verifies /api/opportunities route does not fall back to INITIAL_OPPORTUNITIES or getAllStoredOpportunities", () => {
+    const routePath = path.resolve(__dirname, "../../../apps/web/src/app/api/opportunities/route.ts");
+    const routeContent = fs.readFileSync(routePath, "utf8");
+
+    expect(routeContent).not.toContain("INITIAL_OPPORTUNITIES");
+    expect(routeContent).not.toContain("getAllStoredOpportunities");
+  });
 });
