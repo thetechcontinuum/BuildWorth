@@ -105,7 +105,7 @@ export function OpportunityFeedClient() {
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
           <span className="text-zinc-300 font-medium">
             Daily Intelligence Automated Pipeline:{" "}
-            <strong className="text-white">Active (Every morning at 06:00 AM)</strong>
+            <strong className="text-white">Active (Daily at 00:00 UTC / 01:15 UTC Fallback)</strong>
           </span>
         </div>
         <div className="flex items-center gap-2 text-zinc-500 font-mono text-[11px]">
