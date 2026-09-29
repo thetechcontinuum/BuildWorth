@@ -44,4 +44,24 @@ describe("Production Fixture Isolation Tests", () => {
     expect(routeContent).not.toContain("INITIAL_OPPORTUNITIES");
     expect(routeContent).not.toContain("getAllStoredOpportunities");
   });
+
+  it("verifies homepage and HomeTopOpportunitiesClient do not contain hardcoded fixture opportunities", () => {
+    const fixtureSlugs = [
+      "automated-soc2-evidence-collector",
+      "llm-prompt-regression-ci-interceptor",
+      "snowflake-runaway-query-circuit-breaker",
+      "postgres-pool-exhaustion-watchdog-nextjs",
+    ];
+
+    const homePagePath = path.resolve(__dirname, "../../../apps/web/src/app/page.tsx");
+    const homeContent = fs.readFileSync(homePagePath, "utf8");
+    const clientPath = path.resolve(__dirname, "../../../apps/web/src/components/HomeTopOpportunitiesClient.tsx");
+    const clientContent = fs.readFileSync(clientPath, "utf8");
+
+    expect(homeContent).not.toContain("featuredOpportunities");
+    for (const slug of fixtureSlugs) {
+      expect(homeContent).not.toContain(slug);
+      expect(clientContent).not.toContain(slug);
+    }
+  });
 });
