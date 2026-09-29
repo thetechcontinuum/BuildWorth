@@ -64,6 +64,32 @@ describe("Source Registry & Adapters", () => {
     mockFetch.mockRestore();
   });
 
+  it("uses search_by_date endpoint for both generic and query-based searches", async () => {
+    const adapter = sourceRegistry.getAdapter("hackernews");
+    expect(adapter).toBeDefined();
+    if (!adapter) return;
+
+    const requestedUrls: string[] = [];
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+      requestedUrls.push(String(url));
+      return {
+        ok: true,
+        json: async () => ({ hits: [] }),
+      } as any;
+    });
+
+    // Generic fetch
+    await adapter.fetchSignals({ limit: 10, page: 0 });
+    expect(requestedUrls[0]).toContain("https://hn.algolia.com/api/v1/search_by_date?tags=story");
+
+    // Query fetch
+    await adapter.fetchSignals({ limit: 5, query: "kubernetes monitoring", page: 1 });
+    expect(requestedUrls[1]).toContain("https://hn.algolia.com/api/v1/search_by_date?query=kubernetes%20monitoring");
+    expect(requestedUrls[1]).not.toContain("/api/v1/search?");
+
+    mockFetch.mockRestore();
+  });
+
   describe("KrASIA RSS Adapter", () => {
     it("parses RSS feed XML, extracts Asian market metadata, and caps excerpt to 280 chars", async () => {
       const adapter = new KrAsiaAdapter();

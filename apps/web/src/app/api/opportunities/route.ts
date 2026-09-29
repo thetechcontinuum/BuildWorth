@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getAllStoredOpportunities,
   addStoredOpportunity,
   StoredOpportunity,
 } from "@/lib/opportunity-store";
@@ -101,16 +100,24 @@ export async function GET() {
         opportunities: mapped,
       });
     }
-  } catch (err) {
-    console.error("Failed to query opportunities from DB, falling back to static", err);
-  }
 
-  const opps = getAllStoredOpportunities();
-  return NextResponse.json({
-    success: true,
-    totalCount: opps.length,
-    opportunities: opps,
-  });
+    return NextResponse.json({
+      success: true,
+      totalCount: 0,
+      opportunities: [],
+    });
+  } catch (err: any) {
+    console.error("Failed to query opportunities from DB", err);
+    return NextResponse.json(
+      {
+        success: false,
+        error: "FAILED_TO_LOAD_OPPORTUNITIES",
+        totalCount: 0,
+        opportunities: [],
+      },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {

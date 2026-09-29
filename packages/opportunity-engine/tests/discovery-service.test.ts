@@ -322,4 +322,80 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
     expect((sig1 as any).buyerDemand).toBeUndefined();
     expect((sig1 as any).willingnessToPay).toBeUndefined();
   });
+
+  it("strictly excludes INITIAL_OPPORTUNITIES fixture slugs from discovery feed", async () => {
+    const fixtureSlugs = [
+      "automated-soc2-evidence-collector",
+      "llm-prompt-regression-ci-interceptor",
+      "snowflake-runaway-query-circuit-breaker",
+      "postgres-pool-exhaustion-watchdog-nextjs",
+    ];
+
+    // Mock Prisma returning a demo fixture opportunity alongside an authentic one
+    const mockPrisma = {
+      opportunity: {
+        findMany: async (args: any) => {
+          // If query checks isDemoFixture: false, demo fixtures are already filtered
+          const allOpps = [
+            {
+              id: "opp-fixture-1",
+              slug: "llm-prompt-regression-ci-interceptor",
+              title: "LLM Prompt Regression & Token Cost Interceptor for CI/CD",
+              oneSentenceSummary: "Automated test harness in GitHub Actions",
+              status: "DRAFT",
+              publicationQualityStatus: "HYPOTHESIS",
+              isDemoFixture: true,
+              createdAt: new Date(),
+            },
+            {
+              id: "opp-genuine-1",
+              slug: "genuine-cross-cloud-latency-guard",
+              title: "Genuine Cross Cloud Latency Guard",
+              oneSentenceSummary: "Monitors and routes inter-region traffic automatically",
+              status: "DRAFT",
+              publicationQualityStatus: "HYPOTHESIS",
+              isDemoFixture: false,
+              createdAt: new Date(),
+              evidenceLinks: [
+                {
+                  id: "el-1",
+                  normalizedSignal: {
+                    id: "ns-1",
+                    sourceTitle: "Inter-region latency friction",
+                    sanitizedExcerpt: "Experiencing 200ms latency spikes between eu-central and us-east",
+                    canonicalUrl: "https://news.ycombinator.com/item?id=8831920",
+                    publishedAt: new Date(),
+                    rawSignal: {
+                      id: "rs-1",
+                      sourceUrl: "https://news.ycombinator.com/item?id=8831920",
+                      source: { key: "hackernews", name: "Hacker News", sourceFamily: "COMMUNITY" },
+                    },
+                  },
+                },
+              ],
+            },
+          ];
+
+          return allOpps.filter((o) => {
+            if (args?.where?.isDemoFixture === false && o.isDemoFixture) return false;
+            return true;
+          });
+        },
+      },
+      rawSignal: {
+        findMany: async () => [],
+      },
+    };
+
+    const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 10 });
+    expect(feed.success).toBe(true);
+    expect(feed.opportunityHypotheses).toHaveLength(1);
+    expect(feed.opportunityHypotheses[0].slug).toBe("genuine-cross-cloud-latency-guard");
+
+    // Ensure none of the 4 INITIAL_OPPORTUNITIES fixtures appear
+    for (const slug of fixtureSlugs) {
+      expect(feed.opportunityHypotheses.some((h) => h.slug === slug)).toBe(false);
+      expect(feed.items.some((h) => h.slug === slug)).toBe(false);
+    }
+  });
 });
