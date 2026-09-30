@@ -85,9 +85,15 @@ export async function safeFetch(
           },
           timeout: timeoutMs,
           // Connection pinning: custom lookup that always returns the pre-validated IP
-          lookup: (_hostname, _options, callback) => {
+          lookup: (_hostname, optionsOrCallback: any, maybeCallback?: any) => {
+            const callback = typeof optionsOrCallback === "function" ? optionsOrCallback : maybeCallback;
+            const opts = typeof optionsOrCallback === "object" ? optionsOrCallback : {};
             const family = pinnedIp.includes(":") ? 6 : 4;
-            callback(null, pinnedIp, family);
+            if (opts && opts.all) {
+              callback(null, [{ address: pinnedIp, family }]);
+            } else {
+              callback(null, pinnedIp, family);
+            }
           },
           // For HTTPS, preserve the original hostname in SNI and certificate verification
           servername: isHttps ? parsed.hostname : undefined,

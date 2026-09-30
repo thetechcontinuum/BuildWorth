@@ -56,13 +56,38 @@ async function handleScheduledIngestion(request: NextRequest) {
 
   logger.info("Executing scheduled production ingestion job...");
 
-  // Deterministic per-UTC-day idempotency key shared across primary Vercel Cron and fallback schedulers
-  const idempotencyKey = getDailyCronIdempotencyKey();
+  // Deterministic per-UTC-day idempotency key shared across primary Vercel Cron and fallback schedulers,
+  // with support for authorized explicit idempotency keys and on-demand force retries
+  let customIdempotencyKey: string | undefined = undefined;
+  let forceRetry = false;
 
+  const headerIdempotencyKey = request.headers.get("idempotency-key") || request.headers.get("x-idempotency-key");
+  if (headerIdempotencyKey && /^[a-zA-Z0-9_-]+$/.test(headerIdempotencyKey.trim())) {
+    customIdempotencyKey = headerIdempotencyKey.trim();
+  }
+
+  if (request.method === "POST") {
+    try {
+      const body = await request.clone().json().catch(() => null);
+      if (body && typeof body === "object") {
+        if (body.idempotencyKey && typeof body.idempotencyKey === "string" && /^[a-zA-Z0-9_-]+$/.test(body.idempotencyKey.trim())) {
+          customIdempotencyKey = body.idempotencyKey.trim();
+        }
+        if (body.force === true || body.forceRetry === true) {
+          forceRetry = true;
+        }
+      }
+    } catch {
+      // Body parsing optional
+    }
+  }
+
+  const idempotencyKey = customIdempotencyKey || getDailyCronIdempotencyKey();
 
   try {
     const result = await executeManualStagingIngestion(prisma, {
       idempotencyKey,
+      forceRetry,
       workerId: "cron-worker-" + crypto.randomBytes(4).toString("hex"),
       leaseDurationMs: 40000,
       executionTimeoutMs: 38000,

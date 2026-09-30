@@ -34,10 +34,15 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
         url = `https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${limit}&page=${page}`;
       }
 
-      if (options.checkpoint) {
+      if (options.since) {
+        const ts = Math.floor(options.since.getTime() / 1000);
+        if (!isNaN(ts) && ts > 0) {
+          url += `&numericFilters=created_at_i>${ts}`;
+        }
+      } else if (options.checkpoint) {
         const ts = parseInt(options.checkpoint, 10);
         if (!isNaN(ts) && ts > 0) {
-          url += `&numericFilters=created_at_i<${ts}`;
+          url += `&numericFilters=created_at_i>${ts}`;
         }
       }
 
