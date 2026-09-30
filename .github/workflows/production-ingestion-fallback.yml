@@ -5,6 +5,17 @@ on:
     # 01:15 UTC every day (approx 75 minutes after 00:00 UTC Vercel cron window)
     - cron: "15 1 * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Force retry / fresh execution even if daily run completed"
+        required: false
+        type: boolean
+        default: false
+      idempotency_key:
+        description: "Optional custom idempotency key"
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: production-ingestion-cron
@@ -32,6 +43,19 @@ jobs:
           echo "Invoking production discovery cron endpoint..."
           TARGET_URL="https://build-worth-web.vercel.app/api/cron/discover"
 
+          PAYLOAD="{}"
+          FORCE_INPUT="${{ github.event.inputs.force }}"
+          KEY_INPUT="${{ github.event.inputs.idempotency_key }}"
+          if [ "$FORCE_INPUT" = "true" ]; then
+            if [ -n "$KEY_INPUT" ]; then
+              PAYLOAD="{\"force\":true,\"idempotencyKey\":\"$KEY_INPUT\"}"
+            else
+              PAYLOAD="{\"force\":true}"
+            fi
+          elif [ -n "$KEY_INPUT" ]; then
+            PAYLOAD="{\"idempotencyKey\":\"$KEY_INPUT\"}"
+          fi
+
           # Perform invocation with Bearer token authentication in Authorization header
           # Secrets are masked by GitHub Actions runner and never printed in URLs or command output
           HTTP_RESPONSE=$(curl -sS -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}" \
@@ -39,6 +63,7 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "User-Agent: GitHub-Actions-Ingestion-Fallback/1.0" \
             -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
             --max-time 120 \
             "$TARGET_URL")
 
