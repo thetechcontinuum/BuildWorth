@@ -351,6 +351,53 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       expect(run2.publishedSlugs).toEqual(run1.publishedSlugs);
     });
 
+    it("retries and reclaims a previously FAILED run instead of returning existing failed run", async () => {
+      const key = "run-test-retry-failed-001";
+      // Simulate a previously failed run recorded for this idempotency key
+      const failedRunRecord = await prisma.ingestionRun.create({
+        data: {
+          idempotencyKey: key,
+          status: "FAILED",
+          failureCode: "AI_PROVIDER_UNAVAILABLE",
+          claimToken: "token-failed-prev",
+          lockedBy: "old-worker",
+          attemptCount: 1,
+          startedAt: new Date(Date.now() - 3600000),
+          failedAt: new Date(Date.now() - 3500000),
+        },
+      });
+
+      // Subsequent execution with same idempotencyKey must reclaim and retry rather than returning FAILED
+      const retryResult = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: key,
+        aiProvider: mockAi,
+      });
+
+      expect(retryResult.status).toBe("COMPLETED");
+      expect(retryResult.isExisting).toBeFalsy();
+      expect(retryResult.runId).toBe(failedRunRecord.id);
+
+      const updatedRecord = await prisma.ingestionRun.findUnique({ where: { id: failedRunRecord.id } });
+      expect(updatedRecord.status).toBe("COMPLETED");
+      expect(updatedRecord.failureCode).toBeNull();
+      expect(updatedRecord.attemptCount).toBe(2);
+    });
+
+    it("reclaims and re-executes when forceRetry is enabled on a completed run", async () => {
+      const key = "run-test-force-retry-002";
+      const run1 = await executeManualStagingIngestion(prisma, { idempotencyKey: key, aiProvider: mockAi });
+      expect(run1.status).toBe("COMPLETED");
+
+      const run2 = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: key,
+        aiProvider: mockAi,
+        forceRetry: true,
+      });
+      expect(run2.status).toBe("COMPLETED");
+      expect(run2.isExisting).toBeFalsy();
+      expect(run2.runId).toBe(run1.runId);
+    });
+
     it("rejects concurrent execution when another run is currently locked in PROCESSING", async () => {
       const key1 = "run-test-active-003";
       await prisma.ingestionRun.create({

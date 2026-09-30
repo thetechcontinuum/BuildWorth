@@ -32,9 +32,11 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
           ? `is:public is:issue state:open ${query.trim()}`
           : `is:public is:issue state:open sort:updated`;
 
-      if (options.checkpoint) {
+      if (options.since) {
+        q += ` updated:>${options.since.toISOString()}`;
+      } else if (options.checkpoint) {
         // e.g. updated date checkpoint
-        q += ` updated:<${options.checkpoint}`;
+        q += ` updated:>${options.checkpoint}`;
       }
 
       const res = await fetch(

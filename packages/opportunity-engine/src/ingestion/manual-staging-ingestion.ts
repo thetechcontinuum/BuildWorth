@@ -55,6 +55,7 @@ export interface ManualIngestionOptions {
   aiProvider?: LLMProvider;
   executionTimeoutMs?: number;
   cleanSyntheticPrior?: boolean;
+  forceRetry?: boolean;
 }
 
 
@@ -608,6 +609,7 @@ export async function executeManualStagingIngestion(
     aiProvider = defaultAI,
     executionTimeoutMs = 50000,
     cleanSyntheticPrior = false,
+    forceRetry = false,
   } = options;
 
 
@@ -714,6 +716,7 @@ export async function executeManualStagingIngestion(
       claimToken,
       now,
       lockedUntil,
+      forceRetry,
     });
   } catch (err: any) {
     if (err.message === "CONCURRENT_RUN_IN_PROGRESS") {
@@ -1114,11 +1117,14 @@ export async function executeManualStagingIngestion(
             select: { publishedAt: true, createdAt: true, externalId: true },
           });
           if (latestSignal) {
-            const latestDate = latestSignal.publishedAt || latestSignal.createdAt;
+            const rawDate = latestSignal.publishedAt || latestSignal.createdAt;
+            const parsed = new Date(rawDate);
+            const now = new Date();
+            const latestDate = !isNaN(parsed.getTime()) && parsed <= now ? parsed : new Date(now.getTime() - 24 * 60 * 60 * 1000);
             if (src.key === "hackernews") {
-              latestCheckpoint = String(Math.floor(new Date(latestDate).getTime() / 1000));
+              latestCheckpoint = String(Math.floor(latestDate.getTime() / 1000));
             } else if (src.key === "github") {
-              latestCheckpoint = new Date(latestDate).toISOString();
+              latestCheckpoint = latestDate.toISOString();
             } else {
               latestCheckpoint = latestSignal.externalId;
             }
@@ -2097,9 +2103,10 @@ async function acquireIngestionLease(
     claimToken: string;
     now: Date;
     lockedUntil: Date;
+    forceRetry?: boolean;
   },
 ): Promise<LeaseResult> {
-  const { idempotencyKey, workerId, claimToken, now, lockedUntil } = options;
+  const { idempotencyKey, workerId, claimToken, now, lockedUntil, forceRetry = false } = options;
 
   // 1. Try IngestionRun model
   try {
@@ -2109,12 +2116,12 @@ async function acquireIngestionLease(
       });
 
       if (existing) {
-        if (existing.status === "COMPLETED" || existing.status === "FAILED") {
+        if (existing.status === "COMPLETED" && !forceRetry) {
           return { run: existing, isExisting: true, action: "RETURN_EXISTING" as const };
         }
 
         const isLeaseActive = existing.lockedUntil && new Date(existing.lockedUntil) > new Date();
-        if (existing.status === "PROCESSING" && isLeaseActive) {
+        if (existing.status === "PROCESSING" && isLeaseActive && !forceRetry) {
           return { run: existing, isExisting: true, action: "IN_PROGRESS" as const };
         }
 
@@ -2122,12 +2129,13 @@ async function acquireIngestionLease(
           where: { id: existing.id },
           data: {
             status: "PROCESSING",
+            failureCode: null,
             claimToken,
             lockedBy: workerId,
             lockedAt: now,
             lockedUntil,
             attemptCount: { increment: 1 },
-            startedAt: existing.startedAt || now,
+            startedAt: now,
           },
         });
         return { run: reclaimed, isExisting: false, action: "RECLAIMED" as const };
@@ -2203,22 +2211,24 @@ async function acquireIngestionLease(
 
     if (existingLog) {
       const details = existingLog.details;
-      if (details.status === "COMPLETED" || details.status === "FAILED") {
+      if (details.status === "COMPLETED" && !forceRetry) {
         return { run: details, isExisting: true, action: "RETURN_EXISTING" as const };
       }
       const isLeaseActive = details.lockedUntil && new Date(details.lockedUntil) > now;
-      if (details.status === "PROCESSING" && isLeaseActive) {
+      if (details.status === "PROCESSING" && isLeaseActive && !forceRetry) {
         return { run: details, isExisting: true, action: "IN_PROGRESS" as const };
       }
 
       const updatedDetails = {
         ...details,
         status: "PROCESSING",
+        failureCode: null,
         claimToken,
         lockedBy: workerId,
         lockedAt: now.toISOString(),
         lockedUntil: lockedUntil.toISOString(),
         attemptCount: (details.attemptCount || 1) + 1,
+        startedAt: now.toISOString(),
       };
 
       await tx.auditLog.create({

@@ -90,6 +90,56 @@ describe("Source Registry & Adapters", () => {
     mockFetch.mockRestore();
   });
 
+  it("HackerNewsAdapter queries for newer signals using created_at_i> timestamp when checkpoint or since is provided", async () => {
+    const adapter = sourceRegistry.getAdapter("hackernews");
+    expect(adapter).toBeDefined();
+    if (!adapter) return;
+
+    const requestedUrls: string[] = [];
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+      requestedUrls.push(String(url));
+      return {
+        ok: true,
+        json: async () => ({ hits: [] }),
+      } as any;
+    });
+
+    const checkpointTs = "1727654400";
+    await adapter.fetchSignals({ limit: 10, checkpoint: checkpointTs });
+    expect(requestedUrls[0]).toContain(`numericFilters=created_at_i>${checkpointTs}`);
+    expect(requestedUrls[0]).not.toContain("numericFilters=created_at_i<");
+
+    // With Date since
+    const sinceDate = new Date("2026-09-29T12:00:00Z");
+    const expectedTs = Math.floor(sinceDate.getTime() / 1000);
+    await adapter.fetchSignals({ limit: 5, since: sinceDate });
+    expect(requestedUrls[1]).toContain(`numericFilters=created_at_i>${expectedTs}`);
+
+    mockFetch.mockRestore();
+  });
+
+  it("GitHubIssuesAdapter queries for newer issues using updated:> when checkpoint or since is provided", async () => {
+    const adapter = sourceRegistry.getAdapter("github");
+    expect(adapter).toBeDefined();
+    if (!adapter) return;
+
+    const requestedUrls: string[] = [];
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+      requestedUrls.push(String(url));
+      return {
+        ok: true,
+        json: async () => ({ items: [] }),
+      } as any;
+    });
+
+    const checkpointIso = "2026-09-29T10:00:00.000Z";
+    await adapter.fetchSignals({ limit: 10, checkpoint: checkpointIso });
+    expect(requestedUrls[0]).toContain(encodeURIComponent(`updated:>${checkpointIso}`));
+    expect(requestedUrls[0]).not.toContain(encodeURIComponent(`updated:<${checkpointIso}`));
+
+    mockFetch.mockRestore();
+  });
+
   describe("KrASIA RSS Adapter", () => {
     it("parses RSS feed XML, extracts Asian market metadata, and caps excerpt to 280 chars", async () => {
       const adapter = new KrAsiaAdapter();

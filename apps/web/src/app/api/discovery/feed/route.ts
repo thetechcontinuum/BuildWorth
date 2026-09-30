@@ -9,13 +9,15 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const limitParam = searchParams.get("limit");
     const limit = limitParam ? parseInt(limitParam, 10) : 5;
+    const signalsLimitParam = searchParams.get("signalsLimit");
+    const signalsLimit = signalsLimitParam ? parseInt(signalsLimitParam, 10) : 10;
 
-    const feed = await getDailyDiscoveryFeed(prisma, { limit });
+    const feed = await getDailyDiscoveryFeed(prisma, { limit, signalsLimit });
 
     return NextResponse.json(feed, {
       status: 200,
       headers: {
-        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+        "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
       },
     });
   } catch (error: any) {
