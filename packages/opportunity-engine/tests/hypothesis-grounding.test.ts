@@ -77,6 +77,57 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
       expect(feed.opportunityHypotheses).toHaveLength(0);
     });
 
+    it("ensures an ungrounded news article is NOT qualified as an opportunity hypothesis just because the opportunity title or problem statement contains problem keywords", async () => {
+      const mockAlibabaNewsOpp = {
+        id: "opp-alibaba-1",
+        slug: "china-push-for-domestic-ai-chip-capability",
+        title: "China's push for domestic AI chip capability amid internatio",
+        oneSentenceSummary: "News report on Chinese AI chip cluster buildout",
+        problemStatement: "China's push for domestic AI chip capability amid international competition and technology safety concerns",
+        status: "DRAFT",
+        publicationQualityStatus: "HYPOTHESIS",
+        isDemoFixture: false,
+        createdAt: new Date(),
+        evidenceLinks: [
+          {
+            id: "link-ali-1",
+            claimType: "MARKET_ATTRACTIVENESS",
+            normalizedSignal: {
+              id: "sig-ali-1",
+              signalType: "MARKET_ACTIVITY",
+              purchaseIntent: false,
+              sourceTitle: "Alibaba touts most powerful AI chip in China for data center buildout",
+              sanitizedExcerpt: "The conglomerate is targeting 20 GW of capacity by 2032 amid a debate over technology safety.",
+              problemSummary: "Alibaba data center expansion announcement.",
+              canonicalUrl: "https://kr-asia.com/alibaba-touts-most-powerful-ai-chip-in-china-for-data-center-buildout",
+              rawSignal: {
+                id: "raw-ali-1",
+                title: "Alibaba touts most powerful AI chip in China for data center buildout",
+                sourceUrl: "https://kr-asia.com/alibaba-touts-most-powerful-ai-chip-in-china-for-data-center-buildout",
+                createdAt: new Date(),
+                source: {
+                  key: "krasia",
+                  name: "KrASIA",
+                  sourceFamily: "DISCOVERY",
+                },
+              },
+            },
+          },
+        ],
+      };
+
+      const mockPrisma = {
+        opportunity: {
+          findMany: async () => [mockAlibabaNewsOpp],
+        },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+      expect(feed.success).toBe(true);
+      // Must be excluded because the excerpt contains no customer pain, workaround, or purchase intent
+      expect(feed.opportunityHypotheses).toHaveLength(0);
+    });
+
     it("allows a signal with concrete pain, workaround, or purchase intent to produce a grounded hypothesis", async () => {
       const mockGroundedOpp = {
         id: "opp-grounded-1",
