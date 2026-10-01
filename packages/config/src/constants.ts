@@ -6,4 +6,10 @@ export const APP_CONSTANTS = {
   HIGH_SCORE_THRESHOLD: 70,
   AI_DAILY_SPEND_LIMIT_CENTS_DEFAULT: 500, // $5.00
   AI_MONTHLY_SPEND_LIMIT_CENTS_DEFAULT: 15000, // $150.00
+  INGESTION_SCHEDULE: {
+    PRIMARY_CRON: "0 0 * * *",
+    PRIMARY_DESCRIPTION: "Daily at 00:00 UTC (Primary Vercel Cron)",
+    FALLBACK_CRON: "15 1 * * *",
+    FALLBACK_DESCRIPTION: "Daily at 01:15 UTC (Fallback GitHub Actions runner)",
+  },
 };

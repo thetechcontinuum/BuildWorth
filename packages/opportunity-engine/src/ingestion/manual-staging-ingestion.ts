@@ -1367,12 +1367,26 @@ export async function executeManualStagingIngestion(
           },
         });
 
+        let detectedVertical = "Software Engineering & DevOps";
+        const combinedText = `${extracted.workflowContext || ""} ${item.excerpt || ""} ${item.title || ""}`.toLowerCase();
+        if (combinedText.includes("devops") || combinedText.includes("compliance") || combinedText.includes("security") || combinedText.includes("soc2")) {
+          detectedVertical = "DevOps & Compliance";
+        } else if (combinedText.includes("data") || combinedText.includes("finops") || combinedText.includes("cloud cost") || combinedText.includes("warehouse")) {
+          detectedVertical = "Data Engineering & FinOps";
+        } else if (combinedText.includes("chip") || combinedText.includes("semiconductor") || combinedText.includes("hardware") || combinedText.includes("silicon")) {
+          detectedVertical = "Semiconductors & DeepTech";
+        } else if (combinedText.includes("battery") || combinedText.includes("energy") || combinedText.includes("cleantech") || combinedText.includes("climate")) {
+          detectedVertical = "CleanTech & Climate";
+        } else if (combinedText.includes("robot") || combinedText.includes("manufacturing") || combinedText.includes("automation")) {
+          detectedVertical = "Robotics & Industrial Automation";
+        } else if (combinedText.includes("fintech") || combinedText.includes("payment") || combinedText.includes("settlement")) {
+          detectedVertical = "FinTech & Payments";
+        }
+
         clusterCandidates.push({
           id: item.normalizedSignalId,
           problemSummary: extracted.problemSummary,
-          vertical: extracted.workflowContext?.includes("DevOps") || extracted.workflowContext?.includes("Compliance")
-            ? "DevOps & Compliance"
-            : "Data Engineering & FinOps",
+          vertical: detectedVertical,
           embedding: emb.embedding,
         });
       } catch (aiErr: any) {
@@ -1488,7 +1502,25 @@ export async function executeManualStagingIngestion(
         if (targetOriginalSignalIds.has(item.id)) continue;
         const sim = targetCentroid ? cosineSimilarity(item.embedding, targetCentroid) : 0;
         if (sim >= 0.70) {
-          matchedToTarget.push(item);
+          // Verify that this candidate signal actually carries problem or demand evidence before attaching
+          const normSig = await prisma.normalizedSignal.findUnique({
+            where: { id: item.id },
+            select: { signalType: true, purchaseIntent: true, sanitizedExcerpt: true, problemSummary: true },
+          });
+          const sigType = (normSig?.signalType || "").toUpperCase();
+          const text = `${normSig?.sanitizedExcerpt || ""} ${normSig?.problemSummary || ""}`.toLowerCase();
+          const hasCommercialEvidence =
+            ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType) ||
+            normSig?.purchaseIntent ||
+            /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay)\b/i.test(text);
+
+          const isPureNewsOrEmerging = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
+
+          if (hasCommercialEvidence && !isPureNewsOrEmerging) {
+            matchedToTarget.push(item);
+          } else {
+            unmatchedPool.push(item);
+          }
         } else {
           unmatchedPool.push(item);
         }
@@ -1806,6 +1838,22 @@ export async function executeManualStagingIngestion(
             }
           }
           if (verifiedSignals.length === 0) continue;
+
+          // Gating: An opportunity hypothesis may only be created if the cluster contains genuine evidence
+          // of a problem, workaround, or willingness to pay / purchase intent.
+          const hasCommercialProblemEvidence = verifiedSignals.some((vs) => {
+            const sigType = (vs.normalizedSignal.signalType || "").toUpperCase();
+            const text = `${vs.normalizedSignal.sanitizedExcerpt || ""} ${vs.normalizedSignal.problemSummary || ""}`.toLowerCase();
+            const isActionableType = ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
+            const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay)\b/i.test(text);
+            const isPureNews = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
+            return (isActionableType || vs.normalizedSignal.purchaseIntent || hasExplicitPain) && !isPureNews;
+          });
+
+          if (!hasCommercialProblemEvidence) {
+            // Signal remains in database as authentic Market Signal feed item, but is NOT synthesized into a business hypothesis
+            continue;
+          }
 
           const rawTitle = cl.title || cl.summary;
           const formattedTitle = formatMeaningfulTitle(rawTitle);

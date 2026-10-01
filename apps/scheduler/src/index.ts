@@ -1,4 +1,5 @@
 import { logger } from "@buildworth/observability";
+import { APP_CONSTANTS } from "@buildworth/config";
 
 export const SCHEDULED_TASKS = [
   {
@@ -7,10 +8,10 @@ export const SCHEDULED_TASKS = [
     description: "Ingest signals from Hacker News, Reddit, GitHub, Product Hunt",
   },
   {
-    name: "morning_06am_opportunity_discovery",
-    cron: "0 6 * * *",
+    name: "daily_opportunity_discovery",
+    cron: APP_CONSTANTS.INGESTION_SCHEDULE.PRIMARY_CRON,
     description:
-      "Execute 06:00 AM full AI market scan, pgvector clustering and new opportunity synthesis",
+      "Execute daily 00:00 UTC AI market scan, pgvector clustering, and opportunity synthesis",
   },
   {
     name: "daily_spend_ledger_reset",
@@ -45,9 +46,10 @@ export const SCHEDULED_TASKS = [
 ];
 
 async function runScheduler() {
-  logger.info("BuildWorth 06:00 AM Ingestion & Discovery Cron Scheduler initialized.", {
+  logger.info("BuildWorth Ingestion & Discovery Cron Scheduler initialized.", {
     tasksCount: SCHEDULED_TASKS.length,
-    schedule: "Every morning at 06:00 AM (0 6 * * *)",
+    schedule: `${APP_CONSTANTS.INGESTION_SCHEDULE.PRIMARY_DESCRIPTION} (${APP_CONSTANTS.INGESTION_SCHEDULE.PRIMARY_CRON})`,
+    fallback: `${APP_CONSTANTS.INGESTION_SCHEDULE.FALLBACK_DESCRIPTION} (${APP_CONSTANTS.INGESTION_SCHEDULE.FALLBACK_CRON})`,
   });
 
   process.on("SIGINT", () => {
