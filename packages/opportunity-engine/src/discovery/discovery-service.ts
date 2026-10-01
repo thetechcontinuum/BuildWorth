@@ -141,15 +141,15 @@ export async function getDailyDiscoveryFeed(
         // Check if signal contains actionable problem/demand evidence
         const sigType = (ns.signalType || "").toUpperCase();
         const claimType = (link.claimType || "").toUpperCase();
-        const textToScan = `${ns.sanitizedExcerpt || ""} ${ns.problemSummary || ""} ${raw.title || ""}`.toLowerCase();
+        const textToScan = `${ns.sanitizedExcerpt || ""} ${ns.problemSummary || ""} ${ns.sourceTitle || ""} ${raw.title || ""} ${opp.problemStatement || ""} ${opp.title || ""}`.toLowerCase();
         const hasExplicitPainOrDemand =
-          /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|spend|expensive|difficult|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need|want|looking for)\b/i.test(textToScan);
-
-        const isDisallowedType = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
+          /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|spikes|friction|latency|manual|spend|expensive|difficult|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need|want|looking for)\b/i.test(textToScan);
+        const isDiscoveryOrNews = (src?.sourceFamily === "DISCOVERY" || src?.key === "krasia");
+        const isDisallowedType = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType) || (isDiscoveryOrNews && !claimType && !hasExplicitPainOrDemand);
         const isActionableType =
           ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType) ||
           ["PAIN_EXISTENCE", "BUYER_DEMAND", "WILLINGNESS_TO_PAY", "CURRENT_WORKAROUND"].includes(claimType) ||
-          (!isDisallowedType && (hasExplicitPainOrDemand || !sigType));
+          (!isDisallowedType && hasExplicitPainOrDemand);
 
         if (isActionableType) {
           hasActionableEvidence = true;
@@ -198,9 +198,15 @@ export async function getDailyDiscoveryFeed(
 
       // Demarcate AI-generated business hypothesis directly grounded in observed facts
       const primaryFact = observedFacts[0] || opp.problemStatement || opp.title;
+      const rawProposedSolution = (opp.proposedProduct || "").trim();
+      const hasGenericBoilerplate = /Lightweight SaaS tool providing automated monitoring.*Data Engineering & FinOps/i.test(rawProposedSolution);
+      const proposedSolution = (!rawProposedSolution || hasGenericBoilerplate)
+        ? `Targeted solution addressing: ${opp.title}`
+        : rawProposedSolution;
+
       const businessHypothesis = {
         targetAudience: opp.economicBuyer || opp.endUser || "Early Adopter Teams",
-        proposedSolution: opp.proposedProduct || `Targeted solution addressing: ${opp.title}`,
+        proposedSolution,
         painFriction: opp.problemStatement || primaryFact || "Operational bottleneck identified in market signals",
         confidenceNote: "Initial market hypothesis derived from public signals. Not yet validated via formal customer interviews or WTP proof.",
       };
@@ -208,11 +214,17 @@ export async function getDailyDiscoveryFeed(
       const market = deriveMarketRegion(primarySourceKey, primarySourceFamily, opp.industry);
       const pubDate = primaryPublishedAt ? primaryPublishedAt.toISOString() : opp.createdAt.toISOString();
 
+      // Sanitize summary to ensure no legacy boilerplate leaks
+      let summary = (opp.oneSentenceSummary || "").trim();
+      if (/Streamline and automate .* without complex custom scripts/i.test(summary) || !summary) {
+        summary = `Exploration of ${opp.title.toLowerCase()} based on observed market developments.`;
+      }
+
       opportunityHypotheses.push({
         id: opp.id,
         slug: opp.slug,
         title: opp.title,
-        summary: opp.oneSentenceSummary,
+        summary,
         observedFacts,
         evidenceObservations: observations,
         businessHypothesis,
