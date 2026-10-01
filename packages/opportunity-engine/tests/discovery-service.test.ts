@@ -124,7 +124,7 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
           normalizedSignal: {
             id: "sig-1",
             canonicalUrl: "https://news.ycombinator.com/item?id=888888",
-            sanitizedExcerpt: "Excerpt 1",
+            sanitizedExcerpt: "Severe problem and breakdown costing $500 Excerpt 1",
             rawSignal: {
               sourceUrl: "https://news.ycombinator.com/item?id=888888",
               source: { key: "hackernews", name: "Hacker News" },
@@ -148,7 +148,7 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
           normalizedSignal: {
             id: "sig-2",
             canonicalUrl: "https://news.ycombinator.com/item?id=888888", // Same canonical URL!
-            sanitizedExcerpt: "Excerpt 2",
+            sanitizedExcerpt: "Severe problem and breakdown costing $500 Excerpt 2",
             rawSignal: {
               sourceUrl: "https://news.ycombinator.com/item?id=888888",
               source: { key: "hackernews", name: "Hacker News" },

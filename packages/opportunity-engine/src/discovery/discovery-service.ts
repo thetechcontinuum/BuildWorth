@@ -139,17 +139,22 @@ export async function getDailyDiscoveryFeed(
         const obsDateIso = obsDate instanceof Date ? obsDate.toISOString() : new Date(obsDate).toISOString();
 
         // Check if signal contains actionable problem/demand evidence
+        // NOTE: Evidence MUST originate from the source signal itself, never the AI-generated opportunity title/problem statement.
         const sigType = (ns.signalType || "").toUpperCase();
         const claimType = (link.claimType || "").toUpperCase();
-        const textToScan = `${ns.sanitizedExcerpt || ""} ${ns.problemSummary || ""} ${ns.sourceTitle || ""} ${raw.title || ""} ${opp.problemStatement || ""} ${opp.title || ""}`.toLowerCase();
+        const signalTextToScan = `${ns.sanitizedExcerpt || ""} ${ns.problemSummary || ""} ${ns.sourceTitle || ""} ${raw.title || ""}`.toLowerCase();
         const hasExplicitPainOrDemand =
-          /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|spikes|friction|latency|manual|spend|expensive|difficult|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need|want|looking for)\b/i.test(textToScan);
+          /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|spikes|friction|latency|manual|spend|expensive|difficult|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need|want|looking for)\b/i.test(signalTextToScan);
         const isDiscoveryOrNews = (src?.sourceFamily === "DISCOVERY" || src?.key === "krasia");
-        const isDisallowedType = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType) || (isDiscoveryOrNews && !claimType && !hasExplicitPainOrDemand);
+        const isDisallowedType = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
+
+        // Discovery / news sources must have explicit, concrete friction or buyer intent in the signal text itself
         const isActionableType =
-          ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType) ||
-          ["PAIN_EXISTENCE", "BUYER_DEMAND", "WILLINGNESS_TO_PAY", "CURRENT_WORKAROUND"].includes(claimType) ||
-          (!isDisallowedType && hasExplicitPainOrDemand);
+          isDiscoveryOrNews
+            ? hasExplicitPainOrDemand && ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes(sigType || "PAIN")
+            : (["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType) ||
+               ["PAIN_EXISTENCE", "BUYER_DEMAND", "WILLINGNESS_TO_PAY", "CURRENT_WORKAROUND"].includes(claimType) ||
+               (!isDisallowedType && hasExplicitPainOrDemand));
 
         if (isActionableType) {
           hasActionableEvidence = true;
