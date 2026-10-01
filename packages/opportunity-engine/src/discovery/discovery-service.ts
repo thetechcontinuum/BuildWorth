@@ -118,6 +118,8 @@ export async function getDailyDiscoveryFeed(
       let primarySourceKey = "";
       let primaryPublishedAt: Date | null = null;
 
+      let hasActionableEvidence = false;
+
       for (const link of opp.evidenceLinks || []) {
         const ns = link.normalizedSignal;
         const raw = ns?.rawSignal;
@@ -136,6 +138,23 @@ export async function getDailyDiscoveryFeed(
         const obsDate = raw.publishedAt || ns.publishedAt || raw.createdAt || new Date();
         const obsDateIso = obsDate instanceof Date ? obsDate.toISOString() : new Date(obsDate).toISOString();
 
+        // Check if signal contains actionable problem/demand evidence
+        const sigType = (ns.signalType || "").toUpperCase();
+        const claimType = (link.claimType || "").toUpperCase();
+        const textToScan = `${ns.sanitizedExcerpt || ""} ${ns.problemSummary || ""} ${raw.title || ""}`.toLowerCase();
+        const hasExplicitPainOrDemand =
+          /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|spend|expensive|difficult|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need|want|looking for)\b/i.test(textToScan);
+
+        const isDisallowedType = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
+        const isActionableType =
+          ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType) ||
+          ["PAIN_EXISTENCE", "BUYER_DEMAND", "WILLINGNESS_TO_PAY", "CURRENT_WORKAROUND"].includes(claimType) ||
+          (!isDisallowedType && (hasExplicitPainOrDemand || !sigType));
+
+        if (isActionableType) {
+          hasActionableEvidence = true;
+        }
+
         observations.push({
           id: ns.id,
           sourceTitle: raw.title || ns.sourceTitle || src?.name || "Market Evidence",
@@ -145,6 +164,12 @@ export async function getDailyDiscoveryFeed(
           sourceName: src?.name || "Public Community",
           publishedAt: obsDateIso,
         });
+      }
+
+      // If an opportunity has no grounded problem, workaround, or purchase intent evidence (e.g. general news or emerging tech),
+      // do not display it as a fabricated business hypothesis.
+      if (!hasActionableEvidence && observations.length > 0) {
+        continue;
       }
 
       // Enforce public feed primary source limits to ensure diversity
@@ -171,11 +196,12 @@ export async function getDailyDiscoveryFeed(
         observedFacts.push(opp.problemStatement);
       }
 
-      // Demarcate AI-generated business hypothesis
+      // Demarcate AI-generated business hypothesis directly grounded in observed facts
+      const primaryFact = observedFacts[0] || opp.problemStatement || opp.title;
       const businessHypothesis = {
         targetAudience: opp.economicBuyer || opp.endUser || "Early Adopter Teams",
-        proposedSolution: opp.proposedProduct || opp.oneSentenceSummary || "Targeted Workflow Automation",
-        painFriction: opp.problemStatement || opp.existingWorkflow || "Recurring manual friction and operational delays",
+        proposedSolution: opp.proposedProduct || `Targeted solution addressing: ${opp.title}`,
+        painFriction: opp.problemStatement || primaryFact || "Operational bottleneck identified in market signals",
         confidenceNote: "Initial market hypothesis derived from public signals. Not yet validated via formal customer interviews or WTP proof.",
       };
 

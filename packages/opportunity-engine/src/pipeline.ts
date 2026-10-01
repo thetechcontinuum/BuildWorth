@@ -54,12 +54,26 @@ export async function executeIntelligencePipeline(
     );
     const embResult = await aiProvider.generateEmbedding(extracted.problemSummary);
 
+    let detectedVertical = "Software Engineering & DevOps";
+    const combinedText = `${extracted.workflowContext || ""} ${sig.sanitizedExcerpt || ""} ${sig.sanitizedTitle || ""}`.toLowerCase();
+    if (combinedText.includes("devops") || combinedText.includes("compliance") || combinedText.includes("security") || combinedText.includes("soc2")) {
+      detectedVertical = "DevOps & Compliance";
+    } else if (combinedText.includes("data") || combinedText.includes("finops") || combinedText.includes("cloud cost") || combinedText.includes("warehouse")) {
+      detectedVertical = "Data Engineering & FinOps";
+    } else if (combinedText.includes("chip") || combinedText.includes("semiconductor") || combinedText.includes("hardware") || combinedText.includes("silicon")) {
+      detectedVertical = "Semiconductors & DeepTech";
+    } else if (combinedText.includes("battery") || combinedText.includes("energy") || combinedText.includes("cleantech") || combinedText.includes("climate")) {
+      detectedVertical = "CleanTech & Climate";
+    } else if (combinedText.includes("robot") || combinedText.includes("manufacturing") || combinedText.includes("automation")) {
+      detectedVertical = "Robotics & Industrial Automation";
+    } else if (combinedText.includes("fintech") || combinedText.includes("payment") || combinedText.includes("settlement")) {
+      detectedVertical = "FinTech & Payments";
+    }
+
     clusterCandidates.push({
       id: sig.externalId,
       problemSummary: extracted.problemSummary,
-      vertical: extracted.workflowContext?.includes("DevOps")
-        ? "DevOps & Compliance"
-        : "Data Engineering & FinOps",
+      vertical: detectedVertical,
       embedding: embResult.embedding,
     });
   }
