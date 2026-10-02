@@ -91,13 +91,24 @@ async function handleScheduledIngestion(request: NextRequest) {
       workerId: "cron-worker-" + crypto.randomBytes(4).toString("hex"),
       leaseDurationMs: 40000,
       executionTimeoutMs: 38000,
-      maxSources: 5,
-      maxFetchItems: 15,
-      maxRawSignals: 10,
-      maxCandidates: 3,
+      maxSources: 10,
+      maxFetchItems: 30,
+      maxRawSignals: 20,
+      maxCandidates: 5,
       maxPublishedOpportunities: 3,
-      // Strictly approved genuine sources only:
-      targetSourceKeys: ["hackernews", "github", "krasia", "siliconcanals", "lobsters"],
+      // Strictly approved genuine sources only (no synthetic, no Product Hunt):
+      targetSourceKeys: [
+        "hackernews",
+        "github",
+        "krasia",
+        "siliconcanals",
+        "lobsters",
+        "ted",
+        "stackexchange",
+        "cisakev",
+        "arxiv",
+        "samgov",
+      ],
       cleanSyntheticPrior: false,
     });
 

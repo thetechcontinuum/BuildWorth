@@ -851,5 +851,92 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
         expect(typeof stats[key].persisted).toBe("number");
       }
     });
+
+    it("verifies production cron targetSourceKeys include ted, stackexchange, cisakev, arxiv, and samgov, skips disabled sources, and tags evidence types", async () => {
+      const prisma = createMockPrisma();
+      const ai = new MockDeterministicProvider();
+
+      // Configure mock store with genuine cron sources including the 5 new sources
+      // and test disabling one (e.g. samgov without API key)
+      prisma._store.sources = [
+        { id: "src-hn", key: "hackernews", name: "Hacker News", isEnabled: true, permittedExcerptLength: 280 },
+        { id: "src-gh", key: "github", name: "GitHub", isEnabled: true, permittedExcerptLength: 280 },
+        { id: "src-ted", key: "ted", name: "TED Europa Tenders", isEnabled: true, permittedExcerptLength: 280 },
+        { id: "src-se", key: "stackexchange", name: "Stack Exchange", isEnabled: true, permittedExcerptLength: 280 },
+        { id: "src-cisa", key: "cisakev", name: "CISA KEV", isEnabled: true, permittedExcerptLength: 280 },
+        { id: "src-arxiv", key: "arxiv", name: "arXiv", isEnabled: true, permittedExcerptLength: 280 },
+        { id: "src-sam", key: "samgov", name: "SAM.gov", isEnabled: false, permittedExcerptLength: 280 }, // Disabled due to missing API key
+      ];
+
+      const cronTargets = [
+        "hackernews",
+        "github",
+        "krasia",
+        "siliconcanals",
+        "lobsters",
+        "ted",
+        "stackexchange",
+        "cisakev",
+        "arxiv",
+        "samgov",
+      ];
+
+      // Verify Product Hunt is NOT in cronTargets
+      expect(cronTargets).not.toContain("producthunt");
+      expect(cronTargets).toContain("ted");
+      expect(cronTargets).toContain("stackexchange");
+      expect(cronTargets).toContain("cisakev");
+      expect(cronTargets).toContain("arxiv");
+      expect(cronTargets).toContain("samgov");
+
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-cron-new-sources-007",
+        aiProvider: ai,
+        maxFetchItems: 20,
+        maxSources: 10,
+        targetSourceKeys: cronTargets,
+      });
+
+      expect(run.status).toBe("COMPLETED");
+
+      // Verify disabled source (samgov) was skipped safely without failing the run
+      const samgovStats = run.summary?.perSourceStats?.["samgov"];
+      expect(samgovStats).toBeUndefined();
+
+      // Verify enabled sources were processed
+      const enabledNewSources = ["ted", "stackexchange", "cisakev", "arxiv"];
+      for (const key of enabledNewSources) {
+        expect(run.summary?.perSourceStats?.[key]).toBeDefined();
+      }
+
+      // Verify evidence types in normalized signals:
+      // ted -> PROCUREMENT
+      // cisakev -> PAIN (or security vulnerability friction)
+      // arxiv -> EMERGING_TECH
+      // stackexchange -> PAIN
+      const tedNorm = prisma._store.normalizedSignals.find((n: any) => {
+        const raw = prisma._store.rawSignals.find((r: any) => r.id === n.rawSignalId);
+        return raw && raw.sourceId === "src-ted";
+      });
+      if (tedNorm) {
+        expect(tedNorm.signalType).toBe("PROCUREMENT");
+      }
+
+      const arxivNorm = prisma._store.normalizedSignals.find((n: any) => {
+        const raw = prisma._store.rawSignals.find((r: any) => r.id === n.rawSignalId);
+        return raw && raw.sourceId === "src-arxiv";
+      });
+      if (arxivNorm) {
+        expect(arxivNorm.signalType).toBe("EMERGING_TECH");
+      }
+
+      const seNorm = prisma._store.normalizedSignals.find((n: any) => {
+        const raw = prisma._store.rawSignals.find((r: any) => r.id === n.rawSignalId);
+        return raw && raw.sourceId === "src-se";
+      });
+      if (seNorm) {
+        expect(seNorm.signalType).toBe("PAIN");
+      }
+    });
   });
 });
