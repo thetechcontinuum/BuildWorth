@@ -11,6 +11,11 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
     expect(deriveMarketRegion("techcrunch", "DISCOVERY")).toBe("North America & Global");
     expect(deriveMarketRegion("github", "DEVELOPER_ECOSYSTEM")).toBe("Global / Developer Ecosystem");
     expect(deriveMarketRegion("hackernews", "COMMUNITY")).toBe("Global / North America & Europe");
+    expect(deriveMarketRegion("ted", "DISCOVERY")).toBe("Europe");
+    expect(deriveMarketRegion("samgov", "DISCOVERY")).toBe("United States / Federal");
+    expect(deriveMarketRegion("stackexchange", "COMMUNITY")).toBe("Global / Developer Ecosystem");
+    expect(deriveMarketRegion("cisakev", "DISCOVERY")).toBe("Global / Cybersecurity");
+    expect(deriveMarketRegion("arxiv", "DISCOVERY")).toBe("Global / Scientific & DeepTech");
     expect(deriveMarketRegion("unknown", "CUSTOM", "Enterprise")).toBe("Global / Remote");
   });
 

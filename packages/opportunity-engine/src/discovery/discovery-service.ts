@@ -15,17 +15,23 @@ export function deriveMarketRegion(sourceKey?: string, sourceFamily?: string, in
   if (sourceKey === "krasia" || sourceKey === "e27") {
     return "Asia / Pan-Asia";
   }
-  if (sourceKey === "eustartups" || sourceKey === "siliconcanals") {
+  if (sourceKey === "eustartups" || sourceKey === "siliconcanals" || sourceKey === "ted") {
     return "Europe";
   }
-  if (sourceKey === "lobsters") {
+  if (sourceKey === "lobsters" || sourceKey === "github" || sourceKey === "stackexchange") {
     return "Global / Developer Ecosystem";
+  }
+  if (sourceKey === "samgov") {
+    return "United States / Federal";
+  }
+  if (sourceKey === "cisakev") {
+    return "Global / Cybersecurity";
+  }
+  if (sourceKey === "arxiv") {
+    return "Global / Scientific & DeepTech";
   }
   if (sourceKey === "techcrunch") {
     return "North America & Global";
-  }
-  if (sourceKey === "github") {
-    return "Global / Developer Ecosystem";
   }
   if (sourceKey === "hackernews" || sourceKey === "reddit") {
     return "Global / North America & Europe";
@@ -145,10 +151,10 @@ export async function getDailyDiscoveryFeed(
         const signalTextToScan = `${ns.sanitizedExcerpt || ""} ${ns.problemSummary || ""} ${ns.sourceTitle || ""} ${raw.title || ""}`.toLowerCase();
         const hasExplicitPainOrDemand =
           /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|spikes|friction|latency|manual|spend|expensive|difficult|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need|want|looking for)\b/i.test(signalTextToScan);
-        const isDiscoveryOrNews = (src?.sourceFamily === "DISCOVERY" || src?.key === "krasia");
+        const isDiscoveryOrNews = (src?.sourceFamily === "DISCOVERY" || ["krasia", "e27", "siliconcanals", "techcrunch", "ted", "samgov", "cisakev", "arxiv"].includes(src?.key || ""));
         const isDisallowedType = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
 
-        // Discovery / news sources must have explicit, concrete friction or buyer intent in the signal text itself
+        // Discovery, procurement, vulnerability, and research sources must have explicit, concrete friction or buyer intent in the signal text itself
         const isActionableType =
           isDiscoveryOrNews
             ? hasExplicitPainOrDemand && ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes(sigType || "PAIN")

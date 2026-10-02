@@ -181,6 +181,124 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
       expect(item.observedFacts[0]).toContain("costing us $18,000");
       expect(item.businessHypothesis.painFriction).toContain("Engineering teams lose $15k/month");
     });
+
+    it("treats public tenders (TED), vulnerabilities (CISA KEV), and research (arXiv) as Market Signals without synthesizing ungrounded hypotheses", async () => {
+      const mockTenderOpp = {
+        id: "opp-tender-1",
+        slug: "eu-tender-cloud-monitoring",
+        title: "EU Public Tender for Cloud Infrastructure Services",
+        oneSentenceSummary: "Government agency tender for cloud operations",
+        problemStatement: "Government agency issues invitation to tender for multi-cloud monitoring contract.",
+        status: "DRAFT",
+        publicationQualityStatus: "HYPOTHESIS",
+        isDemoFixture: false,
+        createdAt: new Date(),
+        evidenceLinks: [
+          {
+            id: "link-ted-1",
+            claimType: "BUYER_DEMAND",
+            normalizedSignal: {
+              id: "sig-ted-1",
+              signalType: "PROCUREMENT",
+              purchaseIntent: false,
+              sourceTitle: "EU Public Tender for Cloud Infrastructure Services",
+              sanitizedExcerpt: "Invitation to tender notice for cloud infrastructure management published by public agency.",
+              problemSummary: "EU agency tender notice.",
+              canonicalUrl: "https://ted.europa.eu/en/notice/-/detail/600123-2026",
+              rawSignal: {
+                id: "raw-ted-1",
+                title: "EU Public Tender for Cloud Infrastructure Services",
+                sourceUrl: "https://ted.europa.eu/en/notice/-/detail/600123-2026",
+                createdAt: new Date(),
+                source: {
+                  key: "ted",
+                  name: "TED Europa Tenders",
+                  sourceFamily: "DISCOVERY",
+                },
+              },
+            },
+          },
+        ],
+      };
+
+      const mockPrisma = {
+        opportunity: {
+          findMany: async () => [mockTenderOpp],
+        },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+      expect(feed.success).toBe(true);
+      // Tender without verified commercial customer pain/WTP must NOT be an opportunity hypothesis
+      expect(feed.opportunityHypotheses).toHaveLength(0);
+    });
+
+    it("displays tender and vulnerability signals in marketSignals section with authentic source labels", async () => {
+      const mockRawTender = {
+        id: "raw-ted-live",
+        sourceUrl: "https://ted.europa.eu/en/notice/-/detail/600123-2026",
+        title: "Automated identity verification for public portals",
+        rawContent: "Tender contract notice for public portal IAM upgrades.",
+        publishedAt: new Date("2026-10-01T08:00:00Z"),
+        createdAt: new Date("2026-10-01T12:00:00Z"),
+        source: {
+          key: "ted",
+          name: "TED Europa Tenders",
+          sourceFamily: "DISCOVERY",
+          isEnabled: true,
+          policyStatus: "ALLOWED",
+        },
+        normalizedSignal: {
+          canonicalUrl: "https://ted.europa.eu/en/notice/-/detail/600123-2026",
+          sourceTitle: "Automated identity verification for public portals",
+          sanitizedExcerpt: "Tender contract notice for public portal IAM upgrades.",
+        },
+      };
+
+      const mockRawCisa = {
+        id: "raw-cisa-live",
+        sourceUrl: "https://nvd.nist.gov/vuln/detail/CVE-2026-8877",
+        title: "CVE-2026-8877: Firewall Remote Code Execution",
+        rawContent: "Active in-the-wild exploitation of network edge firewall gateway.",
+        publishedAt: new Date("2026-10-01T09:00:00Z"),
+        createdAt: new Date("2026-10-01T12:05:00Z"),
+        source: {
+          key: "cisakev",
+          name: "CISA Known Exploited Vulnerabilities",
+          sourceFamily: "DISCOVERY",
+          isEnabled: true,
+          policyStatus: "ALLOWED",
+        },
+        normalizedSignal: {
+          canonicalUrl: "https://nvd.nist.gov/vuln/detail/CVE-2026-8877",
+          sourceTitle: "CVE-2026-8877: Firewall Remote Code Execution",
+          sanitizedExcerpt: "Active in-the-wild exploitation of network edge firewall gateway.",
+        },
+      };
+
+      const mockPrisma = {
+        opportunity: {
+          findMany: async () => [],
+        },
+        rawSignal: {
+          findMany: async () => [mockRawTender, mockRawCisa],
+        },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { signalsLimit: 5 });
+      expect(feed.success).toBe(true);
+      expect(feed.marketSignals).toHaveLength(2);
+
+      const tedSignal = feed.marketSignals.find((s) => s.sourceKey === "ted");
+      expect(tedSignal).toBeDefined();
+      expect(tedSignal?.market).toBe("Europe");
+      expect(tedSignal?.label).toBe("Market signal — not a validated business opportunity");
+
+      const cisaSignal = feed.marketSignals.find((s) => s.sourceKey === "cisakev");
+      expect(cisaSignal).toBeDefined();
+      expect(cisaSignal?.market).toBe("Global / Cybersecurity");
+      expect(cisaSignal?.label).toBe("Market signal — not a validated business opportunity");
+    });
   });
 
   describe("Schedule Alignment & Configuration Accuracy", () => {

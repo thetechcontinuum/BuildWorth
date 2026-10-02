@@ -52,6 +52,7 @@ describe("Phase 1 E2E Flow: Evidence Ingestion to Claim Attribution & Publicatio
       return {
         ok: true,
         json: async () => ({ hits: [], items: [] }),
+        text: async () => "<feed></feed>",
       } as any;
     });
   });

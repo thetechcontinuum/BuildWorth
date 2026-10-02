@@ -91,6 +91,11 @@ const ALLOWLISTED_SOURCE_KEYS = [
   "siliconcanals",
   "lobsters",
   "techcrunch",
+  "ted",
+  "samgov",
+  "stackexchange",
+  "cisakev",
+  "arxiv",
 ];
 
 export function formatMeaningfulTitle(text: string, maxLen = 75): string {
@@ -277,12 +282,18 @@ export function determineEmpiricalClaimType(
     return "WILLINGNESS_TO_PAY";
   }
 
-  // Explicit buyer demand phrases
+  // Explicit buyer demand phrases or official procurement tenders
   const hasBuyerDemand =
-    /\b(looking for a tool|need a solution|any tool for|does anyone know a tool|would love a tool|desperately need)\b/i.test(text);
+    /\b(looking for a tool|need a solution|any tool for|does anyone know a tool|would love a tool|desperately need)\b/i.test(text) ||
+    signalType === "PROCUREMENT" ||
+    /\b(procurement|tender notice|invitation to tender|contract notice|solicitation)\b/i.test(text);
 
   if (hasBuyerDemand) {
     return "BUYER_DEMAND";
+  }
+
+  if (signalType === "EMERGING_TECH" || signalType === "TECHNOLOGY_ENABLER") {
+    return "TECHNICAL_FEASIBILITY";
   }
 
   if (actorRole && /lead|head of|vp|director|manager|founder|cto|ciso|engineer|devops/i.test(actorRole)) {
@@ -930,6 +941,86 @@ export async function executeManualStagingIngestion(
         attributionRequired: true,
         termsNotes: "Feed available via techcrunch.com/feed/; kept disabled with status REVIEW_REQUIRED pending formal RSS commercial use and syndication compliance review.",
       },
+      {
+        key: "ted",
+        name: "TED Europa Tenders",
+        description: "European public procurement and tenders demonstrating public buyer demand and contract budgets",
+        sourceFamily: "DISCOVERY",
+        baseUrl: "https://api.ted.europa.eu",
+        adapterType: "TED_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_1_PRIMARY" as any,
+        rateLimitPerMinute: 60,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official TED Europa public search API v3. Open public procurement tender notices across the European Union.",
+      },
+      {
+        key: "samgov",
+        name: "SAM.gov Federal Contracting",
+        description: "United States federal contracting and procurement opportunities",
+        sourceFamily: "DISCOVERY",
+        baseUrl: "https://api.sam.gov",
+        adapterType: "SAMGOV_API",
+        accessMethod: "API",
+        isEnabled: Boolean(process.env.SAM_GOV_API_KEY),
+        policyStatus: (process.env.SAM_GOV_API_KEY ? "ALLOWED" : "REVIEW_REQUIRED") as any,
+        credibilityTier: "TIER_1_PRIMARY" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official SAM.gov API requiring SAM_GOV_API_KEY. Public federal solicitations and procurement budgets.",
+      },
+      {
+        key: "stackexchange",
+        name: "Stack Exchange & Stack Overflow",
+        description: "Public developer questions, technical problems, and tooling friction",
+        sourceFamily: "COMMUNITY",
+        baseUrl: "https://api.stackexchange.com",
+        adapterType: "STACKEXCHANGE_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 60,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official Stack Exchange REST API v2.3. CC BY-SA 4.0 license with attribution to author and question.",
+      },
+      {
+        key: "cisakev",
+        name: "CISA Known Exploited Vulnerabilities",
+        description: "Official CISA catalog of confirmed in-the-wild exploited security vulnerabilities",
+        sourceFamily: "DISCOVERY",
+        baseUrl: "https://www.cisa.gov",
+        adapterType: "CISAKEV_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_1_PRIMARY" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official CISA KEV JSON catalog. Confirmed security vulnerabilities requiring remediation.",
+      },
+      {
+        key: "arxiv",
+        name: "arXiv Research Preprints",
+        description: "Scientific and technical preprints demonstrating emerging technology trends",
+        sourceFamily: "DISCOVERY",
+        baseUrl: "https://export.arxiv.org",
+        adapterType: "ARXIV_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_1_PRIMARY" as any,
+        rateLimitPerMinute: 20,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official arXiv API (export.arxiv.org). Scientific and technical research preprints and breakthroughs.",
+      },
     ];
 
     try {
@@ -1239,7 +1330,11 @@ export async function executeManualStagingIngestion(
                   rawSignalId: rawRecord.id,
                   sourceId: src.id,
                   signalType:
-                    src.key === "krasia" || src.key === "e27" || src.key === "siliconcanals" || src.key === "techcrunch"
+                    src.key === "ted" || src.key === "samgov"
+                      ? "PROCUREMENT"
+                      : src.key === "arxiv"
+                      ? "EMERGING_TECH"
+                      : src.key === "krasia" || src.key === "e27" || src.key === "siliconcanals" || src.key === "techcrunch"
                       ? "MARKET_ACTIVITY"
                       : "PAIN",
                   evidenceOrigin: "COLLECTED",

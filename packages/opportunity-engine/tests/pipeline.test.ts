@@ -49,6 +49,7 @@ describe("End-to-End Intelligence Pipeline", () => {
       return {
         ok: true,
         json: async () => ({ hits: [], items: [] }),
+        text: async () => "<feed></feed>",
       } as any;
     });
   });
@@ -59,7 +60,7 @@ describe("End-to-End Intelligence Pipeline", () => {
 
   it("executes full ingestion -> clustering -> opportunity synthesis pipeline", async () => {
     const result = await executeIntelligencePipeline(mockAi);
-    expect(result.sourcesScanned).toBe(10);
+    expect(result.sourcesScanned).toBe(15);
     expect(result.totalSignalsIngested).toBeGreaterThan(0);
     expect(result.problemSpacesDiscovered).toBeGreaterThan(0);
     expect(result.opportunitiesSynthesized.length).toBeGreaterThan(0);
