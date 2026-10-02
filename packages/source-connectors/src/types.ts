@@ -8,7 +8,12 @@ export type AdapterType =
   | "PRODUCTHUNT_API"
   | "KRASIA_RSS"
   | "E27_API"
-  | "GENERIC_RSS";
+  | "GENERIC_RSS"
+  | "TED_API"
+  | "SAMGOV_API"
+  | "STACKEXCHANGE_API"
+  | "CISAKEV_API"
+  | "ARXIV_API";
 export type SourceAccessMethod = "API" | "OAUTH_API" | "GRAPHQL" | "RSS";
 
 export interface FetchSignalsOptions {

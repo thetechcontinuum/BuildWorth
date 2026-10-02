@@ -7,15 +7,20 @@ import { deriveIndependenceKey } from "../src/sanitizer.js";
 import * as safeFetchModule from "../src/safe-fetch.js";
 
 describe("Source Registry & Adapters", () => {
-  it("has 10 registered adapters by default including Asian, European, and developer discovery sources", () => {
+  it("has 15 registered adapters by default including procurement, security, research, and developer sources", () => {
     const adapters = sourceRegistry.getAllAdapters();
-    expect(adapters.length).toBe(10);
+    expect(adapters.length).toBe(15);
     expect(sourceRegistry.getAdapter("krasia")).toBeDefined();
     expect(sourceRegistry.getAdapter("e27")).toBeDefined();
     expect(sourceRegistry.getAdapter("eustartups")).toBeDefined();
     expect(sourceRegistry.getAdapter("siliconcanals")).toBeDefined();
     expect(sourceRegistry.getAdapter("lobsters")).toBeDefined();
     expect(sourceRegistry.getAdapter("techcrunch")).toBeDefined();
+    expect(sourceRegistry.getAdapter("ted")).toBeDefined();
+    expect(sourceRegistry.getAdapter("samgov")).toBeDefined();
+    expect(sourceRegistry.getAdapter("stackexchange")).toBeDefined();
+    expect(sourceRegistry.getAdapter("cisakev")).toBeDefined();
+    expect(sourceRegistry.getAdapter("arxiv")).toBeDefined();
   });
 
   it("returns zero items cleanly when external API is unreachable or unconfigured", async () => {
@@ -346,4 +351,197 @@ describe("Source Registry & Adapters", () => {
       expect(signals.length).toBe(0);
     });
   });
+
+  describe("TED Europa Tenders Adapter", () => {
+    it("fetches and parses European tender notices from TED search API", async () => {
+      const adapter = sourceRegistry.getAdapter("ted");
+      expect(adapter).toBeDefined();
+
+      const mockResponse = {
+        notices: [
+          {
+            "notice-identifier": "notice-12345",
+            "publication-number": "600123-2026",
+            "publication-date": "2026-09-25+02:00",
+            links: {
+              html: { ENG: "https://ted.europa.eu/en/notice/-/detail/600123-2026" },
+            },
+            "notice-title": {
+              eng: "Cloud Infrastructure and Security Monitoring Services for Public Agency",
+            },
+          },
+        ],
+      };
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5 });
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("ted-600123-2026");
+      expect(signals[0].sourceKey).toBe("ted");
+      expect(signals[0].sourceUrl).toBe("https://ted.europa.eu/en/notice/-/detail/600123-2026");
+      expect(signals[0].title).toContain("Cloud Infrastructure");
+
+      mockFetch.mockRestore();
+    });
+  });
+
+  describe("SAM.gov Federal Contracting Adapter", () => {
+    it("returns empty array cleanly when SAM_GOV_API_KEY is not set", async () => {
+      const oldKey = process.env.SAM_GOV_API_KEY;
+      delete process.env.SAM_GOV_API_KEY;
+
+      const adapter = sourceRegistry.getAdapter("samgov");
+      expect(adapter).toBeDefined();
+
+      const signals = await adapter!.fetchSignals();
+      expect(signals.length).toBe(0);
+
+      if (oldKey) process.env.SAM_GOV_API_KEY = oldKey;
+    });
+
+    it("parses federal contracting solicitations when API key is provided", async () => {
+      process.env.SAM_GOV_API_KEY = "test_key";
+      const adapter = sourceRegistry.getAdapter("samgov");
+      expect(adapter).toBeDefined();
+
+      const mockResponse = {
+        opportunitiesData: [
+          {
+            noticeId: "sol-9988",
+            title: "Zero Trust Architecture Assessment Solicitation",
+            description: "Agency requires vendor to implement automated identity verification.",
+            department: "Department of Transportation",
+            uiLink: "https://sam.gov/opp/sol-9988/view",
+            postedDate: "2026-09-28",
+          },
+        ],
+      };
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5 });
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("samgov-sol-9988");
+      expect(signals[0].title).toBe("Zero Trust Architecture Assessment Solicitation");
+      expect(signals[0].sourceUrl).toBe("https://sam.gov/opp/sol-9988/view");
+
+      mockFetch.mockRestore();
+      delete process.env.SAM_GOV_API_KEY;
+    });
+  });
+
+  describe("Stack Exchange Adapter", () => {
+    it("parses developer questions with tags and canonical URL", async () => {
+      const adapter = sourceRegistry.getAdapter("stackexchange");
+      expect(adapter).toBeDefined();
+
+      const mockResponse = {
+        items: [
+          {
+            question_id: 887766,
+            title: "Memory leak in nodejs worker threads when parsing large json payloads",
+            creation_date: 1790900000,
+            tags: ["node.js", "memory-leaks"],
+            link: "https://stackoverflow.com/questions/887766/memory-leak-in-nodejs",
+            owner: { display_name: "dev_alice" },
+            score: 5,
+            answer_count: 2,
+            is_answered: true,
+          },
+        ],
+      };
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5 });
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("so-887766");
+      expect(signals[0].sourceKey).toBe("stackexchange");
+      expect(signals[0].sourceUrl).toBe("https://stackoverflow.com/questions/887766/memory-leak-in-nodejs");
+      expect(signals[0].rawContent).toContain("[node.js, memory-leaks]");
+
+      mockFetch.mockRestore();
+    });
+  });
+
+  describe("CISA KEV Vulnerabilities Adapter", () => {
+    it("fetches and parses known exploited vulnerabilities from CISA KEV catalog", async () => {
+      const adapter = sourceRegistry.getAdapter("cisakev");
+      expect(adapter).toBeDefined();
+
+      const mockResponse = {
+        count: 1,
+        vulnerabilities: [
+          {
+            cveID: "CVE-2026-99999",
+            vendorProject: "Acme Corp",
+            product: "Acme Gateway",
+            vulnerabilityName: "Authentication Bypass in Admin Portal",
+            dateAdded: "2026-09-29",
+            shortDescription: "Acme Gateway contains an authentication bypass flaw allowing arbitrary remote command execution.",
+            dueDate: "2026-10-15",
+          },
+        ],
+      };
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5 });
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("cisa-CVE-2026-99999");
+      expect(signals[0].sourceKey).toBe("cisakev");
+      expect(signals[0].sourceUrl).toBe("https://nvd.nist.gov/vuln/detail/CVE-2026-99999");
+      expect(signals[0].title).toContain("CVE-2026-99999: Acme Corp Acme Gateway");
+
+      mockFetch.mockRestore();
+    });
+  });
+
+  describe("arXiv Research Preprints Adapter", () => {
+    it("fetches and parses scientific preprints from Atom XML feed", async () => {
+      const adapter = sourceRegistry.getAdapter("arxiv");
+      expect(adapter).toBeDefined();
+
+      const mockAtomXml = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2609.99887v1</id>
+    <title>Efficient Speculative Decoding for Edge AI Accelerators</title>
+    <summary>We propose a novel quantization-aware speculative decoding framework reducing inference latency by 45%.</summary>
+    <published>2026-09-27T10:00:00Z</published>
+    <link href="https://arxiv.org/abs/2609.99887v1" rel="alternate" type="text/html"/>
+    <author><name>Dr. Jane Doe</name></author>
+  </entry>
+</feed>`;
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        text: async () => mockAtomXml,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5 });
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("arxiv-2609.99887v1");
+      expect(signals[0].sourceKey).toBe("arxiv");
+      expect(signals[0].sourceUrl).toBe("https://arxiv.org/abs/2609.99887v1");
+      expect(signals[0].title).toBe("Efficient Speculative Decoding for Edge AI Accelerators");
+      expect(signals[0].rawContent).toContain("speculative decoding");
+
+      mockFetch.mockRestore();
+    });
+  });
 });
+

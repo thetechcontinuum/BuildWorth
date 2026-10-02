@@ -9,6 +9,11 @@ import { EUStartupsAdapter } from "./adapters/eustartups.js";
 import { SiliconCanalsAdapter } from "./adapters/siliconcanals.js";
 import { LobstersAdapter } from "./adapters/lobsters.js";
 import { TechCrunchAdapter } from "./adapters/techcrunch.js";
+import { TedTendersAdapter } from "./adapters/ted.js";
+import { SamGovAdapter } from "./adapters/samgov.js";
+import { StackExchangeAdapter } from "./adapters/stackexchange.js";
+import { CisaKevAdapter } from "./adapters/cisakev.js";
+import { ArxivAdapter } from "./adapters/arxiv.js";
 import { GenericRssAdapter, GenericRssConfig } from "./adapters/generic-rss.js";
 import { SourceHealthStatus } from "./types.js";
 
@@ -26,6 +31,11 @@ export class SourceRegistry {
     this.register(new SiliconCanalsAdapter());
     this.register(new LobstersAdapter());
     this.register(new TechCrunchAdapter());
+    this.register(new TedTendersAdapter());
+    this.register(new SamGovAdapter());
+    this.register(new StackExchangeAdapter());
+    this.register(new CisaKevAdapter());
+    this.register(new ArxivAdapter());
   }
 
   public register(adapter: BaseSourceAdapter): void {
