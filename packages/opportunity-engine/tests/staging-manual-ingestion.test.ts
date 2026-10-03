@@ -954,5 +954,115 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       const { fetched, deduplicated, rawSignals, rejected } = run.counters;
       expect(fetched).toBe(deduplicated + rawSignals + rejected);
     });
+
+    it("records exact rejection reasons in perSourceStats when items fail length or payload validation", async () => {
+      // Mock HN returning a signal with empty payload (< 10 chars) and one valid signal
+      fetchSpy.mockImplementation(async (url: any) => {
+        const urlStr = String(url);
+        if (urlStr.includes("algolia")) {
+          return {
+            ok: true,
+            json: async () => ({
+              hits: [
+                {
+                  objectID: "too-short-1",
+                  title: "Short",
+                  story_text: "tiny",
+                  author: "dev1",
+                  created_at: new Date().toISOString(),
+                },
+                {
+                  objectID: "valid-1",
+                  title: "Production database connection leak in nodejs microservices",
+                  story_text: "Our Kubernetes cluster pods crash constantly because connection pool fails to release idle connections.",
+                  author: "dev2",
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }),
+          } as any;
+        }
+        return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
+      });
+
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-rejection-tracking-009",
+        aiProvider: mockAi,
+        maxFetchItems: 5,
+        targetSourceKeys: ["hackernews"],
+      });
+
+      expect(run.status).toBe("COMPLETED");
+      const hnStats = run.summary?.perSourceStats?.["hackernews"];
+      expect(hnStats).toBeDefined();
+      expect(hnStats.rejected).toBeGreaterThanOrEqual(1);
+      expect(hnStats.rejectionReasons).toBeDefined();
+      expect(hnStats.rejectionReasons["CONTENT_TOO_SHORT"]).toBe(1);
+    });
+
+    it("does not synthesize opportunities from pure news/tenders without actionable problem evidence", async () => {
+      // Provide an emerging tech signal without pain/demand
+      fetchSpy.mockImplementation(async (url: any) => {
+        const urlStr = String(url);
+        if (urlStr.includes("algolia")) {
+          return {
+            ok: true,
+            json: async () => ({
+              hits: [
+                {
+                  objectID: "pure-news-1",
+                  title: "New AI research shows progress in wafer scaling",
+                  story_text: "Researchers published theoretical architecture for future semiconductor packaging.",
+                  author: "researcher",
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }),
+          } as any;
+        }
+        return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
+      });
+
+      const pureNewsAi: any = {
+        name: "pure-news-ai",
+        generateStructured: async (messages: any) => {
+          const userMsg = messages.find((m: any) => m.role === "user")?.content || "";
+          if (userMsg.includes("Classify this")) {
+            return {
+              data: { signalType: "EMERGING_TECH", confidenceScore: 90 },
+              rawResponse: JSON.stringify({ signalType: "EMERGING_TECH", confidenceScore: 90 }),
+            };
+          }
+          const data = {
+            signalType: "EMERGING_TECH",
+            sanitizedExcerpt: userMsg.slice(0, 100),
+            problemSummary: "New AI research shows progress in wafer scaling",
+            actorRole: "Researcher",
+            workflowContext: "Hardware Research",
+            severityScore: 1,
+            frequencyScore: 1,
+            intentToPayScore: 0,
+            extractedEntities: ["Semiconductor"],
+            confidenceScore: 80,
+          };
+          return { data, rawResponse: JSON.stringify(data) };
+        },
+        generateEmbedding: async () => {
+          return { embedding: new Array(64).fill(0.1), dimensions: 64, costMinorUnits: 0 };
+        },
+      };
+
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-no-fabricated-opp-010",
+        aiProvider: pureNewsAi,
+        maxCandidates: 3,
+        targetSourceKeys: ["hackernews"],
+      });
+
+      expect(run.status).toBe("COMPLETED");
+      // Must not create any new opportunities from pure news
+      expect(run.counters.published).toBe(0);
+      expect(prisma._store.opportunities.length).toBe(0);
+    });
   });
 });

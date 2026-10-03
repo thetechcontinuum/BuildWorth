@@ -53,6 +53,7 @@ export class TedTendersAdapter extends BaseSourceAdapter {
         if (notices.length > 0) {
           return notices.map((n: any) => {
             const noticeId = n["notice-identifier"] || n["publication-number"] || Math.random().toString(36).slice(2);
+            const pubNum = n["publication-number"] || noticeId;
             const titlesObj = n["notice-title"] || {};
             const lotTitlesObj = n["title-lot"] || {};
             // Prefer English, then first available title
@@ -62,22 +63,39 @@ export class TedTendersAdapter extends BaseSourceAdapter {
               (Array.isArray(lotTitlesObj.eng) ? lotTitlesObj.eng[0] : null) ||
               (lotTitlesObj.fra && lotTitlesObj.fra[0]) ||
               (lotTitlesObj.deu && lotTitlesObj.deu[0]) ||
-              "European Public Procurement Notice";
+              `EU Public Procurement Notice ${pubNum}`;
 
             const pubDateStr = n["publication-date"];
             const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
 
+            // Extract lots or detailed scopes if present
+            const lots: string[] = [];
+            if (lotTitlesObj && typeof lotTitlesObj === "object") {
+              const allLots = Object.values(lotTitlesObj).flat().filter(Boolean);
+              for (const lot of allLots) {
+                if (typeof lot === "string" && lot.trim().length > 0 && !lots.includes(lot.trim())) {
+                  lots.push(lot.trim());
+                }
+              }
+            }
+
+            const lotSummary = lots.length > 0 ? `Lots/Scope: ${lots.slice(0, 3).join("; ")}` : "";
+            const dateInfo = pubDateStr ? `Publication date: ${pubDateStr}.` : "";
+            const tenderInfo = `European Union Public Procurement Tender [Notice ${pubNum}].`;
+
+            const fullContent = [rawTitle, tenderInfo, lotSummary, dateInfo].filter(Boolean).join(" | ").trim();
+
             const canonicalUrl =
               (n.links && n.links.html && (n.links.html.ENG || n.links.html.DEU || n.links.html.FRA || Object.values(n.links.html)[0])) ||
-              `https://ted.europa.eu/en/notice/-/detail/${n["publication-number"] || noticeId}`;
+              `https://ted.europa.eu/en/notice/-/detail/${pubNum}`;
 
             return {
-              externalId: `ted-${n["publication-number"] || noticeId}`,
+              externalId: `ted-${pubNum}`,
               sourceKey: this.sourceKey,
               sourceUrl: canonicalUrl,
               authorFingerprint: "ted_europa",
               title: String(rawTitle).slice(0, 150),
-              rawContent: String(rawTitle).slice(0, 280),
+              rawContent: fullContent.slice(0, 500),
               publishedAt,
               metadata: {
                 noticeIdentifier: n["notice-identifier"],

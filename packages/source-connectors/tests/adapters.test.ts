@@ -369,6 +369,9 @@ describe("Source Registry & Adapters", () => {
             "notice-title": {
               eng: "Cloud Infrastructure and Security Monitoring Services for Public Agency",
             },
+            "title-lot": {
+              eng: ["Lot 1: Managed SIEM & SOC Monitoring", "Lot 2: Multi-Cloud Infrastructure Hosting"],
+            },
           },
         ],
       };
@@ -384,6 +387,9 @@ describe("Source Registry & Adapters", () => {
       expect(signals[0].sourceKey).toBe("ted");
       expect(signals[0].sourceUrl).toBe("https://ted.europa.eu/en/notice/-/detail/600123-2026");
       expect(signals[0].title).toContain("Cloud Infrastructure");
+      expect(signals[0].rawContent).toContain("Notice 600123-2026");
+      expect(signals[0].rawContent).toContain("Lots/Scope: Lot 1: Managed SIEM & SOC Monitoring; Lot 2: Multi-Cloud Infrastructure Hosting");
+      expect(signals[0].rawContent).toContain("Publication date: 2026-09-25+02:00");
 
       mockFetch.mockRestore();
     });
