@@ -254,6 +254,8 @@ export async function getDailyDiscoveryFeed(
     // 2. Fetch authentic New Market Signals directly from NormalizedSignal & RawSignal
     const marketSignals: MarketSignalFeedItemDTO[] = [];
     const signalSeenUrls = new Set<string>();
+    const signalSourceCounts = new Map<string, number>();
+    const maxItemsPerSourceInFeed = 2;
 
     const rawSignalRecords = prisma.rawSignal?.findMany
       ? await prisma.rawSignal.findMany({
@@ -264,7 +266,7 @@ export async function getDailyDiscoveryFeed(
             },
           },
           orderBy: { createdAt: "desc" },
-          take: signalsLimit * 3,
+          take: Math.max(100, signalsLimit * 10),
           include: {
             source: true,
             normalizedSignal: true,
@@ -272,14 +274,21 @@ export async function getDailyDiscoveryFeed(
         }).catch(() => [])
       : [];
 
+    // Pass 1: Diverse source representation (capped per source)
     for (const raw of rawSignalRecords) {
       if (marketSignals.length >= signalsLimit) break;
       const canonical = raw.normalizedSignal?.canonicalUrl || raw.sourceUrl;
       const urlKey = canonical.toLowerCase().trim();
       if (!urlKey || signalSeenUrls.has(urlKey)) continue;
-      signalSeenUrls.add(urlKey);
 
       const src = raw.source;
+      const srcKey = src?.key || "unknown";
+      const currentCount = signalSourceCounts.get(srcKey) || 0;
+      if (currentCount >= maxItemsPerSourceInFeed) continue;
+
+      signalSeenUrls.add(urlKey);
+      signalSourceCounts.set(srcKey, currentCount + 1);
+
       const pubDate = raw.publishedAt || raw.createdAt || new Date();
       const discDate = raw.createdAt || new Date();
       const market = deriveMarketRegion(src?.key, src?.sourceFamily);
@@ -297,6 +306,36 @@ export async function getDailyDiscoveryFeed(
         market,
         label: "Market signal — not a validated business opportunity",
       });
+    }
+
+    // Pass 2: Fill remaining slots if diverse pass did not reach signalsLimit
+    if (marketSignals.length < signalsLimit) {
+      for (const raw of rawSignalRecords) {
+        if (marketSignals.length >= signalsLimit) break;
+        const canonical = raw.normalizedSignal?.canonicalUrl || raw.sourceUrl;
+        const urlKey = canonical.toLowerCase().trim();
+        if (!urlKey || signalSeenUrls.has(urlKey)) continue;
+
+        signalSeenUrls.add(urlKey);
+        const src = raw.source;
+        const pubDate = raw.publishedAt || raw.createdAt || new Date();
+        const discDate = raw.createdAt || new Date();
+        const market = deriveMarketRegion(src?.key, src?.sourceFamily);
+
+        marketSignals.push({
+          id: raw.id,
+          sourceKey: src?.key || "unknown",
+          sourceName: src?.name || "Market Source",
+          sourceFamily: src?.sourceFamily || "COMMUNITY",
+          title: raw.title || raw.normalizedSignal?.sourceTitle || "Market Discussion",
+          excerpt: raw.normalizedSignal?.sanitizedExcerpt || raw.rawContent.slice(0, 280),
+          canonicalUrl: canonical,
+          publishedAt: (pubDate instanceof Date ? pubDate : new Date(pubDate)).toISOString(),
+          discoveredAt: (discDate instanceof Date ? discDate : new Date(discDate)).toISOString(),
+          market,
+          label: "Market signal — not a validated business opportunity",
+        });
+      }
     }
 
     const hasItemsToday =

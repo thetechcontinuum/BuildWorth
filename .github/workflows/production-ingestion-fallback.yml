@@ -87,6 +87,7 @@ jobs:
             runId: .runId,
             status: .status,
             counters: .counters,
+            perSourceStats: .perSourceStats,
             publishedSlugs: .publishedSlugs,
             startedAt: .startedAt,
             completedAt: .completedAt
