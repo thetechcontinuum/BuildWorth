@@ -780,6 +780,8 @@ export async function executeManualStagingIngestion(
   let publishedCount = 0;
   const publishedSlugs: string[] = [];
   const processedHashes = new Set<string>();
+  let activeSources: any[] = [];
+  let perSourceStats: Record<string, any> = {};
 
   try {
     // 2. Fetch and synchronize Active Approved Sources
@@ -1083,7 +1085,7 @@ export async function executeManualStagingIngestion(
       ];
     }
 
-    let activeSources = await prisma.source.findMany({
+    activeSources = await prisma.source.findMany({
       where: sourceFilter,
       take: maxSources,
     });
@@ -1144,17 +1146,7 @@ export async function executeManualStagingIngestion(
       logger.warn("Could not extract candidate target queries", { error: qErr?.message });
     }
 
-    const perSourceStats: Record<string, {
-      name: string;
-      fetched: number;
-      newRawSignals: number;
-      duplicates: number;
-      rejected: number;
-      persisted: number;
-      persistedUrls: string[];
-      status: "SUCCESS" | "SKIPPED" | "ERROR";
-      reason?: string | null;
-    }> = {};
+    perSourceStats = {};
 
     const configuredTargetKeys = (targetSourceKeys && targetSourceKeys.length > 0)
       ? targetSourceKeys
@@ -1169,6 +1161,7 @@ export async function executeManualStagingIngestion(
         newRawSignals: 0,
         duplicates: 0,
         rejected: 0,
+        rejectionReasons: {},
         persisted: 0,
         persistedUrls: [],
         status: "SKIPPED",
@@ -1208,6 +1201,7 @@ export async function executeManualStagingIngestion(
         newRawSignals: 0,
         duplicates: 0,
         rejected: 0,
+        rejectionReasons: {} as Record<string, number>,
         persisted: 0,
         persistedUrls: [] as string[],
         status: "SUCCESS" as "SUCCESS" | "SKIPPED" | "ERROR",
@@ -1300,9 +1294,17 @@ export async function executeManualStagingIngestion(
         currentStats.fetched += boundedRawSignals.length;
 
         for (const raw of boundedRawSignals) {
-          if (!raw.rawContent || raw.rawContent.trim().length < 10) {
+          if (!raw.rawContent || raw.rawContent.trim().length === 0) {
             currentStats.rejected++;
             totalRejected++;
+            currentStats.rejectionReasons["EMPTY_PAYLOAD"] = (currentStats.rejectionReasons["EMPTY_PAYLOAD"] || 0) + 1;
+            continue;
+          }
+
+          if (raw.rawContent.trim().length < 10) {
+            currentStats.rejected++;
+            totalRejected++;
+            currentStats.rejectionReasons["CONTENT_TOO_SHORT"] = (currentStats.rejectionReasons["CONTENT_TOO_SHORT"] || 0) + 1;
             continue;
           }
 
@@ -1346,6 +1348,7 @@ export async function executeManualStagingIngestion(
             } else {
               currentStats.rejected++;
               totalRejected++;
+              currentStats.rejectionReasons["MAX_RAW_SIGNALS_EXCEEDED"] = (currentStats.rejectionReasons["MAX_RAW_SIGNALS_EXCEEDED"] || 0) + 1;
             }
           } else {
             totalDeduplicated++;
@@ -1560,12 +1563,27 @@ export async function executeManualStagingIngestion(
           failCode = "AI_OUTPUT_INVALID";
         }
 
-        await markRunFailed(prisma, runId, claimToken, failCode);
+        const failSummary = {
+          sourcesProcessed: activeSources.length,
+          perSourceStats,
+          errorMessage: msg,
+        };
+
+        await markRunFailed(prisma, runId, claimToken, failCode, {
+          totalFetched,
+          totalDeduplicated,
+          rawSignalsCount,
+          candidatesCount: 0,
+          publishedCount: 0,
+          summary: failSummary,
+        });
+
         return {
           runId,
           idempotencyKey,
           status: "FAILED",
           failureCode: failCode,
+          errorMessage: msg,
           counters: {
             fetched: totalFetched,
             deduplicated: totalDeduplicated,
@@ -1577,6 +1595,7 @@ export async function executeManualStagingIngestion(
           publishedSlugs: [],
           startedAt: now.toISOString(),
           failedAt: new Date().toISOString(),
+          summary: failSummary,
         };
       }
     }
@@ -1993,7 +2012,7 @@ export async function executeManualStagingIngestion(
           const hasCommercialProblemEvidence = verifiedSignals.some((vs) => {
             const sigType = (vs.normalizedSignal.signalType || "").toUpperCase();
             const text = `${vs.normalizedSignal.sanitizedExcerpt || ""} ${vs.normalizedSignal.problemSummary || ""}`.toLowerCase();
-            const isActionableType = ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
+            const isActionableType = ["PAIN_COMPLAINT", "PAIN", "PROBLEM_STATEMENT", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
             const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay)\b/i.test(text);
             const isPureNews = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
             return (isActionableType || vs.normalizedSignal.purchaseIntent || hasExplicitPain) && !isPureNews;
@@ -2103,6 +2122,22 @@ export async function executeManualStagingIngestion(
           }
         }
         if (verifiedSignals.length === 0) continue;
+
+        // Gating: An opportunity hypothesis may only be created if the cluster contains genuine evidence
+        // of a problem, workaround, or willingness to pay / purchase intent.
+        const hasCommercialProblemEvidence = verifiedSignals.some((vs) => {
+          const sigType = (vs.normalizedSignal.signalType || "").toUpperCase();
+          const text = `${vs.normalizedSignal.sanitizedExcerpt || ""} ${vs.normalizedSignal.problemSummary || ""}`.toLowerCase();
+          const isActionableType = ["PAIN_COMPLAINT", "PAIN", "PROBLEM_STATEMENT", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
+          const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay)\b/i.test(text);
+          const isPureNews = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
+          return (isActionableType || vs.normalizedSignal.purchaseIntent || hasExplicitPain) && !isPureNews;
+        });
+
+        if (!hasCommercialProblemEvidence) {
+          // Signal remains in database as authentic Market Signal feed item, but is NOT synthesized into a business hypothesis
+          continue;
+        }
 
         const rawTitle = cl.title || cl.summary;
         const formattedTitle = formatMeaningfulTitle(rawTitle);
@@ -2256,15 +2291,19 @@ export async function executeManualStagingIngestion(
       sanitizedCode = "AI_PROVIDER_UNAVAILABLE";
     }
 
+    const outerFailSummary = {
+      sourcesProcessed: activeSources?.length || 0,
+      perSourceStats: typeof perSourceStats !== "undefined" ? perSourceStats : {},
+      errorMessage: msg,
+    };
+
     await markRunFailed(prisma, runId, claimToken, sanitizedCode, {
       totalFetched,
       totalDeduplicated,
       rawSignalsCount,
       candidatesCount,
       publishedCount: 0,
-      summary: {
-        errorMessage: msg,
-      },
+      summary: outerFailSummary,
     });
 
     return {
@@ -2284,6 +2323,7 @@ export async function executeManualStagingIngestion(
       publishedSlugs: [],
       startedAt: now.toISOString(),
       failedAt: new Date().toISOString(),
+      summary: outerFailSummary,
     };
   }
 }
