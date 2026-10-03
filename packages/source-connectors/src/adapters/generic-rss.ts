@@ -1,5 +1,5 @@
 import { BaseSourceAdapter } from "./base.js";
-import { RawIngestSignal, SourceAccessMethod } from "../types.js";
+import { RawIngestSignal, SourceAccessMethod, FetchSignalsOptions } from "../types.js";
 import { safeFetch } from "../safe-fetch.js";
 import { logger } from "@buildworth/observability";
 import { detectPromptInjection, sanitizeToPlainText } from "@buildworth/shared";
@@ -76,8 +76,19 @@ export class GenericRssAdapter extends BaseSourceAdapter {
       .trim();
   }
 
-  public async fetchSignals(limit = 20, query?: string): Promise<RawIngestSignal[]> {
-    logger.info(`Fetching Generic RSS signals from ${this.name} (${this.feedUrl}, limit: ${limit})...`);
+  public async fetchSignals(
+    optionsOrLimit?: number | FetchSignalsOptions,
+    explicitQuery?: string,
+  ): Promise<RawIngestSignal[]> {
+    const options: FetchSignalsOptions =
+      typeof optionsOrLimit === "number"
+        ? { limit: optionsOrLimit, query: explicitQuery }
+        : optionsOrLimit || {};
+
+    const limit = Math.min(options.limit || 20, 50);
+    const query = (options.query || explicitQuery || "").trim();
+
+    logger.info(`Fetching Generic RSS signals from ${this.name} (${this.feedUrl}, limit: ${limit}${query ? `, query: ${query}` : ""})...`);
 
     try {
       const response = await safeFetch(this.feedUrl, {

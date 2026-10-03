@@ -70,6 +70,7 @@ export interface ManualIngestionRunResult {
     fetched: number;
     deduplicated: number;
     rawSignals: number;
+    rejected: number;
     candidates: number;
     published: number;
   };
@@ -736,7 +737,7 @@ export async function executeManualStagingIngestion(
         idempotencyKey,
         status: "FAILED",
         failureCode: "CONCURRENT_RUN_IN_PROGRESS",
-        counters: { fetched: 0, deduplicated: 0, rawSignals: 0, candidates: 0, published: 0 },
+        counters: { fetched: 0, deduplicated: 0, rawSignals: 0, rejected: 0, candidates: 0, published: 0 },
         publishedSlugs: [],
         startedAt: now.toISOString(),
         failedAt: now.toISOString(),
@@ -757,6 +758,7 @@ export async function executeManualStagingIngestion(
         fetched: run.totalFetched || 0,
         deduplicated: run.totalDeduplicated || 0,
         rawSignals: run.rawSignalsCount || 0,
+        rejected: Math.max(0, (run.totalFetched || 0) - (run.totalDeduplicated || 0) - (run.rawSignalsCount || 0)),
         candidates: run.candidatesCount || 0,
         published: run.publishedCount || 0,
       },
@@ -771,6 +773,7 @@ export async function executeManualStagingIngestion(
   const runId = currentRun.run.id;
   let totalFetched = 0;
   let totalDeduplicated = 0;
+  let totalRejected = 0;
   let rawSignalsCount = 0;
   let normalizedSignalsCount = 0;
   let candidatesCount = 0;
@@ -1085,6 +1088,14 @@ export async function executeManualStagingIngestion(
       take: maxSources,
     });
 
+    if (targetSourceKeys && targetSourceKeys.length > 0) {
+      activeSources.sort((a: any, b: any) => {
+        const idxA = targetSourceKeys.indexOf(a.key);
+        const idxB = targetSourceKeys.indexOf(b.key);
+        return (idxA >= 0 ? idxA : 999) - (idxB >= 0 ? idxB : 999);
+      });
+    }
+
     if (!activeSources || activeSources.length === 0) {
       logger.warn("No active approved sources found for staging manual ingestion.");
       await markRunFailed(prisma, runId, claimToken, "NO_ACTIVE_SOURCES");
@@ -1093,7 +1104,7 @@ export async function executeManualStagingIngestion(
         idempotencyKey,
         status: "FAILED",
         failureCode: "NO_ACTIVE_SOURCES",
-        counters: { fetched: 0, deduplicated: 0, rawSignals: 0, candidates: 0, published: 0 },
+        counters: { fetched: 0, deduplicated: 0, rawSignals: 0, rejected: 0, candidates: 0, published: 0 },
         publishedSlugs: [],
         startedAt: now.toISOString(),
         failedAt: new Date().toISOString(),
@@ -1141,7 +1152,31 @@ export async function executeManualStagingIngestion(
       rejected: number;
       persisted: number;
       persistedUrls: string[];
+      status: "SUCCESS" | "SKIPPED" | "ERROR";
+      reason?: string | null;
     }> = {};
+
+    const configuredTargetKeys = (targetSourceKeys && targetSourceKeys.length > 0)
+      ? targetSourceKeys
+      : ALLOWLISTED_SOURCE_KEYS;
+
+    for (const key of configuredTargetKeys) {
+      const srcMeta = defaultSources.find((s) => s.key === key);
+      const isSamGovWithoutKey = key === "samgov" && !process.env.SAM_GOV_API_KEY;
+      perSourceStats[key] = {
+        name: srcMeta?.name || key,
+        fetched: 0,
+        newRawSignals: 0,
+        duplicates: 0,
+        rejected: 0,
+        persisted: 0,
+        persistedUrls: [],
+        status: "SKIPPED",
+        reason: isSamGovWithoutKey
+          ? "MISSING_SAM_GOV_API_KEY"
+          : "PENDING_OR_DISABLED",
+      };
+    }
 
     // Fair source budgeting: Divide total item limit across all active sources
     // so no single source starves the other active sources
@@ -1175,6 +1210,8 @@ export async function executeManualStagingIngestion(
         rejected: 0,
         persisted: 0,
         persistedUrls: [] as string[],
+        status: "SUCCESS" as "SUCCESS" | "SKIPPED" | "ERROR",
+        reason: "COMPLETED" as string | null,
       };
       perSourceStats[src.key] = currentStats;
 
@@ -1258,13 +1295,14 @@ export async function executeManualStagingIngestion(
           rawSignals.push(...generalSignals);
         }
 
-        const boundedRawSignals = rawSignals.slice(0, Math.max(0, slotsAvailable));
+        const boundedRawSignals = rawSignals.slice(0, Math.max(0, Math.min(slotsAvailable, srcSlots)));
         totalFetched += boundedRawSignals.length;
         currentStats.fetched += boundedRawSignals.length;
 
         for (const raw of boundedRawSignals) {
           if (!raw.rawContent || raw.rawContent.trim().length < 10) {
             currentStats.rejected++;
+            totalRejected++;
             continue;
           }
 
@@ -1305,6 +1343,9 @@ export async function executeManualStagingIngestion(
               currentStats.newRawSignals++;
               currentStats.persisted++;
               currentStats.persistedUrls.push(canonicalUrl);
+            } else {
+              currentStats.rejected++;
+              totalRejected++;
             }
           } else {
             totalDeduplicated++;
@@ -1376,7 +1417,19 @@ export async function executeManualStagingIngestion(
         });
       } catch (srcErr: any) {
         srcErrorMsg = srcErr.message || String(srcErr);
+        currentStats.status = "ERROR";
+        currentStats.reason = srcErrorMsg;
       } finally {
+        if (srcErrorMsg) {
+          currentStats.status = "ERROR";
+          currentStats.reason = srcErrorMsg;
+        } else if (currentStats.fetched === 0) {
+          currentStats.status = "SUCCESS";
+          currentStats.reason = "NO_NEW_ITEMS_RETURNED";
+        } else {
+          currentStats.status = "SUCCESS";
+          currentStats.reason = "COMPLETED";
+        }
         await prisma.sourceRun.update({
           where: { id: sourceRun.id },
           data: {
@@ -1517,6 +1570,7 @@ export async function executeManualStagingIngestion(
             fetched: totalFetched,
             deduplicated: totalDeduplicated,
             rawSignals: rawSignalsCount,
+            rejected: totalRejected,
             candidates: 0,
             published: 0,
           },
@@ -2167,6 +2221,7 @@ export async function executeManualStagingIngestion(
         fetched: totalFetched,
         deduplicated: totalDeduplicated,
         rawSignals: rawSignalsCount,
+        rejected: totalRejected,
         candidates: candidatesCount,
         published: publishedCount,
       },
@@ -2222,6 +2277,7 @@ export async function executeManualStagingIngestion(
         fetched: totalFetched,
         deduplicated: totalDeduplicated,
         rawSignals: rawSignalsCount,
+        rejected: totalRejected,
         candidates: candidatesCount,
         published: 0,
       },

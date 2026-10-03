@@ -403,4 +403,64 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
       expect(feed.items.some((h) => h.slug === slug)).toBe(false);
     }
   });
+
+  it("enforces multi-source diversity in marketSignals without allowing single source starvation", async () => {
+    const mockRawSignals: any[] = [];
+    for (let i = 1; i <= 5; i++) {
+      mockRawSignals.push({
+        id: `raw-gh-${i}`,
+        sourceUrl: `https://github.com/org/repo/issues/${i}`,
+        title: `GitHub Issue ${i}`,
+        rawContent: `GitHub issue content ${i} description details`,
+        publishedAt: new Date(),
+        createdAt: new Date(),
+        source: { key: "github", name: "GitHub Issues", sourceFamily: "DEVELOPER_ECOSYSTEM", isEnabled: true, policyStatus: "ALLOWED" },
+      });
+    }
+    mockRawSignals.push({
+      id: "raw-arxiv-1",
+      sourceUrl: "https://arxiv.org/abs/2610.0101",
+      title: "arXiv AI Agent Benchmark",
+      rawContent: "arXiv paper details on agent evaluation",
+      publishedAt: new Date(),
+      createdAt: new Date(),
+      source: { key: "arxiv", name: "arXiv Preprints", sourceFamily: "DISCOVERY", isEnabled: true, policyStatus: "ALLOWED" },
+    });
+    mockRawSignals.push({
+      id: "raw-cisa-1",
+      sourceUrl: "https://nvd.nist.gov/vuln/detail/CVE-2026-9999",
+      title: "CVE-2026-9999: Zero Day Remote Execution",
+      rawContent: "CISA vulnerability details",
+      publishedAt: new Date(),
+      createdAt: new Date(),
+      source: { key: "cisakev", name: "CISA KEV", sourceFamily: "DISCOVERY", isEnabled: true, policyStatus: "ALLOWED" },
+    });
+    mockRawSignals.push({
+      id: "raw-ted-1",
+      sourceUrl: "https://ted.europa.eu/en/notice/-/detail/777777-2026",
+      title: "EU Cloud Infrastructure Tender Notice",
+      rawContent: "European public procurement notice",
+      publishedAt: new Date(),
+      createdAt: new Date(),
+      source: { key: "ted", name: "TED Europa", sourceFamily: "DISCOVERY", isEnabled: true, policyStatus: "ALLOWED" },
+    });
+
+    const mockPrisma = {
+      opportunity: { findMany: async () => [] },
+      rawSignal: { findMany: async () => mockRawSignals },
+    };
+
+    const feed = await getDailyDiscoveryFeed(mockPrisma as any, { signalsLimit: 10 });
+    expect(feed.success).toBe(true);
+
+    const githubItems = feed.marketSignals.filter((s) => s.sourceKey === "github");
+    const arxivItems = feed.marketSignals.filter((s) => s.sourceKey === "arxiv");
+    const cisaItems = feed.marketSignals.filter((s) => s.sourceKey === "cisakev");
+    const tedItems = feed.marketSignals.filter((s) => s.sourceKey === "ted");
+
+    expect(arxivItems).toHaveLength(1);
+    expect(cisaItems).toHaveLength(1);
+    expect(tedItems).toHaveLength(1);
+    expect(githubItems.length).toBeGreaterThanOrEqual(2);
+  });
 });

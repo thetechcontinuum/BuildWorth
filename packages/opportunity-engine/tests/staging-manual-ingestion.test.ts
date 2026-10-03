@@ -901,7 +901,10 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
 
       // Verify disabled source (samgov) was skipped safely without failing the run
       const samgovStats = run.summary?.perSourceStats?.["samgov"];
-      expect(samgovStats).toBeUndefined();
+      expect(samgovStats).toBeDefined();
+      expect(samgovStats.status).toBe("SKIPPED");
+      expect(samgovStats.fetched).toBe(0);
+      expect(samgovStats.reason).toContain("SAM_GOV");
 
       // Verify enabled sources were processed
       const enabledNewSources = ["ted", "stackexchange", "cisakev", "arxiv"];
@@ -937,6 +940,19 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       if (seNorm) {
         expect(seNorm.signalType).toBe("PAIN");
       }
+    });
+
+    it("guarantees mathematical counter alignment: fetched === deduplicated + rawSignals + rejected", async () => {
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-counter-alignment-008",
+        aiProvider: mockAi,
+        maxFetchItems: 15,
+        maxSources: 5,
+      });
+
+      expect(run.status).toBe("COMPLETED");
+      const { fetched, deduplicated, rawSignals, rejected } = run.counters;
+      expect(fetched).toBe(deduplicated + rawSignals + rejected);
     });
   });
 });
