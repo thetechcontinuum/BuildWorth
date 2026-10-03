@@ -1324,6 +1324,11 @@ export async function executeManualStagingIngestion(
             where: { contentHash },
           });
 
+          const validPublishedAt =
+            raw.publishedAt instanceof Date && !isNaN(raw.publishedAt.getTime())
+              ? raw.publishedAt
+              : new Date();
+
           if (!rawRecord) {
             if (rawSignalsCount < maxRawSignals) {
               rawRecord = await prisma.rawSignal.create({
@@ -1335,7 +1340,7 @@ export async function executeManualStagingIngestion(
                   title: raw.title ? sanitizeRawContent(raw.title, 150) : null,
                   rawContent: sanitizedExcerpt,
                   contentHash,
-                  publishedAt: raw.publishedAt || new Date(),
+                  publishedAt: validPublishedAt,
                   authorFingerprint: raw.authorFingerprint || null,
                   createdAt: new Date(),
                 },
