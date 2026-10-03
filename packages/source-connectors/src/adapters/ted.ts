@@ -66,7 +66,16 @@ export class TedTendersAdapter extends BaseSourceAdapter {
               `EU Public Procurement Notice ${pubNum}`;
 
             const pubDateStr = n["publication-date"];
-            const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
+            let publishedAt = new Date();
+            if (pubDateStr) {
+              const str = String(pubDateStr).trim();
+              const plusPart = str.split("+")[0] ?? str;
+              const datePart = plusPart.split("T")[0] ?? plusPart;
+              const parsed = new Date(`${datePart}T00:00:00Z`);
+              if (!isNaN(parsed.getTime())) {
+                publishedAt = parsed;
+              }
+            }
 
             // Extract lots or detailed scopes if present
             const lots: string[] = [];
