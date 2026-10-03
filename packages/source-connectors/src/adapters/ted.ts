@@ -69,8 +69,9 @@ export class TedTendersAdapter extends BaseSourceAdapter {
             let publishedAt = new Date();
             if (pubDateStr) {
               const str = String(pubDateStr).trim();
-              const datePart = str.split("+")[0].split("T")[0];
-              const parsed = new Date(datePart + "T00:00:00Z");
+              const plusPart = str.split("+")[0] ?? str;
+              const datePart = plusPart.split("T")[0] ?? plusPart;
+              const parsed = new Date(`${datePart}T00:00:00Z`);
               if (!isNaN(parsed.getTime())) {
                 publishedAt = parsed;
               }
