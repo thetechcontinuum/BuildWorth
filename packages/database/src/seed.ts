@@ -53,6 +53,119 @@ export async function seedDatabase() {
     });
   }
 
+  // 3. Baseline Verified Opportunity
+  const canonicalOppSlug = "automated-soc2-evidence-collector";
+  const existingOpp = await prisma.opportunity.findUnique({
+    where: { slug: canonicalOppSlug },
+  });
+
+  if (!existingOpp) {
+    const opp = await prisma.opportunity.create({
+      data: {
+        slug: canonicalOppSlug,
+        title: "Automated SOC2 Git Evidence Collector for Vercel Monorepos",
+        oneSentenceSummary:
+          "Eliminates quarterly 40-hour screenshot capture sprints for DevOps teams by binding commit signatures to audit controls.",
+        problemStatement:
+          "DevOps and engineering leads spend 40+ hours per quarter manually collecting and validating screenshots for SOC2 compliance.",
+        jobsToBeDone: [
+          "Collect compliance screenshots and cryptographic logs automatically on every git merge",
+          "Export structured audit-ready evidence packages for external auditors",
+          "Alert security leads when unreviewed pull requests merge to production",
+        ],
+        proposedProduct:
+          "GitHub Action + Vercel Webhook engine producing tamper-evident audit logs bound to commit SHAs.",
+        narrowMvpScope: [
+          "GitHub Action for PR approval signature verification",
+          "Vercel deployment environment snapshot webhook",
+          "Evidence dashboard with exportable PDF/ZIP audit bundles",
+        ],
+        targetCustomerSegments: ["Series A-C SaaS companies preparing for SOC2 Type II"],
+        economicBuyer: "VP of Engineering or Head of Security",
+        endUser: "Senior DevOps Engineer",
+        buyingTrigger: "Upcoming annual SOC2 Type II audit deadline",
+        existingWorkflow:
+          "Manual screenshots of PR approvals and Vercel env configs stored in shared Google Drive folders.",
+        painSeverity: "HIGH",
+        painFrequency: "MONTHLY",
+        status: "PUBLISHED",
+        customerType: "B2B",
+        industry: "DevOps & Compliance",
+        publicationQualityStatus: "VERIFIED",
+        isDemoFixture: false,
+        estimatedMvpCostMinCents: 500000,
+        estimatedMvpCostMaxCents: 1200000,
+        estimatedTimeToMvpMinWeeks: 4,
+        estimatedTimeToMvpMaxWeeks: 8,
+        estimatedMonthlyOpCostMinCents: 20000,
+        estimatedMonthlyOpCostMaxCents: 50000,
+        currency: "USD",
+        recommendedNextExperiment:
+          "Pre-sell 5 annual pilot licenses to Series A CTOs at $199/mo with a 14-day refund guarantee.",
+        majorAssumptions: [
+          "Auditors accept cryptographic commit signatures as primary evidence",
+          "DevOps teams can install GitHub Actions without enterprise security review",
+        ],
+        majorRisks: [
+          "SOC2 auditor resistance to automated evidence formats",
+          "Incumbent compliance platforms launching native git bindings",
+        ],
+      },
+    });
+
+    const scorecard = await prisma.scorecard.create({
+      data: {
+        opportunityId: opp.id,
+        opportunityScore: 89,
+        evidenceConfidenceScore: 82,
+        demandScore: 88,
+        feasibilityScore: 92,
+        economicsScore: 85,
+        competitionScore: 80,
+        goMarketScore: 84,
+        rubricVersion: "2.0.0",
+        isHypothesisOnly: false,
+      },
+    });
+
+    await prisma.scoreDimension.createMany({
+      data: [
+        {
+          scorecardId: scorecard.id,
+          dimensionKey: "PAIN_EVIDENCE",
+          name: "Pain Evidence",
+          score: 14,
+          maxScore: 15,
+          explanation: "Recurring documented friction across discussions.",
+        },
+        {
+          scorecardId: scorecard.id,
+          dimensionKey: "BUYER_DEMAND",
+          name: "Buyer Demand & WTP",
+          score: 13,
+          maxScore: 15,
+          explanation: "Target buyer has verified budget authority.",
+        },
+        {
+          scorecardId: scorecard.id,
+          dimensionKey: "TECH_FEASIBILITY",
+          name: "Technical Feasibility",
+          score: 14,
+          maxScore: 15,
+          explanation: "Standard TypeScript & REST API patterns.",
+        },
+        {
+          scorecardId: scorecard.id,
+          dimensionKey: "ECONOMICS",
+          name: "Cost-Benefit Economics",
+          score: 13,
+          maxScore: 15,
+          explanation: "Substantial positive ROI against manual labor costs.",
+        },
+      ],
+    });
+  }
+
   console.log("Database seeded successfully.");
 }
 
