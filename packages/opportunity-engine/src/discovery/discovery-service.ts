@@ -257,6 +257,8 @@ export async function getDailyDiscoveryFeed(
     const signalSourceCounts = new Map<string, number>();
     const maxItemsPerSourceInFeed = 2;
 
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
     const rawSignalRecords = prisma.rawSignal?.findMany
       ? await prisma.rawSignal.findMany({
           where: {
@@ -264,6 +266,10 @@ export async function getDailyDiscoveryFeed(
               isEnabled: true,
               policyStatus: { not: "BLOCKED" },
             },
+            OR: [
+              { publishedAt: null },
+              { publishedAt: { gte: ninetyDaysAgo } },
+            ],
           },
           orderBy: { createdAt: "desc" },
           take: Math.max(100, signalsLimit * 10),
@@ -277,6 +283,7 @@ export async function getDailyDiscoveryFeed(
     // Pass 1: Diverse source representation (capped per source)
     for (const raw of rawSignalRecords) {
       if (marketSignals.length >= signalsLimit) break;
+      if (raw.publishedAt && new Date(raw.publishedAt).getTime() < ninetyDaysAgo.getTime()) continue;
       const canonical = raw.normalizedSignal?.canonicalUrl || raw.sourceUrl;
       const urlKey = canonical.toLowerCase().trim();
       if (!urlKey || signalSeenUrls.has(urlKey)) continue;
@@ -312,6 +319,7 @@ export async function getDailyDiscoveryFeed(
     if (marketSignals.length < signalsLimit) {
       for (const raw of rawSignalRecords) {
         if (marketSignals.length >= signalsLimit) break;
+        if (raw.publishedAt && new Date(raw.publishedAt).getTime() < ninetyDaysAgo.getTime()) continue;
         const canonical = raw.normalizedSignal?.canonicalUrl || raw.sourceUrl;
         const urlKey = canonical.toLowerCase().trim();
         if (!urlKey || signalSeenUrls.has(urlKey)) continue;
