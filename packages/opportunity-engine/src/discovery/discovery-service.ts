@@ -110,7 +110,26 @@ export function isConcreteProblemOrWorkaround(signal: {
     return false;
   }
 
-  // 5. Explicit concrete friction / breakdown / workaround / cost pain indicators
+  // 5. Strict Exclusions: Repository documentation, translation, typo fixes, markdown changes
+  // e.g. "docs: write the project skills in English", "doc: update README", "translate documentation"
+  if (
+    /^(docs?|documentation|readme|translation|translate)\b/i.test(title) ||
+    /^(fix|update|add|write)\s+(the\s+)?(docs?|documentation|readme|skills?\s+in\s+english)\b/i.test(title) ||
+    /\b(project skills under \.agents|write .* in english|typo in docs|fix markdown|update readme\.md)\b/i.test(fullText)
+  ) {
+    return false;
+  }
+
+  // 6. Strict Exclusions: Generic news reporting on isolated physical incidents, automotive/mechanical defects
+  // without software tooling, SaaS, or developer workflow demand.
+  // e.g. "Maextro’s broken brake pedals put luxury car safety under scrutiny", vehicle recalls, car crashes
+  if (
+    /\b(brake pedal|brake pedals|luxury car|car safety|vehicle safety|automotive recall|traffic accident|plane crash|airbag defect|chassis crack)\b/i.test(fullText)
+  ) {
+    return false;
+  }
+
+  // 7. Explicit concrete friction / breakdown / workaround / cost pain indicators
   // The excerpt or title must describe actual failure, broken functionality, error, or manual hack
   const hasConcreteBreakdown =
     /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|throttled|timeout|workaround|hacky workaround|manual fix|costing|ruined|waste|wasted|unexpected spend|bill spike)\b/i.test(fullText);
@@ -161,8 +180,72 @@ export function deriveSpecificAudience(text: string, actorRole?: string | null):
   if (lower.includes("ci/cd") || lower.includes("github actions") || lower.includes("pipeline") || lower.includes("docker")) {
     return "DevOps & Release Engineering Teams";
   }
+  if (lower.includes("cloud") || lower.includes("aws") || lower.includes("latency") || lower.includes("network") || lower.includes("cross-cloud") || lower.includes("infrastructure")) {
+    return "Cloud Infrastructure & Network Engineering Teams";
+  }
+  if (lower.includes("frontend") || lower.includes("react") || lower.includes("next.js") || lower.includes("css") || lower.includes("web")) {
+    return "Frontend & Web Application Engineering Teams";
+  }
+  if (lower.includes("api") || lower.includes("backend") || lower.includes("microservice") || lower.includes("grpc")) {
+    return "Backend Systems & API Engineering Teams";
+  }
+  if (lower.includes("mobile") || lower.includes("ios") || lower.includes("android") || lower.includes("flutter")) {
+    return "Mobile Application Engineering Teams";
+  }
+  if (lower.includes("ecommerce") || lower.includes("e-commerce") || lower.includes("shopify") || lower.includes("marketplace")) {
+    return "E-Commerce Technical Operations Teams";
+  }
+  if (lower.includes("hardware") || lower.includes("embedded") || lower.includes("firmware")) {
+    return "Embedded Systems & Hardware Engineering Teams";
+  }
+  if (
+    lower.includes("developer") ||
+    lower.includes("dev ") ||
+    lower.includes("engineering") ||
+    lower.includes("engineer") ||
+    lower.includes("software") ||
+    lower.includes("code") ||
+    lower.includes("hn ") ||
+    lower.includes("article problem") ||
+    lower.includes("european")
+  ) {
+    return "Software Engineering & Technical Leads";
+  }
 
   return "Unknown (Requires customer validation)";
+}
+
+/**
+ * Derives a distinct, plausible product concept addressing the specific technical friction,
+ * avoiding vague or repetitive "Targeted solution addressing: [title]" templates.
+ */
+export function derivePlausibleProductDirection(problemSummary: string, targetAudience: string): string {
+  const lower = problemSummary.toLowerCase();
+
+  if (lower.includes("protocol") || lower.includes("decoding") || lower.includes("uart") || lower.includes("rotex") || lower.includes("hpsu") || lower.includes("sensor") || lower.includes("firmware")) {
+    return "Diagnostic serial bridge & protocol adapter CLI with automated frame parsing for legacy HVAC and sensor buses";
+  }
+  if (lower.includes("kafka") || lower.includes("lag") || lower.includes("partition")) {
+    return "Predictive consumer lag alert engine with partition rebalance simulator and automated offset recovery";
+  }
+  if (lower.includes("gpu") || lower.includes("cuda") || lower.includes("h100") || lower.includes("cluster cost")) {
+    return "Kubernetes node auto-reaper and GPU idle spend watchdog with automated eviction of dangling training jobs";
+  }
+  if (lower.includes("database") || lower.includes("postgres") || lower.includes("mysql") || lower.includes("query timeout")) {
+    return "Slow-query regression analyzer with automated execution plan diffing and proactive indexing recommendations";
+  }
+  if (lower.includes("kubernetes") || lower.includes("k8s") || lower.includes("pod") || lower.includes("ingress")) {
+    return "Automated ingress traffic triage & pod eviction root-cause visualizer for production clusters";
+  }
+  if (lower.includes("security") || lower.includes("vulnerability") || lower.includes("cve")) {
+    return "Continuous runtime vulnerability reachability analyzer with automated PR patch generation";
+  }
+
+  const cleanProblem = problemSummary.replace(/^[a-z]+:\s*/i, "").replace(/[.!?]+$/, "").trim();
+  if (targetAudience && !targetAudience.startsWith("Unknown")) {
+    return `Specialized workflow automation tool eliminating manual workarounds for ${targetAudience}: ${cleanProblem}`;
+  }
+  return `Specialized workflow automation tool eliminating manual workarounds for ${cleanProblem}`;
 }
 
 /**
@@ -342,7 +425,6 @@ export async function getDailyDiscoveryFeed(
 
       if (urlKey) seenUrls.add(urlKey);
       if (titleKey) seenTitles.add(titleKey);
-      sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
 
       // Extract observed facts directly from signal excerpts
       const observedFacts = observations.map((o) => o.excerpt).slice(0, 3);
@@ -352,23 +434,34 @@ export async function getDailyDiscoveryFeed(
 
       // Demarcate AI-generated business hypothesis directly grounded in observed facts
       const primaryFact = observedFacts[0] || opp.problemStatement || opp.title;
+      const fullProblemText = `${opp.title} ${opp.problemStatement || ""} ${primaryFact}`;
+
+      const targetAudience = deriveSpecificAudience(
+        fullProblemText,
+        opp.economicBuyer || opp.endUser
+      );
+
+      // A hypothesis requires an identifiable buyer (no generic early adopters or unknown placeholders)
+      if (!targetAudience || targetAudience.startsWith("Unknown") || /Early Adopter Teams/i.test(targetAudience)) {
+        continue;
+      }
+
+      sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
+
       const rawProposedSolution = (opp.proposedProduct || "").trim();
-      const hasGenericBoilerplate = /Lightweight SaaS tool providing automated monitoring.*Data Engineering & FinOps/i.test(rawProposedSolution);
+      const hasGenericBoilerplate =
+        /Lightweight SaaS tool providing automated monitoring.*Data Engineering & FinOps/i.test(rawProposedSolution) ||
+        /^Targeted solution addressing:/i.test(rawProposedSolution);
       const proposedSolution = (!rawProposedSolution || hasGenericBoilerplate)
-        ? `Targeted solution addressing: ${opp.title}`
+        ? derivePlausibleProductDirection(opp.title, targetAudience)
         : rawProposedSolution;
 
       const hasExplicitPurchaseIntent = (opp.evidenceLinks || []).some(
         (l: any) => l.normalizedSignal?.purchaseIntent === true || ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((l.normalizedSignal?.signalType || "").toUpperCase())
       );
 
-      const targetAudience = deriveSpecificAudience(
-        `${opp.title} ${opp.problemStatement || ""} ${primaryFact}`,
-        opp.economicBuyer || opp.endUser
-      );
-
       const validationExperiment = deriveSpecificValidationExperiment(
-        `${opp.title} ${opp.problemStatement || ""} ${primaryFact}`,
+        fullProblemText,
         targetAudience
       );
 
@@ -495,8 +588,14 @@ export async function getDailyDiscoveryFeed(
         const cleanTitle = title.replace(/\s+/g, " ").trim();
         const fullProblemText = `${cleanTitle} ${ns.problemSummary || ""} ${ns.sanitizedExcerpt || ""}`;
         const targetAudience = deriveSpecificAudience(fullProblemText, ns.actorRole);
+
+        // A hypothesis requires an identifiable buyer (no generic early adopters or unknown placeholders)
+        if (!targetAudience || targetAudience.startsWith("Unknown") || /Early Adopter Teams/i.test(targetAudience)) {
+          continue;
+        }
+
         const painFriction = ns.problemSummary || ns.sanitizedExcerpt || cleanTitle;
-        const proposedSolution = `Targeted solution addressing: ${cleanTitle}`;
+        const proposedSolution = derivePlausibleProductDirection(cleanTitle, targetAudience);
         const hasExplicitPurchaseIntent = ns.purchaseIntent === true || ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((ns.signalType || "").toUpperCase());
         const validationExperiment = deriveSpecificValidationExperiment(fullProblemText, targetAudience);
 
@@ -593,7 +692,7 @@ export async function getDailyDiscoveryFeed(
         sourceName: src?.name || "Market Source",
         sourceFamily: src?.sourceFamily || "COMMUNITY",
         title: raw.title || raw.normalizedSignal?.sourceTitle || "Market Discussion",
-        excerpt: raw.normalizedSignal?.sanitizedExcerpt || raw.rawContent.slice(0, 280),
+        excerpt: raw.normalizedSignal?.sanitizedExcerpt || (raw.rawContent ? raw.rawContent.slice(0, 280) : raw.title || ""),
         canonicalUrl: canonical,
         publishedAt: (pubDate instanceof Date ? pubDate : new Date(pubDate)).toISOString(),
         discoveredAt: (discDate instanceof Date ? discDate : new Date(discDate)).toISOString(),
@@ -623,7 +722,7 @@ export async function getDailyDiscoveryFeed(
           sourceName: src?.name || "Market Source",
           sourceFamily: src?.sourceFamily || "COMMUNITY",
           title: raw.title || raw.normalizedSignal?.sourceTitle || "Market Discussion",
-          excerpt: raw.normalizedSignal?.sanitizedExcerpt || raw.rawContent.slice(0, 280),
+          excerpt: raw.normalizedSignal?.sanitizedExcerpt || (raw.rawContent ? raw.rawContent.slice(0, 280) : raw.title || ""),
           canonicalUrl: canonical,
           publishedAt: (pubDate instanceof Date ? pubDate : new Date(pubDate)).toISOString(),
           discoveredAt: (discDate instanceof Date ? discDate : new Date(discDate)).toISOString(),

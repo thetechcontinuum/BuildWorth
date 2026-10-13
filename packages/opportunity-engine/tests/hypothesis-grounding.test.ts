@@ -605,6 +605,105 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
         expect(feed.opportunityHypotheses).toHaveLength(1);
         expect(feed.opportunityHypotheses[0].title).toContain("Rotex HPSU");
       });
+
+      it("excludes isolated automotive physical defects (Maextro brake pedals) from opportunity hypotheses", async () => {
+        const maextroSignal = {
+          id: "ns-maextro-1",
+          signalType: "PAIN_COMPLAINT",
+          purchaseIntent: false,
+          actorRole: null,
+          sourceTitle: "Maextro’s broken brake pedals put luxury car safety under scrutiny",
+          sanitizedExcerpt: "Maextro’s broken brake pedals put luxury car safety under scrutiny after reports of mechanical defect and brake failure on test tracks.",
+          problemSummary: "Maextro’s broken brake pedals put luxury car safety under scrutiny",
+          canonicalUrl: "https://kr-asia.com/maextro-broken-brake-pedals-luxury-car-safety",
+          createdAt: new Date("2026-10-13T18:06:00Z"),
+          rawSignal: {
+            id: "raw-maextro-1",
+            title: "Maextro’s broken brake pedals put luxury car safety under scrutiny",
+            sourceUrl: "https://kr-asia.com/maextro-broken-brake-pedals-luxury-car-safety",
+            publishedAt: new Date("2026-10-13T17:50:00Z"),
+            createdAt: new Date("2026-10-13T18:06:00Z"),
+            source: {
+              key: "krasia",
+              name: "KrASIA",
+              sourceFamily: "DISCOVERY",
+              isEnabled: true,
+              policyStatus: "ALLOWED",
+            },
+          },
+        };
+
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: { findMany: async () => [maextroSignal] },
+          rawSignal: { findMany: async () => [maextroSignal.rawSignal] },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        expect(feed.opportunityHypotheses).toHaveLength(0);
+        // Retained as a market signal
+        expect(feed.marketSignals).toHaveLength(1);
+        expect(feed.marketSignals[0].title).toContain("Maextro’s broken brake pedals");
+      });
+
+      it("excludes repository documentation and translation tasks (docs: write project skills in English) from hypotheses", async () => {
+        const docsSignal = {
+          id: "ns-docs-1",
+          signalType: "WORKAROUND",
+          purchaseIntent: false,
+          actorRole: null,
+          sourceTitle: "docs: write the project skills in English",
+          sanitizedExcerpt: "All the project skills under .agents/skills should be written in English for standard tool discovery and consistency.",
+          problemSummary: "docs: write the project skills in English",
+          canonicalUrl: "https://github.com/agent-framework/skills/issues/42",
+          createdAt: new Date("2026-10-13T18:06:00Z"),
+          rawSignal: {
+            id: "raw-docs-1",
+            title: "docs: write the project skills in English",
+            sourceUrl: "https://github.com/agent-framework/skills/issues/42",
+            publishedAt: new Date("2026-10-13T17:55:00Z"),
+            createdAt: new Date("2026-10-13T18:06:00Z"),
+            source: {
+              key: "github",
+              name: "GitHub Issues & Discussions",
+              sourceFamily: "DEVELOPER_ECOSYSTEM",
+              isEnabled: true,
+              policyStatus: "ALLOWED",
+            },
+          },
+        };
+
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: { findMany: async () => [docsSignal] },
+          rawSignal: { findMany: async () => [docsSignal.rawSignal] },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        expect(feed.opportunityHypotheses).toHaveLength(0);
+        // Retained as a market signal
+        expect(feed.marketSignals).toHaveLength(1);
+        expect(feed.marketSignals[0].title).toContain("docs: write the project skills in English");
+      });
+
+      it("retains Rotex UART signal as hypothesis with plausible product direction and identifiable buyer", async () => {
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: { findMany: async () => [rotexSignal] },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        expect(feed.opportunityHypotheses).toHaveLength(1);
+        const hypo = feed.opportunityHypotheses[0];
+        expect(hypo.businessHypothesis.targetAudience).toBe("IoT & Smart HVAC Firmware Engineers");
+        expect(hypo.businessHypothesis.proposedSolution).toBe(
+          "Diagnostic serial bridge & protocol adapter CLI with automated frame parsing for legacy HVAC and sensor buses"
+        );
+        expect(hypo.businessHypothesis.validationExperiment).toContain("packet-sniffing decoder prototype");
+      });
     });
   });
 
