@@ -180,6 +180,90 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
       expect(item.title).toBe("Runaway GPU Cluster Cost Spikes");
       expect(item.observedFacts[0]).toContain("costing us $18,000");
       expect(item.businessHypothesis.painFriction).toContain("Engineering teams lose $15k/month");
+      expect(item.businessHypothesis.purchaseIntentStatus).toBe("UNKNOWN");
+      expect(item.businessHypothesis.assumptions).toBeDefined();
+      expect(item.businessHypothesis.assumptions?.length).toBeGreaterThan(0);
+      expect(item.businessHypothesis.validationExperiment).toBeDefined();
+    });
+
+    it("synthesizes an unverified HYPOTHESIS from recent NormalizedSignal with concrete pain when stored opportunities are empty", async () => {
+      const mockPainNormalizedSignal = {
+        id: "ns-auth-pain-1",
+        signalType: "PAIN_COMPLAINT",
+        purchaseIntent: false,
+        actorRole: "DevOps Engineer",
+        sourceTitle: "Kafka lag monitoring breaks silently during traffic spikes",
+        sanitizedExcerpt: "Our Kafka consumer lag alert fails silently on partition rebalance, causing hours of latency bottleneck before on-call notices.",
+        problemSummary: "Silent Kafka consumer lag monitoring failures during partition rebalancing.",
+        canonicalUrl: "https://github.com/segment/kafka-go/issues/9981",
+        createdAt: new Date("2026-10-12T14:00:00Z"),
+        rawSignal: {
+          id: "raw-auth-pain-1",
+          title: "Kafka lag monitoring breaks silently during traffic spikes",
+          sourceUrl: "https://github.com/segment/kafka-go/issues/9981",
+          publishedAt: new Date("2026-10-12T13:30:00Z"),
+          createdAt: new Date("2026-10-12T14:00:00Z"),
+          source: {
+            key: "github",
+            name: "GitHub Issues & Discussions",
+            sourceFamily: "DEVELOPER_ECOSYSTEM",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      const mockPureNewsSignal = {
+        id: "ns-auth-news-1",
+        signalType: "MARKET_ACTIVITY",
+        purchaseIntent: false,
+        actorRole: null,
+        sourceTitle: "Tech Giant announces quarterly developer conference dates",
+        sanitizedExcerpt: "The annual developer convention will take place in San Francisco next spring with keynote speakers.",
+        problemSummary: "Developer convention scheduling announcement.",
+        canonicalUrl: "https://siliconcanals.com/tech-giant-conference-2026",
+        createdAt: new Date("2026-10-12T15:00:00Z"),
+        rawSignal: {
+          id: "raw-auth-news-1",
+          title: "Tech Giant announces quarterly developer conference dates",
+          sourceUrl: "https://siliconcanals.com/tech-giant-conference-2026",
+          publishedAt: new Date("2026-10-12T14:30:00Z"),
+          createdAt: new Date("2026-10-12T15:00:00Z"),
+          source: {
+            key: "siliconcanals",
+            name: "Silicon Canals",
+            sourceFamily: "DISCOVERY",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      const mockPrisma = {
+        opportunity: {
+          findMany: async () => [], // No persisted draft opportunity rows
+        },
+        normalizedSignal: {
+          findMany: async () => [mockPainNormalizedSignal, mockPureNewsSignal],
+        },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+      expect(feed.success).toBe(true);
+
+      // Must produce exactly 1 hypothesis from the concrete pain signal, and 0 from the generic news signal
+      expect(feed.opportunityHypotheses).toHaveLength(1);
+      const hyp = feed.opportunityHypotheses[0];
+      expect(hyp.title).toContain("Kafka lag monitoring breaks silently");
+      expect(hyp.status).toBe("HYPOTHESIS");
+      expect(hyp.verificationLabel).toBe("Early idea / Not yet verified");
+      expect(hyp.observedFacts[0]).toContain("partition rebalance");
+      expect(hyp.businessHypothesis.targetAudience).toBe("DevOps Engineer");
+      expect(hyp.businessHypothesis.purchaseIntentStatus).toBe("UNKNOWN");
+      expect(hyp.businessHypothesis.assumptions).toBeDefined();
+      expect(hyp.businessHypothesis.assumptions?.length).toBeGreaterThan(0);
+      expect(hyp.businessHypothesis.validationExperiment).toContain("5 customer discovery interviews");
+      expect(hyp.canonicalUrl).toBe("https://github.com/segment/kafka-go/issues/9981");
     });
 
     it("treats public tenders (TED), vulnerabilities (CISA KEV), and research (arXiv) as Market Signals without synthesizing ungrounded hypotheses", async () => {

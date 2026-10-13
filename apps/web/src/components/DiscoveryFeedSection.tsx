@@ -312,20 +312,56 @@ function HypothesisCard({ item }: { item: DiscoveryFeedItemDTO }) {
         </div>
 
         {/* Section 2: AI Business Hypothesis */}
-        <div className="p-3 rounded-lg bg-indigo-950/20 border border-indigo-900/30 space-y-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-300 uppercase tracking-wider">
-            <Lightbulb className="w-3.5 h-3.5 text-indigo-400" />
-            <span>AI Business Hypothesis</span>
+        <div className="p-3.5 rounded-lg bg-indigo-950/20 border border-indigo-900/30 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-300 uppercase tracking-wider">
+              <Lightbulb className="w-3.5 h-3.5 text-indigo-400" />
+              <span>AI Business Hypothesis</span>
+            </div>
+            <span
+              className={`text-[10px] font-medium px-2 py-0.5 rounded border ${
+                item.businessHypothesis.purchaseIntentStatus === "CONFIRMED"
+                  ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                  : "bg-zinc-800 text-zinc-400 border-zinc-700/60"
+              }`}
+            >
+              {item.businessHypothesis.purchaseIntentStatus === "CONFIRMED"
+                ? "Purchase Intent: Confirmed"
+                : "Purchase Intent: Unknown"}
+            </span>
           </div>
-          <div className="text-xs text-zinc-300 space-y-1">
+
+          <div className="text-xs text-zinc-300 space-y-2">
             <div>
-              <span className="text-zinc-500">Target Buyer:</span>{" "}
+              <span className="text-zinc-500 font-medium">Possible Buyer:</span>{" "}
               <strong className="text-zinc-200">{item.businessHypothesis.targetAudience}</strong>
             </div>
             <div>
-              <span className="text-zinc-500">Proposed Angle:</span>{" "}
+              <span className="text-zinc-500 font-medium">Product Concept:</span>{" "}
               <span className="text-zinc-300">{item.businessHypothesis.proposedSolution}</span>
             </div>
+
+            {item.businessHypothesis.assumptions && item.businessHypothesis.assumptions.length > 0 && (
+              <div className="pt-1.5 border-t border-indigo-900/40">
+                <span className="text-zinc-500 font-medium block mb-1">Key Assumptions:</span>
+                <ul className="text-[11px] text-zinc-400 space-y-1 list-disc list-inside">
+                  {item.businessHypothesis.assumptions.map((asm, idx) => (
+                    <li key={idx} className="leading-relaxed">
+                      <span className="text-zinc-300">{asm}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {item.businessHypothesis.validationExperiment && (
+              <div className="pt-1.5 border-t border-indigo-900/40">
+                <span className="text-zinc-500 font-medium block mb-0.5">Validation Experiment:</span>
+                <p className="text-[11px] text-indigo-200/90 leading-relaxed italic">
+                  {item.businessHypothesis.validationExperiment}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

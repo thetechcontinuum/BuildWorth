@@ -19,6 +19,9 @@ export interface DiscoveryFeedItemDTO {
     targetAudience: string;
     proposedSolution: string;
     painFriction: string;
+    assumptions?: string[];
+    validationExperiment?: string;
+    purchaseIntentStatus?: "CONFIRMED" | "UNKNOWN";
     confidenceNote: string;
   };
   publicationDate: string;

@@ -215,10 +215,20 @@ export async function getDailyDiscoveryFeed(
         ? `Targeted solution addressing: ${opp.title}`
         : rawProposedSolution;
 
+      const hasExplicitPurchaseIntent = (opp.evidenceLinks || []).some(
+        (l: any) => l.normalizedSignal?.purchaseIntent === true || ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((l.normalizedSignal?.signalType || "").toUpperCase())
+      );
+
       const businessHypothesis = {
         targetAudience: opp.economicBuyer || opp.endUser || "Early Adopter Teams",
         proposedSolution,
         painFriction: opp.problemStatement || primaryFact || "Operational bottleneck identified in market signals",
+        assumptions: [
+          `Target users encounter friction with current manual workflow or tooling limitations`,
+          `Problem recurs frequently enough in production to justify a focused software solution`,
+        ],
+        validationExperiment: `Conduct 5 customer discovery interviews with affected users to validate workaround frequency and impact`,
+        purchaseIntentStatus: (hasExplicitPurchaseIntent ? "CONFIRMED" : "UNKNOWN") as "CONFIRMED" | "UNKNOWN",
         confidenceNote: "Initial market hypothesis derived from public signals. Not yet validated via formal customer interviews or WTP proof.",
       };
 
@@ -249,6 +259,131 @@ export async function getDailyDiscoveryFeed(
         signalCount: opp.evidenceLinks?.length || 1,
         status: "HYPOTHESIS",
       });
+    }
+
+    // 1b. If no candidate opportunity rows exist in database (cold start or fresh database),
+    // synthesize grounded HYPOTHESIS items directly from recent authentic NormalizedSignals
+    // that have genuine customer problem, workaround, or purchase intent evidence.
+    if (opportunityHypotheses.length < limit && prisma.normalizedSignal?.findMany) {
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const unclusteredSignals = await prisma.normalizedSignal.findMany({
+        where: {
+          verificationStatus: { not: "REJECTED" },
+          rawSignal: {
+            source: {
+              isEnabled: true,
+              policyStatus: { not: "BLOCKED" },
+            },
+            OR: [
+              { publishedAt: null },
+              { publishedAt: { gte: ninetyDaysAgo } },
+            ],
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        include: {
+          rawSignal: {
+            include: {
+              source: true,
+            },
+          },
+        },
+      }).catch(() => []);
+
+      for (const ns of unclusteredSignals) {
+        if (opportunityHypotheses.length >= limit) break;
+        const raw = ns.rawSignal;
+        const src = raw?.source;
+        if (!raw || !src) continue;
+
+        // Strictly verify that this signal contains authentic problem / workaround / unmet need evidence
+        const sigType = (ns.signalType || "").toUpperCase();
+        const signalTextToScan = `${ns.sanitizedExcerpt || ""} ${ns.problemSummary || ""} ${ns.sourceTitle || ""} ${raw.title || ""}`.toLowerCase();
+        const hasExplicitPainOrDemand =
+          /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|spikes|friction|latency|manual|spend|expensive|difficult|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need|want|looking for)\b/i.test(signalTextToScan);
+        const isDiscoveryOrNews = (src.sourceFamily === "DISCOVERY" || ["krasia", "e27", "siliconcanals", "techcrunch", "ted", "samgov", "cisakev", "arxiv"].includes(src.key || ""));
+        const isDisallowedType = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
+
+        const isActionable =
+          isDiscoveryOrNews
+            ? hasExplicitPainOrDemand && ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes(sigType || "PAIN")
+            : (["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType) ||
+               (!isDisallowedType && hasExplicitPainOrDemand));
+
+        if (!isActionable) continue;
+
+        const canonical = ns.canonicalUrl || raw.sourceUrl;
+        const urlKey = canonical ? canonical.toLowerCase().trim() : "";
+        const titleKey = (raw.title || ns.sourceTitle || "").toLowerCase().trim();
+
+        if (urlKey && seenUrls.has(urlKey)) continue;
+        if (titleKey && seenTitles.has(titleKey)) continue;
+
+        const effectiveSourceKey = src.key || "unknown";
+        const currentSourceCount = sourceCounts.get(effectiveSourceKey) || 0;
+        if (currentSourceCount >= maxItemsPerSource) continue;
+
+        if (urlKey) seenUrls.add(urlKey);
+        if (titleKey) seenTitles.add(titleKey);
+        sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
+
+        const obsDate = raw.publishedAt || ns.publishedAt || raw.createdAt || new Date();
+        const obsDateIso = obsDate instanceof Date ? obsDate.toISOString() : new Date(obsDate).toISOString();
+
+        const observation = {
+          id: ns.id,
+          sourceTitle: raw.title || ns.sourceTitle || src.name || "Market Evidence",
+          excerpt: ns.sanitizedExcerpt || ns.problemSummary,
+          canonicalUrl: canonical,
+          sourceFamily: src.sourceFamily || "COMMUNITY",
+          sourceName: src.name || "Public Community",
+          publishedAt: obsDateIso,
+        };
+
+        const title = raw.title || ns.sourceTitle || "Unmet Need Identified in Market Discussion";
+        const cleanTitle = title.replace(/\s+/g, " ").trim();
+        const targetAudience = ns.actorRole || "Early Adopter Teams";
+        const painFriction = ns.problemSummary || ns.sanitizedExcerpt || cleanTitle;
+        const proposedSolution = `Targeted solution addressing: ${cleanTitle}`;
+        const hasExplicitPurchaseIntent = ns.purchaseIntent === true || ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes(sigType);
+
+        const businessHypothesis = {
+          targetAudience,
+          proposedSolution,
+          painFriction,
+          assumptions: [
+            `Target users encounter friction with current manual workflow or tooling limitations`,
+            `Problem recurs frequently enough in production to justify a focused software solution`,
+          ],
+          validationExperiment: `Conduct 5 customer discovery interviews with affected users to validate workaround frequency and impact`,
+          purchaseIntentStatus: (hasExplicitPurchaseIntent ? "CONFIRMED" : "UNKNOWN") as "CONFIRMED" | "UNKNOWN",
+          confidenceNote: "Initial market hypothesis derived from public signals. Not yet validated via formal customer interviews or WTP proof.",
+        };
+
+        const market = deriveMarketRegion(src.key, src.sourceFamily);
+        const pubDate = raw.publishedAt ? new Date(raw.publishedAt).toISOString() : new Date(raw.createdAt).toISOString();
+        const safeSlug = (cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50) || "hypothesis") + "-" + ns.id.slice(0, 8);
+
+        opportunityHypotheses.push({
+          id: "hypo-" + ns.id,
+          slug: safeSlug,
+          title: cleanTitle,
+          summary: `Hypothesis exploring practical workflow solution for ${cleanTitle.toLowerCase()}.`,
+          observedFacts: [observation.excerpt],
+          evidenceObservations: [observation],
+          businessHypothesis,
+          publicationDate: pubDate,
+          discoveredAt: (raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt)).toISOString(),
+          market,
+          canonicalUrl: canonical || `https://buildworth.app/signals/${ns.id}`,
+          sourceTitle: observation.sourceTitle,
+          sourceFamily: observation.sourceFamily,
+          verificationLabel: "Early idea / Not yet verified",
+          signalCount: 1,
+          status: "HYPOTHESIS",
+        });
+      }
     }
 
     // 2. Fetch authentic New Market Signals directly from NormalizedSignal & RawSignal
