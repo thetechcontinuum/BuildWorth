@@ -262,7 +262,7 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
       expect(hyp.businessHypothesis.purchaseIntentStatus).toBe("UNKNOWN");
       expect(hyp.businessHypothesis.assumptions).toBeDefined();
       expect(hyp.businessHypothesis.assumptions?.length).toBeGreaterThan(0);
-      expect(hyp.businessHypothesis.validationExperiment).toContain("5 customer discovery interviews");
+      expect(hyp.businessHypothesis.validationExperiment).toContain("consumer lag threshold alerts");
       expect(hyp.canonicalUrl).toBe("https://github.com/segment/kafka-go/issues/9981");
     });
 
@@ -382,6 +382,229 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
       expect(cisaSignal).toBeDefined();
       expect(cisaSignal?.market).toBe("Global / Cybersecurity");
       expect(cisaSignal?.label).toBe("Market signal — not a validated business opportunity");
+    });
+
+    describe("Five Live Feed Examples Quality Regression", () => {
+      // 1. Concrete user breakdown: Rotex HPSU UART sensor decoding failure
+      const rotexSignal = {
+        id: "ns-rotex-1",
+        signalType: "PAIN",
+        purchaseIntent: false,
+        actorRole: null,
+        sourceTitle: "No valid decoding for Rotex HPSU bi-bloc 2010 RRLQ008BAV3 – likely old \"S protocol\" vs. newer \"I protocol\"",
+        sanitizedExcerpt: "No valid sensor decoding on a 2010-generation Rotex RRLQ008BAV3 outdoor unit. UART communication is confirmed working, but every configured entity permanently reports Unbekannt.",
+        problemSummary: "No valid decoding for Rotex HPSU bi-bloc 2010 RRLQ008BAV3 – likely old \"S protocol\" vs. newer \"I protocol\"",
+        canonicalUrl: "https://github.com/wrfz/esphome-components/issues/18",
+        createdAt: new Date("2026-10-13T18:06:00Z"),
+        rawSignal: {
+          id: "raw-rotex-1",
+          title: "No valid decoding for Rotex HPSU bi-bloc 2010 RRLQ008BAV3 – likely old \"S protocol\" vs. newer \"I protocol\"",
+          sourceUrl: "https://github.com/wrfz/esphome-components/issues/18",
+          publishedAt: new Date("2026-09-11T08:38:22Z"),
+          createdAt: new Date("2026-10-13T18:06:00Z"),
+          source: {
+            key: "github",
+            name: "GitHub Issues & Discussions",
+            sourceFamily: "DEVELOPER_ECOSYSTEM",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      // 2. Feature request backlog / enhancement without user breakdown: eBay tools EP-13
+      const ebayFeatureSignal = {
+        id: "ns-ebay-1",
+        signalType: "FEATURE_REQUEST",
+        purchaseIntent: false,
+        actorRole: null,
+        sourceTitle: "EP-13: 18 eBay flag markets, verified fee/tax engine, universal bulk results table + branded PDF/CSV",
+        sanitizedExcerpt: "EP-13 — All 18 eBay marketplaces, evidence-backed fee/tax calculations, and Add-to-List/PDF on EVERY tool. Owner requirements: All existing ten public eCommPilot tools should have bulk flow.",
+        problemSummary: "EP-13: 18 eBay flag markets, verified fee/tax engine, universal bulk results table + branded PDF/CSV",
+        canonicalUrl: "https://github.com/ponzey717/ecommpilot-main/issues/11",
+        createdAt: new Date("2026-10-13T18:06:00Z"),
+        rawSignal: {
+          id: "raw-ebay-1",
+          title: "EP-13: 18 eBay flag markets, verified fee/tax engine, universal bulk results table + branded PDF/CSV",
+          sourceUrl: "https://github.com/ponzey717/ecommpilot-main/issues/11",
+          publishedAt: new Date("2026-10-13T12:03:17Z"),
+          createdAt: new Date("2026-10-13T18:06:00Z"),
+          source: {
+            key: "github",
+            name: "GitHub Issues & Discussions",
+            sourceFamily: "DEVELOPER_ECOSYSTEM",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      // 3. Academic paper / journal article: Vaporware as a Means of Entry Deterrence
+      const vaporwarePaperSignal = {
+        id: "ns-vaporware-1",
+        signalType: "MARKET_ACTIVITY",
+        purchaseIntent: false,
+        actorRole: null,
+        sourceTitle: "Vaporware as a Means of Entry Deterrence",
+        sanitizedExcerpt: "Vaporware as a Means of Entry Deterrence",
+        problemSummary: "Vaporware as a Means of Entry Deterrence",
+        canonicalUrl: "https://onlinelibrary.wiley.com/doi/abs/10.1111/1467-6451.00204",
+        createdAt: new Date("2026-10-13T18:06:00Z"),
+        rawSignal: {
+          id: "raw-vaporware-1",
+          title: "Vaporware as a Means of Entry Deterrence",
+          sourceUrl: "https://onlinelibrary.wiley.com/doi/abs/10.1111/1467-6451.00204",
+          publishedAt: new Date("2026-10-13T17:58:00Z"),
+          createdAt: new Date("2026-10-13T18:06:00Z"),
+          source: {
+            key: "hackernews",
+            name: "Hacker News",
+            sourceFamily: "COMMUNITY",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      // 4. Project launch / announcement: MountX dynamic language
+      const mountxLaunchSignal = {
+        id: "ns-mountx-1",
+        signalType: "EMERGING_TECH",
+        purchaseIntent: false,
+        actorRole: null,
+        sourceTitle: "MountX: A self-hosted dynamic language compiling to C99",
+        sanitizedExcerpt: "MountX: A self-hosted dynamic language compiling to C99",
+        problemSummary: "MountX: A self-hosted dynamic language compiling to C99",
+        canonicalUrl: "https://github.com/mountxlang-eng/mountxlang",
+        createdAt: new Date("2026-10-13T18:06:00Z"),
+        rawSignal: {
+          id: "raw-mountx-1",
+          title: "MountX: A self-hosted dynamic language compiling to C99",
+          sourceUrl: "https://github.com/mountxlang-eng/mountxlang",
+          publishedAt: new Date("2026-10-13T17:58:53Z"),
+          createdAt: new Date("2026-10-13T18:06:00Z"),
+          source: {
+            key: "hackernews",
+            name: "Hacker News",
+            sourceFamily: "COMMUNITY",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      // 5. Generic technical Q&A: OpenCL local size performance advice
+      const openclQuestionSignal = {
+        id: "ns-opencl-1",
+        signalType: "PAIN",
+        purchaseIntent: false,
+        actorRole: null,
+        sourceTitle: "Why does adding local size improve performance in OpenCL?",
+        sanitizedExcerpt: "[advice] Why does adding local size improve performance in OpenCL?",
+        problemSummary: "Why does adding local size improve performance in OpenCL?",
+        canonicalUrl: "https://stackoverflow.com/questions/80009772/why-does-adding-local-size-improve-performance-in-opencl",
+        createdAt: new Date("2026-10-13T18:06:00Z"),
+        rawSignal: {
+          id: "raw-opencl-1",
+          title: "Why does adding local size improve performance in OpenCL?",
+          sourceUrl: "https://stackoverflow.com/questions/80009772/why-does-adding-local-size-improve-performance-in-opencl",
+          publishedAt: new Date("2026-10-13T17:53:53Z"),
+          createdAt: new Date("2026-10-13T18:06:00Z"),
+          source: {
+            key: "stackexchange",
+            name: "Stack Exchange & Stack Overflow",
+            sourceFamily: "COMMUNITY",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      it("retains the concrete Rotex sensor breakdown as a qualified hypothesis with specific buyer and validation experiment", async () => {
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: { findMany: async () => [rotexSignal] },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        expect(feed.opportunityHypotheses).toHaveLength(1);
+
+        const hyp = feed.opportunityHypotheses[0];
+        expect(hyp.title).toContain("Rotex HPSU");
+        expect(hyp.observedFacts[0]).toContain("permanently reports Unbekannt");
+        // Must NOT use generic "Early Adopter Teams"
+        expect(hyp.businessHypothesis.targetAudience).not.toBe("Early Adopter Teams");
+        expect(hyp.businessHypothesis.targetAudience).toBe("IoT & Smart HVAC Firmware Engineers");
+        // Validation experiment must be tailored, not generic interviews
+        expect(hyp.businessHypothesis.validationExperiment).toContain("packet-sniffing decoder prototype");
+        expect(hyp.businessHypothesis.purchaseIntentStatus).toBe("UNKNOWN");
+      });
+
+      it("excludes academic research papers from opportunity hypotheses", async () => {
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: { findMany: async () => [vaporwarePaperSignal] },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        expect(feed.opportunityHypotheses).toHaveLength(0);
+      });
+
+      it("excludes project / language announcements from opportunity hypotheses", async () => {
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: { findMany: async () => [mountxLaunchSignal] },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        expect(feed.opportunityHypotheses).toHaveLength(0);
+      });
+
+      it("excludes generic technical questions and advice posts from opportunity hypotheses", async () => {
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: { findMany: async () => [openclQuestionSignal] },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        expect(feed.opportunityHypotheses).toHaveLength(0);
+      });
+
+      it("excludes feature requests without user breakdown/friction from opportunity hypotheses", async () => {
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: { findMany: async () => [ebayFeatureSignal] },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        expect(feed.opportunityHypotheses).toHaveLength(0);
+      });
+
+      it("evaluates all 5 live candidates simultaneously and retains ONLY the genuine breakdown (Rotex)", async () => {
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: {
+            findMany: async () => [
+              rotexSignal,
+              ebayFeatureSignal,
+              vaporwarePaperSignal,
+              mountxLaunchSignal,
+              openclQuestionSignal,
+            ],
+          },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        // Exactly 1 hypothesis qualifies
+        expect(feed.opportunityHypotheses).toHaveLength(1);
+        expect(feed.opportunityHypotheses[0].title).toContain("Rotex HPSU");
+      });
     });
   });
 
