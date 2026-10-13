@@ -46,6 +46,152 @@ export function deriveMarketRegion(sourceKey?: string, sourceFamily?: string, in
 }
 
 /**
+ * Checks whether a signal describes a concrete user/operational problem or workaround,
+ * as opposed to an academic paper, project launch, general discussion, or technical question.
+ */
+export function isConcreteProblemOrWorkaround(signal: {
+  title?: string | null;
+  sanitizedExcerpt?: string | null;
+  problemSummary?: string | null;
+  signalType?: string | null;
+  canonicalUrl?: string | null;
+  sourceKey?: string | null;
+  sourceFamily?: string | null;
+}): boolean {
+  const title = (signal.title || "").trim();
+  const excerpt = (signal.sanitizedExcerpt || "").trim();
+  const summary = (signal.problemSummary || "").trim();
+  const fullText = `${title} ${excerpt} ${summary}`.toLowerCase();
+  const url = (signal.canonicalUrl || "").toLowerCase();
+  const srcKey = (signal.sourceKey || "").toLowerCase();
+  const sigType = (signal.signalType || "").toUpperCase();
+
+  // 1. Strict Exclusions: Research papers, academic articles, books, journals
+  if (
+    srcKey === "arxiv" ||
+    url.includes("arxiv.org") ||
+    url.includes("onlinelibrary.wiley.com") ||
+    url.includes("doi.org") ||
+    url.includes("sciencedirect.com") ||
+    url.includes("springer.com") ||
+    url.includes("nature.com") ||
+    /\b(arxiv|preprint|doi:|journal article|working paper|dissertation|literature review)\b/i.test(fullText)
+  ) {
+    return false;
+  }
+
+  // 2. Strict Exclusions: Product/Project/Release/Announcement launches
+  // e.g. "MountX: A self-hosted dynamic language compiling to C99", "Show HN: ...", "Announcing v1.0", "Release v2.0"
+  if (
+    /^(show hn:|announcing|introducing|launching|released|release v\d|meet [a-z0-9_-]+:)\b/i.test(title) ||
+    /^[a-z0-9_.-]+:\s*(a|an|the|open-source|fast|lightweight|modern|self-hosted|next-gen|tiny|simple)\s+/i.test(title)
+  ) {
+    return false;
+  }
+
+  // 3. Strict Exclusions: Generic developer questions / Q&A / advice seeking
+  // e.g. "Why does adding local size improve performance in OpenCL?", "How to do X in Y", "Optimal way to..."
+  if (
+    /^(why does|why is|why did|why do|why would|how to|how do i|how can i|what is the best way to|optimal way to|is there a way to)\b/i.test(title) ||
+    title.endsWith("?") ||
+    /^\[advice\]/i.test(title) ||
+    /^\[question\]/i.test(title) ||
+    /^\[css,|^\[html,|^\[c#,|^\[java,|^\[python,/i.test(title)
+  ) {
+    return false;
+  }
+
+  // 4. Strict Exclusions: Generic feature requests or routine backlog tasks without clear user friction
+  // e.g. "EP-13: 18 eBay flag markets...", "Daily ingest: review needed..."
+  if (
+    /^(ep-\d+|feat:|feature:|task:|chore:|refactor:|daily ingest:|sprint \d+)/i.test(title) &&
+    !/\b(broken|breaks|fails|failing|error|leak|spike|latency|outage|unusable|crash|crashing)\b/i.test(fullText)
+  ) {
+    return false;
+  }
+
+  // 5. Explicit concrete friction / breakdown / workaround / cost pain indicators
+  // The excerpt or title must describe actual failure, broken functionality, error, or manual hack
+  const hasConcreteBreakdown =
+    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|throttled|timeout|workaround|hacky workaround|manual fix|costing|ruined|waste|wasted|unexpected spend|bill spike)\b/i.test(fullText);
+
+  // High quality problem types from GitHub / StackOverflow / HN or unclassified signals with problem keywords
+  const isProblemType = [
+    "PAIN",
+    "PAIN_COMPLAINT",
+    "WORKAROUND",
+    "WORKAROUND_REQUEST",
+    "COMPETITOR_COMPLAINT",
+    "COMPETITOR_DISSATISFACTION",
+    "",
+    "UNCLASSIFIED",
+  ].includes(sigType);
+
+  return hasConcreteBreakdown || (isProblemType && /\b(error|bug|issue|failure|broken|problem|bottleneck|friction|pain|cost|spend|waste|latency|spike)\b/i.test(fullText));
+}
+
+/**
+ * Derives a specific, evidence-backed target audience from the problem description
+ * instead of generic fallback boilerplate.
+ */
+export function deriveSpecificAudience(text: string, actorRole?: string | null): string {
+  if (actorRole && actorRole.trim() && !/early adopter|user|team|founder/i.test(actorRole)) {
+    return actorRole.trim();
+  }
+
+  const lower = text.toLowerCase();
+  if (lower.includes("iot") || lower.includes("rotex") || lower.includes("hpsu") || lower.includes("sensor") || lower.includes("uart") || lower.includes("esphome") || lower.includes("firmware")) {
+    return "IoT & Smart HVAC Firmware Engineers";
+  }
+  if (lower.includes("kafka") || lower.includes("consumer lag") || lower.includes("partition")) {
+    return "Distributed Systems & Streaming Infrastructure Engineers";
+  }
+  if (lower.includes("gpu") || lower.includes("h100") || lower.includes("cuda") || lower.includes("cluster cost")) {
+    return "ML Platform & Cloud Infrastructure Teams";
+  }
+  if (lower.includes("database") || lower.includes("postgres") || lower.includes("mysql") || lower.includes("query timeout")) {
+    return "Database Administrators & Backend Leads";
+  }
+  if (lower.includes("kubernetes") || lower.includes("k8s") || lower.includes("pod") || lower.includes("ingress")) {
+    return "Platform Engineering & Site Reliability Teams";
+  }
+  if (lower.includes("security") || lower.includes("vulnerability") || lower.includes("cve") || lower.includes("exploit")) {
+    return "Security Operations & AppSec Engineers";
+  }
+  if (lower.includes("ci/cd") || lower.includes("github actions") || lower.includes("pipeline") || lower.includes("docker")) {
+    return "DevOps & Release Engineering Teams";
+  }
+
+  return "Unknown (Requires customer validation)";
+}
+
+/**
+ * Derives a problem-specific validation experiment based on the nature of the identified friction.
+ */
+export function deriveSpecificValidationExperiment(problemSummary: string, targetAudience: string): string {
+  const lower = problemSummary.toLowerCase();
+
+  if (lower.includes("protocol") || lower.includes("decoding") || lower.includes("sensor") || lower.includes("uart") || lower.includes("hvac")) {
+    return "Deploy packet-sniffing decoder prototype against 3 real hardware installations to verify protocol compatibility";
+  }
+  if (lower.includes("kafka") || lower.includes("lag") || lower.includes("streaming")) {
+    return "Run synthetic rebalance benchmark simulating consumer lag threshold alerts with 5 data platform engineers";
+  }
+  if (lower.includes("gpu") || lower.includes("cost") || lower.includes("cloud")) {
+    return "Audit idle cluster teardown logs with 5 ML platform teams to quantify monthly spend reclaim potential";
+  }
+  if (lower.includes("security") || lower.includes("vulnerability") || lower.includes("cve")) {
+    return "Scan 10 production staging clusters to measure exposure window and test automated mitigation rules";
+  }
+
+  if (targetAudience && !targetAudience.startsWith("Unknown")) {
+    return `Interview 5 ${targetAudience} to benchmark frequency of this breakdown and quantify hours spent on manual recovery`;
+  }
+
+  return "Conduct discovery interviews with affected users to validate workaround frequency and operational cost";
+}
+
+/**
  * Builds the public daily discovery feed separated into two clearly labeled sections:
  * 1. New Market Signals — authentic, newly collected articles/discussions with source metadata,
  *    clearly labeled: "Market signal — not a validated business opportunity". No invented buyer demand or WTP.
@@ -146,21 +292,18 @@ export async function getDailyDiscoveryFeed(
 
         // Check if signal contains actionable problem/demand evidence
         // NOTE: Evidence MUST originate from the source signal itself, never the AI-generated opportunity title/problem statement.
-        const sigType = (ns.signalType || "").toUpperCase();
-        const claimType = (link.claimType || "").toUpperCase();
-        const signalTextToScan = `${ns.sanitizedExcerpt || ""} ${ns.problemSummary || ""} ${ns.sourceTitle || ""} ${raw.title || ""}`.toLowerCase();
-        const hasExplicitPainOrDemand =
-          /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|spikes|friction|latency|manual|spend|expensive|difficult|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need|want|looking for)\b/i.test(signalTextToScan);
-        const isDiscoveryOrNews = (src?.sourceFamily === "DISCOVERY" || ["krasia", "e27", "siliconcanals", "techcrunch", "ted", "samgov", "cisakev", "arxiv"].includes(src?.key || ""));
-        const isDisallowedType = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
 
-        // Discovery, procurement, vulnerability, and research sources must have explicit, concrete friction or buyer intent in the signal text itself
-        const isActionableType =
-          isDiscoveryOrNews
-            ? hasExplicitPainOrDemand && ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes(sigType || "PAIN")
-            : (["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType) ||
-               ["PAIN_EXISTENCE", "BUYER_DEMAND", "WILLINGNESS_TO_PAY", "CURRENT_WORKAROUND"].includes(claimType) ||
-               (!isDisallowedType && hasExplicitPainOrDemand));
+        // Check if signal contains actionable problem/demand evidence
+        // NOTE: Evidence MUST originate from the source signal itself, never the AI-generated opportunity title/problem statement.
+        const isActionableType = isConcreteProblemOrWorkaround({
+          title: raw.title || ns.sourceTitle,
+          sanitizedExcerpt: ns.sanitizedExcerpt,
+          problemSummary: ns.problemSummary,
+          signalType: ns.signalType,
+          canonicalUrl: canonical,
+          sourceKey: src?.key,
+          sourceFamily: src?.sourceFamily,
+        });
 
         if (isActionableType) {
           hasActionableEvidence = true;
@@ -219,15 +362,25 @@ export async function getDailyDiscoveryFeed(
         (l: any) => l.normalizedSignal?.purchaseIntent === true || ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((l.normalizedSignal?.signalType || "").toUpperCase())
       );
 
+      const targetAudience = deriveSpecificAudience(
+        `${opp.title} ${opp.problemStatement || ""} ${primaryFact}`,
+        opp.economicBuyer || opp.endUser
+      );
+
+      const validationExperiment = deriveSpecificValidationExperiment(
+        `${opp.title} ${opp.problemStatement || ""} ${primaryFact}`,
+        targetAudience
+      );
+
       const businessHypothesis = {
-        targetAudience: opp.economicBuyer || opp.endUser || "Early Adopter Teams",
+        targetAudience,
         proposedSolution,
         painFriction: opp.problemStatement || primaryFact || "Operational bottleneck identified in market signals",
         assumptions: [
-          `Target users encounter friction with current manual workflow or tooling limitations`,
-          `Problem recurs frequently enough in production to justify a focused software solution`,
+          `Target practitioners experience operational friction or failure under current manual workflows`,
+          `Breakdown recurs frequently enough in production to justify a dedicated tooling solution`,
         ],
-        validationExperiment: `Conduct 5 customer discovery interviews with affected users to validate workaround frequency and impact`,
+        validationExperiment,
         purchaseIntentStatus: (hasExplicitPurchaseIntent ? "CONFIRMED" : "UNKNOWN") as "CONFIRMED" | "UNKNOWN",
         confidenceNote: "Initial market hypothesis derived from public signals. Not yet validated via formal customer interviews or WTP proof.",
       };
@@ -298,18 +451,15 @@ export async function getDailyDiscoveryFeed(
         if (!raw || !src) continue;
 
         // Strictly verify that this signal contains authentic problem / workaround / unmet need evidence
-        const sigType = (ns.signalType || "").toUpperCase();
-        const signalTextToScan = `${ns.sanitizedExcerpt || ""} ${ns.problemSummary || ""} ${ns.sourceTitle || ""} ${raw.title || ""}`.toLowerCase();
-        const hasExplicitPainOrDemand =
-          /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|spikes|friction|latency|manual|spend|expensive|difficult|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need|want|looking for)\b/i.test(signalTextToScan);
-        const isDiscoveryOrNews = (src.sourceFamily === "DISCOVERY" || ["krasia", "e27", "siliconcanals", "techcrunch", "ted", "samgov", "cisakev", "arxiv"].includes(src.key || ""));
-        const isDisallowedType = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
-
-        const isActionable =
-          isDiscoveryOrNews
-            ? hasExplicitPainOrDemand && ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes(sigType || "PAIN")
-            : (["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType) ||
-               (!isDisallowedType && hasExplicitPainOrDemand));
+        const isActionable = isConcreteProblemOrWorkaround({
+          title: raw.title || ns.sourceTitle,
+          sanitizedExcerpt: ns.sanitizedExcerpt,
+          problemSummary: ns.problemSummary,
+          signalType: ns.signalType,
+          canonicalUrl: ns.canonicalUrl || raw.sourceUrl,
+          sourceKey: src.key,
+          sourceFamily: src.sourceFamily,
+        });
 
         if (!isActionable) continue;
 
@@ -343,20 +493,22 @@ export async function getDailyDiscoveryFeed(
 
         const title = raw.title || ns.sourceTitle || "Unmet Need Identified in Market Discussion";
         const cleanTitle = title.replace(/\s+/g, " ").trim();
-        const targetAudience = ns.actorRole || "Early Adopter Teams";
+        const fullProblemText = `${cleanTitle} ${ns.problemSummary || ""} ${ns.sanitizedExcerpt || ""}`;
+        const targetAudience = deriveSpecificAudience(fullProblemText, ns.actorRole);
         const painFriction = ns.problemSummary || ns.sanitizedExcerpt || cleanTitle;
         const proposedSolution = `Targeted solution addressing: ${cleanTitle}`;
-        const hasExplicitPurchaseIntent = ns.purchaseIntent === true || ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes(sigType);
+        const hasExplicitPurchaseIntent = ns.purchaseIntent === true || ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((ns.signalType || "").toUpperCase());
+        const validationExperiment = deriveSpecificValidationExperiment(fullProblemText, targetAudience);
 
         const businessHypothesis = {
           targetAudience,
           proposedSolution,
           painFriction,
           assumptions: [
-            `Target users encounter friction with current manual workflow or tooling limitations`,
-            `Problem recurs frequently enough in production to justify a focused software solution`,
+            `Target practitioners experience operational friction or failure under current manual workflows`,
+            `Breakdown recurs frequently enough in production to justify a dedicated tooling solution`,
           ],
-          validationExperiment: `Conduct 5 customer discovery interviews with affected users to validate workaround frequency and impact`,
+          validationExperiment,
           purchaseIntentStatus: (hasExplicitPurchaseIntent ? "CONFIRMED" : "UNKNOWN") as "CONFIRMED" | "UNKNOWN",
           confidenceNote: "Initial market hypothesis derived from public signals. Not yet validated via formal customer interviews or WTP proof.",
         };
