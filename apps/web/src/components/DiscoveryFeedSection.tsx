@@ -14,10 +14,13 @@ import {
   Radio,
   Compass,
   RotateCw,
+  FlaskConical,
+  HelpCircle,
 } from "lucide-react";
 import {
   DiscoveryFeedItemDTO,
   MarketSignalFeedItemDTO,
+  ResearchLeadFeedItemDTO,
   DiscoveryFeedResponseDTO,
 } from "@buildworth/shared";
 
@@ -25,7 +28,7 @@ export function DiscoveryFeedSection() {
   const [data, setData] = useState<DiscoveryFeedResponseDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"signals" | "hypotheses">("signals");
+  const [activeTab, setActiveTab] = useState<"signals" | "leads" | "hypotheses">("signals");
 
   const loadFeed = async () => {
     setLoading(true);
@@ -53,6 +56,7 @@ export function DiscoveryFeedSection() {
   }, []);
 
   const marketSignals = data?.marketSignals || [];
+  const researchLeads = data?.researchLeads || [];
   const hypotheses = data?.opportunityHypotheses || data?.items || [];
   const hasItemsToday = data?.hasItemsToday ?? false;
 
@@ -68,12 +72,12 @@ export function DiscoveryFeedSection() {
             <h2 className="text-xl font-bold text-white tracking-tight">Market Opportunity Feed</h2>
           </div>
           <p className="text-sm text-zinc-400 mt-1">
-            Real-time market signals from independent sources and early unverified opportunity hypotheses.
+            Real-time market signals from independent sources, early research leads, and opportunity hypotheses.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          {!hasItemsToday && (marketSignals.length > 0 || hypotheses.length > 0) && (
+          {!hasItemsToday && (marketSignals.length > 0 || researchLeads.length > 0 || hypotheses.length > 0) && (
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 font-mono">
               <Clock className="w-3.5 h-3.5 text-zinc-500" />
               <span>Showing latest authentic items</span>
@@ -83,10 +87,10 @@ export function DiscoveryFeedSection() {
       </div>
 
       {/* Section Tabs */}
-      <div className="flex items-center gap-2 border-b border-zinc-800">
+      <div className="flex items-center gap-2 border-b border-zinc-800 overflow-x-auto">
         <button
           onClick={() => setActiveTab("signals")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
             activeTab === "signals"
               ? "border-amber-500 text-white"
               : "border-transparent text-zinc-400 hover:text-zinc-200"
@@ -100,8 +104,23 @@ export function DiscoveryFeedSection() {
         </button>
 
         <button
+          onClick={() => setActiveTab("leads")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+            activeTab === "leads"
+              ? "border-teal-500 text-white"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <FlaskConical className="w-4 h-4 text-teal-400" />
+          <span>Research Leads</span>
+          <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-zinc-800 text-zinc-300 font-mono">
+            {researchLeads.length}
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveTab("hypotheses")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
             activeTab === "hypotheses"
               ? "border-indigo-500 text-white"
               : "border-transparent text-zinc-400 hover:text-zinc-200"
@@ -165,8 +184,27 @@ export function DiscoveryFeedSection() {
             ))}
           </div>
         )
+      ) : activeTab === "leads" ? (
+        /* Section 2: Research Leads */
+        researchLeads.length === 0 ? (
+          <div className="p-8 rounded-xl bg-zinc-900/40 border border-zinc-800 text-center space-y-3">
+            <div className="inline-flex p-3 rounded-full bg-zinc-800/50 text-zinc-400 mb-1">
+              <FlaskConical className="w-6 h-6 text-teal-400" />
+            </div>
+            <h3 className="text-base font-semibold text-white">No Research Leads Identified Yet Today</h3>
+            <p className="text-sm text-zinc-400 max-w-md mx-auto">
+              Research leads surface recent signals describing concrete user friction, workarounds, or pain with an identifiable buyer and validation step, but lacking multi-source corroboration. Uncorroborated items are displayed here without inventing demand.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {researchLeads.map((lead) => (
+              <ResearchLeadCard key={lead.id} item={lead} />
+            ))}
+          </div>
+        )
       ) : (
-        /* Section 2: Opportunity Hypotheses */
+        /* Section 3: Opportunity Hypotheses */
         hypotheses.length === 0 ? (
           <div className="p-8 rounded-xl bg-zinc-900/40 border border-zinc-800 text-center space-y-3">
             <div className="inline-flex p-3 rounded-full bg-zinc-800/50 text-zinc-400 mb-1">
@@ -359,6 +397,120 @@ function HypothesisCard({ item }: { item: DiscoveryFeedItemDTO }) {
                 <span className="text-zinc-500 font-medium block mb-0.5">Validation Experiment:</span>
                 <p className="text-[11px] text-indigo-200/90 leading-relaxed italic">
                   {item.businessHypothesis.validationExperiment}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer dates */}
+      <div className="pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500">
+        <div className="flex items-center gap-1">
+          <Calendar className="w-3 h-3 text-zinc-600" />
+          <span>Source Date: <strong className="text-zinc-400 font-mono">{pubDateFormatted}</strong></span>
+        </div>
+        {item.discoveredAt && (
+          <div className="text-[10px] text-zinc-600">
+            Discovered: {new Date(item.discoveredAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ResearchLeadCard({ item }: { item: ResearchLeadFeedItemDTO }) {
+  const pubDateFormatted = item.publishedAt
+    ? new Date(item.publishedAt).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "Recent";
+
+  return (
+    <div className="p-6 rounded-xl bg-zinc-900/60 border border-teal-900/30 hover:border-teal-700/60 transition-all flex flex-col justify-between space-y-5">
+      <div className="space-y-4">
+        {/* Header badges */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-teal-500/10 text-teal-300 border border-teal-500/25">
+            <FlaskConical className="w-3 h-3 text-teal-400" />
+            {item.label}
+          </span>
+          <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded">
+            <Globe className="w-3 h-3 text-zinc-500" />
+            {item.market}
+          </span>
+        </div>
+
+        {/* Title and Short Summary */}
+        <div className="space-y-1.5">
+          <h3 className="text-base font-semibold text-white leading-snug hover:text-teal-400 transition-colors">
+            {item.title}
+          </h3>
+          <p className="text-sm text-zinc-300 leading-relaxed">{item.summary}</p>
+        </div>
+
+        {/* Section 1: Observed Evidence (Facts) */}
+        <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-800/80 space-y-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+            <FileText className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Observed Market Facts</span>
+          </div>
+          <ul className="text-xs text-zinc-400 space-y-1.5 list-disc list-inside">
+            {item.observedFacts.map((fact, idx) => (
+              <li key={idx} className="line-clamp-2 leading-relaxed">
+                <span className="text-zinc-300">{fact}</span>
+              </li>
+            ))}
+          </ul>
+          {item.canonicalUrl && (
+            <div className="pt-1.5 border-t border-zinc-900 flex items-center justify-between text-[11px]">
+              <span className="text-zinc-500 truncate max-w-[180px]">{item.sourceTitle || item.sourceName}</span>
+              <a
+                href={item.canonicalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300 font-medium"
+              >
+                Source <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          )}
+        </div>
+
+        {/* Section 2: AI Assumptions & Validation */}
+        <div className="p-3.5 rounded-lg bg-teal-950/20 border border-teal-900/30 space-y-2.5">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-teal-300 uppercase tracking-wider">
+            <HelpCircle className="w-3.5 h-3.5 text-teal-400" />
+            <span>AI Assumptions (Uncorroborated)</span>
+          </div>
+
+          <div className="text-xs text-zinc-300 space-y-2">
+            <div>
+              <span className="text-zinc-500 font-medium">Plausible Buyer:</span>{" "}
+              <strong className="text-zinc-200">{item.plausibleBuyer}</strong>
+            </div>
+
+            {item.aiAssumptions && item.aiAssumptions.length > 0 && (
+              <div className="pt-1.5 border-t border-teal-900/40">
+                <span className="text-zinc-500 font-medium block mb-1">Assumptions:</span>
+                <ul className="text-[11px] text-zinc-400 space-y-1 list-disc list-inside">
+                  {item.aiAssumptions.map((asm, idx) => (
+                    <li key={idx} className="leading-relaxed">
+                      <span className="text-zinc-300">{asm}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {item.concreteValidationStep && (
+              <div className="pt-1.5 border-t border-teal-900/40">
+                <span className="text-zinc-500 font-medium block mb-0.5">Concrete Validation Step:</span>
+                <p className="text-[11px] text-teal-200/90 leading-relaxed italic">
+                  {item.concreteValidationStep}
                 </p>
               </div>
             )}

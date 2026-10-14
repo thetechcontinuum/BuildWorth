@@ -557,6 +557,7 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
         const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
         expect(feed.success).toBe(true);
         expect(feed.opportunityHypotheses).toHaveLength(0);
+        expect(feed.researchLeads).toHaveLength(0);
         expect(feed.marketSignals).toHaveLength(1);
         expect(feed.marketSignals[0].title).toContain("Rotex HPSU");
         expect(feed.marketSignals[0].label).toBe("Market signal — not a validated business opportunity");
@@ -572,6 +573,7 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
         const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
         expect(feed.success).toBe(true);
         expect(feed.opportunityHypotheses).toHaveLength(0);
+        expect(feed.researchLeads).toHaveLength(0);
         expect(feed.marketSignals).toHaveLength(1);
         expect(feed.marketSignals[0].title).toContain("LineEdit cannot accept Chinese IME input");
         expect(feed.marketSignals[0].label).toBe("Market signal — not a validated business opportunity");
@@ -801,6 +803,186 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
         expect(hyp.businessHypothesis.validationExperiment).toBeDefined();
         expect(hyp.businessHypothesis.purchaseIntentStatus).toBe("UNKNOWN");
       });
+    });
+  });
+
+  describe("Research Leads Quality & Gating Regression Suite", () => {
+    it("synthesizes a Research Lead from recent uncorroborated customer pain signal with observed facts separate from AI assumptions", async () => {
+      const mockLeadSignal = {
+        id: "ns-lead-1",
+        signalType: "PAIN_COMPLAINT",
+        purchaseIntent: false,
+        actorRole: "Platform Engineer",
+        sourceTitle: "Silent failure in AWS EKS ingress controller during pod rolling updates",
+        sanitizedExcerpt: "Our ALB ingress controller drops active WebSocket connections during pod rollouts without draining, forcing us to run custom draining scripts.",
+        problemSummary: "ALB ingress drops WebSocket connections during rollouts.",
+        canonicalUrl: "https://news.ycombinator.com/item?id=8831999",
+        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        rawSignal: {
+          id: "raw-lead-1",
+          title: "Silent failure in AWS EKS ingress controller during pod rolling updates",
+          sourceUrl: "https://news.ycombinator.com/item?id=8831999",
+          publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+          createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+          source: {
+            key: "hackernews",
+            name: "Hacker News",
+            sourceFamily: "COMMUNITY",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      const mockPrisma = {
+        opportunity: { findMany: async () => [] },
+        normalizedSignal: { findMany: async () => [mockLeadSignal] },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+      expect(feed.success).toBe(true);
+
+      // Must NOT be in opportunity hypotheses because it lacks multi-source corroboration or recurring proof
+      expect(feed.opportunityHypotheses).toHaveLength(0);
+
+      // Must be present in Research Leads
+      expect(feed.researchLeads).toHaveLength(1);
+      const lead = feed.researchLeads[0];
+      expect(lead.title).toContain("Silent failure in AWS EKS ingress controller");
+      expect(lead.canonicalUrl).toBe("https://news.ycombinator.com/item?id=8831999");
+      expect(lead.label).toBe("Research Lead — uncorroborated customer pain signal requiring validation");
+      expect(lead.status).toBe("RESEARCH_LEAD");
+
+      // Observed facts must be separate from AI assumptions
+      expect(lead.observedFacts).toHaveLength(1);
+      expect(lead.observedFacts[0]).toContain("drops active WebSocket connections");
+
+      expect(lead.aiAssumptions).toBeDefined();
+      expect(lead.aiAssumptions.length).toBeGreaterThan(0);
+      expect(lead.aiAssumptions[0]).toContain("Target practitioners experience");
+
+      // Must have plausible buyer and concrete validation step
+      expect(lead.plausibleBuyer).toBe("Platform Engineer");
+      expect(lead.concreteValidationStep).toBeDefined();
+    });
+
+    it("keeps isolated issues such as Rotex and Slint strictly as Market Signals without adding them to Research Leads", async () => {
+      const mockRotex = {
+        id: "ns-rotex-rl",
+        signalType: "PAIN",
+        purchaseIntent: false,
+        sourceTitle: "No valid decoding for Rotex HPSU bi-bloc 2010 RRLQ008BAV3",
+        sanitizedExcerpt: "No valid sensor decoding on a 2010-generation Rotex outdoor unit.",
+        canonicalUrl: "https://github.com/wrfz/esphome-components/issues/18",
+        rawSignal: {
+          id: "raw-rotex-rl",
+          title: "No valid decoding for Rotex HPSU bi-bloc 2010 RRLQ008BAV3",
+          sourceUrl: "https://github.com/wrfz/esphome-components/issues/18",
+          publishedAt: new Date("2026-09-11T08:38:22Z"), // 33 days old (> 14 days)
+          createdAt: new Date("2026-10-13T18:06:00Z"),
+          source: {
+            key: "github",
+            name: "GitHub Issues & Discussions",
+            sourceFamily: "DEVELOPER_ECOSYSTEM",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      const mockSlint = {
+        id: "ns-slint-rl",
+        signalType: "PAIN",
+        purchaseIntent: false,
+        sourceTitle: "LineEdit cannot accept Chinese IME input on iOS device",
+        sanitizedExcerpt: "On iOS device, LineEdit component cannot accept Chinese IME input.",
+        canonicalUrl: "https://github.com/slint-ui/slint/issues/14032",
+        rawSignal: {
+          id: "raw-slint-rl",
+          title: "LineEdit cannot accept Chinese IME input on iOS device",
+          sourceUrl: "https://github.com/slint-ui/slint/issues/14032",
+          publishedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // recent, but isolated GitHub bug
+          createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+          source: {
+            key: "github",
+            name: "GitHub Issues & Discussions",
+            sourceFamily: "DEVELOPER_ECOSYSTEM",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      const mockPrisma = {
+        opportunity: { findMany: async () => [] },
+        normalizedSignal: { findMany: async () => [mockRotex, mockSlint] },
+        rawSignal: { findMany: async () => [mockRotex.rawSignal, mockSlint.rawSignal] },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+      expect(feed.success).toBe(true);
+
+      // Rotex and Slint must NOT qualify as Opportunity Hypotheses
+      expect(feed.opportunityHypotheses).toHaveLength(0);
+
+      // Rotex and Slint must NOT qualify as Research Leads
+      expect(feed.researchLeads).toHaveLength(0);
+
+      // Must remain in Market Signals with authentic disclaimer
+      expect(feed.marketSignals).toHaveLength(2);
+      expect(feed.marketSignals.every((s) => s.label === "Market signal — not a validated business opportunity")).toBe(true);
+    });
+
+    it("excludes research papers (arXiv) and generic announcements from Research Leads", async () => {
+      const mockArxiv = {
+        id: "ns-arxiv-rl",
+        signalType: "MARKET_ACTIVITY",
+        purchaseIntent: false,
+        sourceTitle: "Vaporware as a Means of Entry Deterrence in Software Markets",
+        sanitizedExcerpt: "Academic literature review and game-theoretic preprint.",
+        canonicalUrl: "https://arxiv.org/abs/2610.9999",
+        rawSignal: {
+          id: "raw-arxiv-rl",
+          title: "Vaporware as a Means of Entry Deterrence in Software Markets",
+          sourceUrl: "https://arxiv.org/abs/2610.9999",
+          publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+          createdAt: new Date(),
+          source: {
+            key: "arxiv",
+            name: "arXiv Research Preprints",
+            sourceFamily: "DISCOVERY",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      const mockPrisma = {
+        opportunity: { findMany: async () => [] },
+        normalizedSignal: { findMany: async () => [mockArxiv] },
+        rawSignal: { findMany: async () => [mockArxiv.rawSignal] },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+      expect(feed.success).toBe(true);
+      expect(feed.opportunityHypotheses).toHaveLength(0);
+      expect(feed.researchLeads).toHaveLength(0);
+      expect(feed.marketSignals).toHaveLength(1);
+    });
+
+    it("honestly reports zero hypotheses and zero research leads when verified opportunities are scarce and no qualifying signals exist", async () => {
+      const mockPrisma = {
+        opportunity: { findMany: async () => [] },
+        normalizedSignal: { findMany: async () => [] },
+        rawSignal: { findMany: async () => [] },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+      expect(feed.success).toBe(true);
+      expect(feed.opportunityHypotheses).toHaveLength(0);
+      expect(feed.researchLeads).toHaveLength(0);
+      expect(feed.marketSignals).toHaveLength(0);
+      expect(feed.totalCount).toBe(0);
     });
   });
 
