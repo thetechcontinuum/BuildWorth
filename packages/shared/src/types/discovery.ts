@@ -35,6 +35,27 @@ export interface DiscoveryFeedItemDTO {
   status: "DRAFT" | "HYPOTHESIS";
 }
 
+export interface ResearchLeadFeedItemDTO {
+  id: string;
+  slug?: string;
+  title: string;
+  summary: string;
+  canonicalUrl: string;
+  sourceTitle: string;
+  sourceFamily: string;
+  sourceName: string;
+  publishedAt: string;
+  discoveredAt: string;
+  market: string;
+  label: "Research Lead — uncorroborated customer pain signal requiring validation";
+  observedFacts: string[];
+  aiAssumptions: string[];
+  plausibleBuyer: string;
+  concreteValidationStep: string;
+  problemSummary?: string;
+  status: "RESEARCH_LEAD";
+}
+
 export interface MarketSignalFeedItemDTO {
   id: string;
   sourceKey: string;
@@ -55,6 +76,7 @@ export interface DiscoveryFeedResponseDTO {
   asOf: string;
   hasItemsToday: boolean;
   marketSignals: MarketSignalFeedItemDTO[];
+  researchLeads: ResearchLeadFeedItemDTO[];
   opportunityHypotheses: DiscoveryFeedItemDTO[];
   items: DiscoveryFeedItemDTO[]; // Preserved for backwards compatibility
 }

@@ -1,4 +1,9 @@
-import { DiscoveryFeedItemDTO, DiscoveryFeedResponseDTO, MarketSignalFeedItemDTO } from "@buildworth/shared";
+import {
+  DiscoveryFeedItemDTO,
+  DiscoveryFeedResponseDTO,
+  MarketSignalFeedItemDTO,
+  ResearchLeadFeedItemDTO,
+} from "@buildworth/shared";
 import { logger } from "@buildworth/observability";
 
 export interface GetDiscoveryFeedOptions {
@@ -6,6 +11,7 @@ export interface GetDiscoveryFeedOptions {
   market?: string;
   maxItemsPerSource?: number;
   signalsLimit?: number;
+  researchLeadsLimit?: number;
 }
 
 /**
@@ -330,8 +336,11 @@ export async function getDailyDiscoveryFeed(
 
     const seenUrls = new Set<string>();
     const seenTitles = new Set<string>();
+    const leadSeenUrls = new Set<string>();
     const sourceCounts = new Map<string, number>();
     const opportunityHypotheses: DiscoveryFeedItemDTO[] = [];
+    const researchLeads: ResearchLeadFeedItemDTO[] = [];
+    const researchLeadsLimit = options.researchLeadsLimit ?? 6;
 
     for (const opp of candidates) {
       if (opportunityHypotheses.length >= limit) break;
@@ -536,10 +545,9 @@ export async function getDailyDiscoveryFeed(
       });
     }
 
-    // 1b. If no candidate opportunity rows exist in database (cold start or fresh database),
-    // synthesize grounded HYPOTHESIS items directly from recent authentic NormalizedSignals
-    // that have genuine customer problem, workaround, or purchase intent evidence.
-    if (opportunityHypotheses.length < limit && prisma.normalizedSignal?.findMany) {
+    // 1b. If no candidate opportunity rows exist in database or we have capacity for research leads,
+    // evaluate unclustered signals directly from recent authentic NormalizedSignals.
+    if ((opportunityHypotheses.length < limit || researchLeads.length < researchLeadsLimit) && prisma.normalizedSignal?.findMany) {
       const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
       const unclusteredSignals = await prisma.normalizedSignal.findMany({
         where: {
@@ -567,7 +575,7 @@ export async function getDailyDiscoveryFeed(
       }).catch(() => []);
 
       for (const ns of unclusteredSignals) {
-        if (opportunityHypotheses.length >= limit) break;
+        if (opportunityHypotheses.length >= limit && researchLeads.length >= researchLeadsLimit) break;
         const raw = ns.rawSignal;
         const src = raw?.source;
         if (!raw || !src) continue;
@@ -607,7 +615,7 @@ export async function getDailyDiscoveryFeed(
         const urlKey = canonical ? canonical.toLowerCase().trim() : "";
         const titleKey = (raw.title || ns.sourceTitle || "").toLowerCase().trim();
 
-        if (urlKey && seenUrls.has(urlKey)) continue;
+        if (urlKey && (seenUrls.has(urlKey) || leadSeenUrls.has(urlKey))) continue;
         if (titleKey && seenTitles.has(titleKey)) continue;
 
         const effectiveSourceKey = src.key || "unknown";
@@ -619,26 +627,10 @@ export async function getDailyDiscoveryFeed(
         const fullProblemText = `${cleanTitle} ${ns.problemSummary || ""} ${ns.sanitizedExcerpt || ""}`;
         const targetAudience = deriveSpecificAudience(fullProblemText, ns.actorRole);
 
-        // A hypothesis requires an identifiable buyer (no generic early adopters or unknown placeholders)
+        // An identifiable buyer is required (no generic early adopters or unknown placeholders)
         if (!targetAudience || targetAudience.startsWith("Unknown") || /Early Adopter Teams/i.test(targetAudience)) {
           continue;
         }
-
-        // 3. Evidence of recurring customer problem, expensive workaround, or explicit purchase intent
-        const hasExplicitPurchaseIntent =
-          ns.purchaseIntent === true ||
-          ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((ns.signalType || "").toUpperCase());
-
-        const hasRecurringProblemEvidence =
-          /\b(recurring|recurs|constant(ly)?|every (day|week|month|hour)|daily|repeatedly|ongoing|workaround|hacky workaround|manual fix|costs? \$|\$([0-9,]+)\/(mo|month|yr|year)|bill spike|idle spend)\b/i.test(fullProblemText);
-
-        if (!hasExplicitPurchaseIntent && !hasRecurringProblemEvidence) {
-          continue;
-        }
-
-        if (urlKey) seenUrls.add(urlKey);
-        if (titleKey) seenTitles.add(titleKey);
-        sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
 
         const obsDateIso = obsDate instanceof Date ? obsDate.toISOString() : new Date(obsDate).toISOString();
 
@@ -656,41 +648,84 @@ export async function getDailyDiscoveryFeed(
         const proposedSolution = derivePlausibleProductDirection(cleanTitle, targetAudience);
         const validationExperiment = deriveSpecificValidationExperiment(fullProblemText, targetAudience);
 
-        const businessHypothesis = {
-          targetAudience,
-          proposedSolution,
-          painFriction,
-          assumptions: [
-            `Target practitioners experience operational friction or failure under current manual workflows`,
-            `Breakdown recurs frequently enough in production to justify a dedicated tooling solution`,
-          ],
-          validationExperiment,
-          purchaseIntentStatus: (hasExplicitPurchaseIntent ? "CONFIRMED" : "UNKNOWN") as "CONFIRMED" | "UNKNOWN",
-          confidenceNote: "Initial market hypothesis derived from public signals. Not yet validated via formal customer interviews or WTP proof.",
-        };
+        // 3. Evidence of recurring customer problem, expensive workaround, or explicit purchase intent
+        const hasExplicitPurchaseIntent =
+          ns.purchaseIntent === true ||
+          ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((ns.signalType || "").toUpperCase());
+
+        const hasRecurringProblemEvidence =
+          /\b(recurring|recurs|constant(ly)?|every (day|week|month|hour)|daily|repeatedly|ongoing|workaround|hacky workaround|manual fix|costs? \$|\$([0-9,]+)\/(mo|month|yr|year)|bill spike|idle spend)\b/i.test(fullProblemText);
 
         const market = deriveMarketRegion(src.key, src.sourceFamily);
         const pubDate = raw.publishedAt ? new Date(raw.publishedAt).toISOString() : new Date(raw.createdAt).toISOString();
-        const safeSlug = (cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50) || "hypothesis") + "-" + ns.id.slice(0, 8);
+        const safeSlug = (cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50) || "lead") + "-" + ns.id.slice(0, 8);
 
-        opportunityHypotheses.push({
-          id: "hypo-" + ns.id,
-          slug: safeSlug,
-          title: cleanTitle,
-          summary: `Hypothesis exploring practical workflow solution for ${cleanTitle.toLowerCase()}.`,
-          observedFacts: [observation.excerpt],
-          evidenceObservations: [observation],
-          businessHypothesis,
-          publicationDate: pubDate,
-          discoveredAt: (raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt)).toISOString(),
-          market,
-          canonicalUrl: canonical || `https://buildworth.app/signals/${ns.id}`,
-          sourceTitle: observation.sourceTitle,
-          sourceFamily: observation.sourceFamily,
-          verificationLabel: "Early idea / Not yet verified",
-          signalCount: 1,
-          status: "HYPOTHESIS",
-        });
+        if ((hasExplicitPurchaseIntent || hasRecurringProblemEvidence) && opportunityHypotheses.length < limit) {
+          if (urlKey) seenUrls.add(urlKey);
+          if (titleKey) seenTitles.add(titleKey);
+          sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
+
+          const businessHypothesis = {
+            targetAudience,
+            proposedSolution,
+            painFriction,
+            assumptions: [
+              `Target practitioners experience operational friction or failure under current manual workflows`,
+              `Breakdown recurs frequently enough in production to justify a dedicated tooling solution`,
+            ],
+            validationExperiment,
+            purchaseIntentStatus: (hasExplicitPurchaseIntent ? "CONFIRMED" : "UNKNOWN") as "CONFIRMED" | "UNKNOWN",
+            confidenceNote: "Initial market hypothesis derived from public signals. Not yet validated via formal customer interviews or WTP proof.",
+          };
+
+          opportunityHypotheses.push({
+            id: "hypo-" + ns.id,
+            slug: safeSlug,
+            title: cleanTitle,
+            summary: `Hypothesis exploring practical workflow solution for ${cleanTitle.toLowerCase()}.`,
+            observedFacts: [observation.excerpt],
+            evidenceObservations: [observation],
+            businessHypothesis,
+            publicationDate: pubDate,
+            discoveredAt: (raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt)).toISOString(),
+            market,
+            canonicalUrl: canonical || `https://buildworth.app/signals/${ns.id}`,
+            sourceTitle: observation.sourceTitle,
+            sourceFamily: observation.sourceFamily,
+            verificationLabel: "Early idea / Not yet verified",
+            signalCount: 1,
+            status: "HYPOTHESIS",
+          });
+        } else if (researchLeads.length < researchLeadsLimit) {
+          if (urlKey) leadSeenUrls.add(urlKey);
+          if (titleKey) seenTitles.add(titleKey);
+          sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
+
+          researchLeads.push({
+            id: "lead-" + ns.id,
+            slug: safeSlug,
+            title: cleanTitle,
+            summary: `Research lead investigating operational friction in ${cleanTitle.toLowerCase()}.`,
+            canonicalUrl: canonical || `https://buildworth.app/signals/${ns.id}`,
+            sourceTitle: observation.sourceTitle,
+            sourceFamily: observation.sourceFamily,
+            sourceName: observation.sourceName,
+            publishedAt: obsDateIso,
+            discoveredAt: (raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt)).toISOString(),
+            market,
+            label: "Research Lead — uncorroborated customer pain signal requiring validation",
+            observedFacts: [observation.excerpt],
+            aiAssumptions: [
+              "Target practitioners experience manual friction or operational overhead under current workflows",
+              "Friction may recur across similar engineering setups but currently lacks multi-source corroboration",
+              "Practitioners may prioritize a dedicated solution, but commercial willingness-to-pay remains unverified",
+            ],
+            plausibleBuyer: targetAudience,
+            concreteValidationStep: validationExperiment,
+            problemSummary: painFriction,
+            status: "RESEARCH_LEAD",
+          });
+        }
       }
     }
 
@@ -791,14 +826,16 @@ export async function getDailyDiscoveryFeed(
 
     const hasItemsToday =
       opportunityHypotheses.some((item) => new Date(item.discoveredAt) >= todayStart) ||
+      researchLeads.some((lead) => new Date(lead.discoveredAt) >= todayStart) ||
       marketSignals.some((sig) => new Date(sig.discoveredAt) >= todayStart);
 
     return {
       success: true,
-      totalCount: opportunityHypotheses.length + marketSignals.length,
+      totalCount: opportunityHypotheses.length + researchLeads.length + marketSignals.length,
       asOf: new Date().toISOString(),
       hasItemsToday,
       marketSignals,
+      researchLeads,
       opportunityHypotheses,
       items: opportunityHypotheses, // backwards compatibility
     };
@@ -810,6 +847,7 @@ export async function getDailyDiscoveryFeed(
       asOf: new Date().toISOString(),
       hasItemsToday: false,
       marketSignals: [],
+      researchLeads: [],
       opportunityHypotheses: [],
       items: [],
     };

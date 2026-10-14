@@ -11,8 +11,10 @@ export async function GET(request: NextRequest) {
     const limit = limitParam ? parseInt(limitParam, 10) : 5;
     const signalsLimitParam = searchParams.get("signalsLimit");
     const signalsLimit = signalsLimitParam ? parseInt(signalsLimitParam, 10) : 10;
+    const leadsLimitParam = searchParams.get("leadsLimit") || searchParams.get("researchLeadsLimit");
+    const researchLeadsLimit = leadsLimitParam ? parseInt(leadsLimitParam, 10) : 6;
 
-    const feed = await getDailyDiscoveryFeed(prisma, { limit, signalsLimit });
+    const feed = await getDailyDiscoveryFeed(prisma, { limit, signalsLimit, researchLeadsLimit });
 
     return NextResponse.json(feed, {
       status: 200,
@@ -27,6 +29,9 @@ export async function GET(request: NextRequest) {
         totalCount: 0,
         asOf: new Date().toISOString(),
         hasItemsToday: false,
+        marketSignals: [],
+        researchLeads: [],
+        opportunityHypotheses: [],
         items: [],
         error: "INTERNAL_FEED_ERROR",
       },
