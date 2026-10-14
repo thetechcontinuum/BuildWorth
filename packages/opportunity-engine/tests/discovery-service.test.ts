@@ -20,9 +20,9 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
   });
 
   it("builds discovery feed strictly filtering out Pro fields and enforcing DTO allowlist", async () => {
-    const mockSignalCreatedAt = new Date("2026-09-20T10:00:00Z");
-    const mockSignalPublishedAt = new Date("2026-09-19T08:00:00Z");
-    const mockOppCreatedAt = new Date("2026-09-21T09:00:00Z");
+    const mockSignalCreatedAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const mockSignalPublishedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const mockOppCreatedAt = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000);
 
     const mockCandidate = {
       id: "opp-123",

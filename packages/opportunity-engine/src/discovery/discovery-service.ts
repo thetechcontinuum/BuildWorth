@@ -409,6 +409,35 @@ export async function getDailyDiscoveryFeed(
         continue;
       }
 
+      // A hypothesis must be based on a recent signal (published within 14 days)
+      const now = Date.now();
+      const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+      const effectivePubDate = primaryPublishedAt || opp.createdAt;
+      const pubTime = effectivePubDate instanceof Date ? effectivePubDate.getTime() : new Date(effectivePubDate).getTime();
+      if (now - pubTime > FOURTEEN_DAYS_MS) {
+        continue;
+      }
+
+      // A single GitHub issue is only a Market Signal unless independent evidence confirms the broader need
+      const isGitHubEvidence =
+        primaryCanonicalUrl.toLowerCase().includes("github.com") ||
+        primarySourceKey === "github" ||
+        primarySourceFamily === "DEVELOPER_ECOSYSTEM";
+
+      if (isGitHubEvidence) {
+        const distinctSources = new Set(
+          observations.map((o) => {
+            const url = (o.canonicalUrl || "").toLowerCase();
+            const match = url.match(/github\.com\/([^/]+\/[^/]+)/);
+            return match ? match[1] : o.sourceName || o.sourceFamily;
+          })
+        );
+        const hasIndependentCorroboration = observations.length >= 2 && distinctSources.size >= 2;
+        if (!hasIndependentCorroboration) {
+          continue;
+        }
+      }
+
       // Enforce public feed primary source limits to ensure diversity
       const effectiveSourceKey = primarySourceKey || "unknown";
       const currentSourceCount = sourceCounts.get(effectiveSourceKey) || 0;
@@ -511,7 +540,7 @@ export async function getDailyDiscoveryFeed(
     // synthesize grounded HYPOTHESIS items directly from recent authentic NormalizedSignals
     // that have genuine customer problem, workaround, or purchase intent evidence.
     if (opportunityHypotheses.length < limit && prisma.normalizedSignal?.findMany) {
-      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
       const unclusteredSignals = await prisma.normalizedSignal.findMany({
         where: {
           verificationStatus: { not: "REJECTED" },
@@ -521,8 +550,8 @@ export async function getDailyDiscoveryFeed(
               policyStatus: { not: "BLOCKED" },
             },
             OR: [
-              { publishedAt: null },
-              { publishedAt: { gte: ninetyDaysAgo } },
+              { publishedAt: null, createdAt: { gte: fourteenDaysAgo } },
+              { publishedAt: { gte: fourteenDaysAgo } },
             ],
           },
         },
@@ -543,20 +572,38 @@ export async function getDailyDiscoveryFeed(
         const src = raw?.source;
         if (!raw || !src) continue;
 
+        // 1. Recency requirement: signal must be published within 14 days
+        const obsDate = raw.publishedAt || ns.publishedAt || raw.createdAt;
+        const obsTime = obsDate instanceof Date ? obsDate.getTime() : new Date(obsDate).getTime();
+        const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+        if (Date.now() - obsTime > FOURTEEN_DAYS_MS) {
+          continue;
+        }
+
+        // 2. A single GitHub issue is only a Market Signal unless independent evidence confirms the broader need
+        const canonical = ns.canonicalUrl || raw.sourceUrl || "";
+        const isGitHub =
+          src.key === "github" ||
+          canonical.toLowerCase().includes("github.com") ||
+          src.sourceFamily === "DEVELOPER_ECOSYSTEM";
+
+        if (isGitHub) {
+          continue;
+        }
+
         // Strictly verify that this signal contains authentic problem / workaround / unmet need evidence
         const isActionable = isConcreteProblemOrWorkaround({
           title: raw.title || ns.sourceTitle,
           sanitizedExcerpt: ns.sanitizedExcerpt,
           problemSummary: ns.problemSummary,
           signalType: ns.signalType,
-          canonicalUrl: ns.canonicalUrl || raw.sourceUrl,
+          canonicalUrl: canonical,
           sourceKey: src.key,
           sourceFamily: src.sourceFamily,
         });
 
         if (!isActionable) continue;
 
-        const canonical = ns.canonicalUrl || raw.sourceUrl;
         const urlKey = canonical ? canonical.toLowerCase().trim() : "";
         const titleKey = (raw.title || ns.sourceTitle || "").toLowerCase().trim();
 
@@ -567,11 +614,32 @@ export async function getDailyDiscoveryFeed(
         const currentSourceCount = sourceCounts.get(effectiveSourceKey) || 0;
         if (currentSourceCount >= maxItemsPerSource) continue;
 
+        const title = raw.title || ns.sourceTitle || "Unmet Need Identified in Market Discussion";
+        const cleanTitle = title.replace(/\s+/g, " ").trim();
+        const fullProblemText = `${cleanTitle} ${ns.problemSummary || ""} ${ns.sanitizedExcerpt || ""}`;
+        const targetAudience = deriveSpecificAudience(fullProblemText, ns.actorRole);
+
+        // A hypothesis requires an identifiable buyer (no generic early adopters or unknown placeholders)
+        if (!targetAudience || targetAudience.startsWith("Unknown") || /Early Adopter Teams/i.test(targetAudience)) {
+          continue;
+        }
+
+        // 3. Evidence of recurring customer problem, expensive workaround, or explicit purchase intent
+        const hasExplicitPurchaseIntent =
+          ns.purchaseIntent === true ||
+          ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((ns.signalType || "").toUpperCase());
+
+        const hasRecurringProblemEvidence =
+          /\b(recurring|recurs|constant(ly)?|every (day|week|month|hour)|daily|repeatedly|ongoing|workaround|hacky workaround|manual fix|costs? \$|\$([0-9,]+)\/(mo|month|yr|year)|bill spike|idle spend)\b/i.test(fullProblemText);
+
+        if (!hasExplicitPurchaseIntent && !hasRecurringProblemEvidence) {
+          continue;
+        }
+
         if (urlKey) seenUrls.add(urlKey);
         if (titleKey) seenTitles.add(titleKey);
         sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
 
-        const obsDate = raw.publishedAt || ns.publishedAt || raw.createdAt || new Date();
         const obsDateIso = obsDate instanceof Date ? obsDate.toISOString() : new Date(obsDate).toISOString();
 
         const observation = {
@@ -584,19 +652,8 @@ export async function getDailyDiscoveryFeed(
           publishedAt: obsDateIso,
         };
 
-        const title = raw.title || ns.sourceTitle || "Unmet Need Identified in Market Discussion";
-        const cleanTitle = title.replace(/\s+/g, " ").trim();
-        const fullProblemText = `${cleanTitle} ${ns.problemSummary || ""} ${ns.sanitizedExcerpt || ""}`;
-        const targetAudience = deriveSpecificAudience(fullProblemText, ns.actorRole);
-
-        // A hypothesis requires an identifiable buyer (no generic early adopters or unknown placeholders)
-        if (!targetAudience || targetAudience.startsWith("Unknown") || /Early Adopter Teams/i.test(targetAudience)) {
-          continue;
-        }
-
         const painFriction = ns.problemSummary || ns.sanitizedExcerpt || cleanTitle;
         const proposedSolution = derivePlausibleProductDirection(cleanTitle, targetAudience);
-        const hasExplicitPurchaseIntent = ns.purchaseIntent === true || ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((ns.signalType || "").toUpperCase());
         const validationExperiment = deriveSpecificValidationExperiment(fullProblemText, targetAudience);
 
         const businessHypothesis = {
