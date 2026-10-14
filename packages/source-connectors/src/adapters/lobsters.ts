@@ -115,7 +115,8 @@ export class LobstersAdapter extends BaseSourceAdapter {
             ? this.sanitizeXmlText(commentsMatch[1] || "").trim()
             : externalArticleUrl;
 
-        const rawDesc = descMatch ? this.sanitizeXmlText(descMatch[1] || "") : rawTitle;
+        const descChunk = descMatch ? this.sanitizeXmlText(descMatch[1] || "").trim() : "";
+        const rawDesc = descChunk || rawTitle;
         const pubDate = pubDateMatch ? new Date(this.sanitizeXmlText(pubDateMatch[1] || "")) : new Date();
         const author = authorMatch ? this.sanitizeXmlText(authorMatch[1] || "") : "Lobsters Community";
 

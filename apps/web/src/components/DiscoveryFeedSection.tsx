@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Sparkles,
   ExternalLink,
@@ -16,12 +17,19 @@ import {
   RotateCw,
   FlaskConical,
   HelpCircle,
+  Bookmark,
+  BookmarkCheck,
+  TrendingUp,
+  Layers,
+  ShieldCheck,
+  Zap,
 } from "lucide-react";
 import {
   DiscoveryFeedItemDTO,
   MarketSignalFeedItemDTO,
   ResearchLeadFeedItemDTO,
   DiscoveryFeedResponseDTO,
+  DailyThemeBriefDTO,
 } from "@buildworth/shared";
 
 export function DiscoveryFeedSection() {
@@ -29,6 +37,40 @@ export function DiscoveryFeedSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"signals" | "leads" | "hypotheses">("signals");
+  const [selectedThemeIndex, setSelectedThemeIndex] = useState(0);
+  const [savedItems, setSavedItems] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("buildworth_saved_items");
+      if (stored) {
+        setSavedItems(new Set(JSON.parse(stored)));
+      }
+    } catch {}
+  }, []);
+
+  const handleToggleSave = async (id: string) => {
+    setSavedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      try {
+        localStorage.setItem("buildworth_saved_items", JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+
+    try {
+      await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityId: id }),
+      });
+    } catch {}
+  };
 
   const loadFeed = async () => {
     setLoading(true);
@@ -58,21 +100,124 @@ export function DiscoveryFeedSection() {
   const marketSignals = data?.marketSignals || [];
   const researchLeads = data?.researchLeads || [];
   const hypotheses = data?.opportunityHypotheses || data?.items || [];
+  const dailyBrief = data?.dailyBrief;
+  const themes = dailyBrief?.themes || [];
+  const currentTheme: DailyThemeBriefDTO | undefined = themes[selectedThemeIndex] || themes[0];
   const hasItemsToday = data?.hasItemsToday ?? false;
 
   return (
-    <section className="space-y-6 pt-4">
-      {/* Header */}
+    <section className="space-y-8 pt-4">
+      {/* 1. Personalized Daily Brief & Tracked Themes */}
+      {dailyBrief && (
+        <div className="p-6 rounded-2xl bg-gradient-to-br from-zinc-900/90 via-zinc-900/60 to-zinc-950 border border-zinc-800 shadow-xl space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                <Sparkles className="w-5 h-5 text-indigo-400" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-white tracking-tight">Personalized Daily Brief</h3>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-400 border border-zinc-700/60">
+                    {dailyBrief.date}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mt-0.5">{dailyBrief.summary}</p>
+              </div>
+            </div>
+
+            <Link
+              href="/watchlist"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition-colors self-start sm:self-auto border border-zinc-700/60"
+            >
+              <Bookmark className="w-3.5 h-3.5 text-indigo-400" />
+              <span>My Watchlist & Alerts</span>
+            </Link>
+          </div>
+
+          {/* Tracked Theme Selection Tabs */}
+          {themes.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                {themes.map((t, idx) => (
+                  <button
+                    key={t.theme}
+                    onClick={() => setSelectedThemeIndex(idx)}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap border ${
+                      selectedThemeIndex === idx
+                        ? "bg-indigo-600/20 text-indigo-300 border-indigo-500/40 shadow-sm shadow-indigo-500/10"
+                        : "bg-zinc-900/60 text-zinc-400 hover:text-zinc-200 border-zinc-800/80 hover:border-zinc-700"
+                    }`}
+                  >
+                    <span>{t.theme}</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                        selectedThemeIndex === idx
+                          ? "bg-indigo-500/30 text-indigo-200"
+                          : "bg-zinc-800 text-zinc-400"
+                      }`}
+                    >
+                      {t.signalsCount + t.leadsCount + t.corroboratedCount}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Theme Intelligence Card */}
+              {currentTheme && (
+                <div className="p-4 rounded-xl bg-zinc-950/60 border border-zinc-800/90 grid grid-cols-1 lg:grid-cols-3 gap-4 items-center">
+                  <div className="lg:col-span-2 space-y-2">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="font-semibold text-white">{currentTheme.theme}</span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
+                        <TrendingUp className="w-3 h-3 text-emerald-400" />
+                        {currentTheme.momentum}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-zinc-300">
+                      <span className="text-zinc-500 font-medium">Top Observed Friction:</span>{" "}
+                      <span className="text-zinc-200 font-medium">{currentTheme.topPainHeadline}</span>
+                    </div>
+
+                    <div className="text-xs text-indigo-300/90 leading-relaxed italic">
+                      <span className="text-zinc-500 font-medium not-italic">Suggested Next Step:</span>{" "}
+                      {currentTheme.suggestedValidationAction}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between lg:justify-end gap-3 pt-2 lg:pt-0 border-t lg:border-t-0 border-zinc-800/60 text-center">
+                    <div className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Signals</div>
+                      <div className="text-sm font-bold text-amber-400 font-mono">{currentTheme.signalsCount}</div>
+                    </div>
+                    <div className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Leads</div>
+                      <div className="text-sm font-bold text-teal-400 font-mono">{currentTheme.leadsCount}</div>
+                    </div>
+                    <div className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Corroborated</div>
+                      <div className="text-sm font-bold text-indigo-400 font-mono">{currentTheme.corroboratedCount}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. Header & Feed Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="p-1 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              <Sparkles className="w-4 h-4" />
+              <Layers className="w-4 h-4" />
             </span>
             <h2 className="text-xl font-bold text-white tracking-tight">Market Opportunity Feed</h2>
           </div>
           <p className="text-sm text-zinc-400 mt-1">
-            Real-time market signals from independent sources, early research leads, and opportunity hypotheses.
+            Three distinct levels: raw market signals, uncorroborated research leads, and multi-source opportunities.
           </p>
         </div>
 
@@ -86,7 +231,7 @@ export function DiscoveryFeedSection() {
         </div>
       </div>
 
-      {/* Section Tabs */}
+      {/* 3. Three Distinct Level Tabs */}
       <div className="flex items-center gap-2 border-b border-zinc-800 overflow-x-auto">
         <button
           onClick={() => setActiveTab("signals")}
@@ -97,7 +242,7 @@ export function DiscoveryFeedSection() {
           }`}
         >
           <Radio className="w-4 h-4 text-amber-400" />
-          <span>New Market Signals</span>
+          <span>Level 1: Market Signals</span>
           <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-zinc-800 text-zinc-300 font-mono">
             {marketSignals.length}
           </span>
@@ -112,7 +257,7 @@ export function DiscoveryFeedSection() {
           }`}
         >
           <FlaskConical className="w-4 h-4 text-teal-400" />
-          <span>Research Leads</span>
+          <span>Level 2: Research Leads</span>
           <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-zinc-800 text-zinc-300 font-mono">
             {researchLeads.length}
           </span>
@@ -127,14 +272,14 @@ export function DiscoveryFeedSection() {
           }`}
         >
           <Compass className="w-4 h-4 text-indigo-400" />
-          <span>Opportunity Hypotheses</span>
+          <span>Level 3: Corroborated Opportunities</span>
           <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-zinc-800 text-zinc-300 font-mono">
             {hypotheses.length}
           </span>
         </button>
       </div>
 
-      {/* Tab Content */}
+      {/* 4. Tab Content */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map((idx) => (
@@ -180,7 +325,12 @@ export function DiscoveryFeedSection() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {marketSignals.map((sig) => (
-              <MarketSignalCard key={sig.id} signal={sig} />
+              <MarketSignalCard
+                key={sig.id}
+                signal={sig}
+                isSaved={savedItems.has(sig.id)}
+                onToggleSave={() => handleToggleSave(sig.id)}
+              />
             ))}
           </div>
         )
@@ -199,35 +349,92 @@ export function DiscoveryFeedSection() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {researchLeads.map((lead) => (
-              <ResearchLeadCard key={lead.id} item={lead} />
+              <ResearchLeadCard
+                key={lead.id}
+                item={lead}
+                isSaved={savedItems.has(lead.id)}
+                onToggleSave={() => handleToggleSave(lead.id)}
+              />
             ))}
           </div>
         )
       ) : (
-        /* Section 3: Opportunity Hypotheses */
+        /* Section 3: Corroborated Opportunities */
         hypotheses.length === 0 ? (
           <div className="p-8 rounded-xl bg-zinc-900/40 border border-zinc-800 text-center space-y-3">
             <div className="inline-flex p-3 rounded-full bg-zinc-800/50 text-zinc-400 mb-1">
               <AlertCircle className="w-6 h-6" />
             </div>
-            <h3 className="text-base font-semibold text-white">No Opportunity Hypotheses Synthesized Yet Today</h3>
+            <h3 className="text-base font-semibold text-white">No Corroborated Opportunities Synthesized Yet Today</h3>
             <p className="text-sm text-zinc-400 max-w-md mx-auto">
-              Opportunity hypotheses require strong empirical evidence clusters from independent sources before synthesis under Policy v2.0.0. Hypotheses remain unverified until corroborating evidence is established.
+              Opportunity hypotheses require strong empirical evidence clusters from independent sources before synthesis under Policy v2.0.0. Hypotheses remain unverified until multi-source corroborating evidence is established.
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {hypotheses.map((item) => (
-              <HypothesisCard key={item.id || item.slug} item={item} />
+              <HypothesisCard
+                key={item.id || item.slug}
+                item={item}
+                isSaved={savedItems.has(item.id)}
+                onToggleSave={() => handleToggleSave(item.id)}
+              />
             ))}
           </div>
         )
       )}
+
+      {/* 5. Clear Free vs. Pro Value & Billing Transparency */}
+      <div className="mt-12 p-6 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+        <div className="md:col-span-2 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="p-1 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <ShieldCheck className="w-4 h-4 text-indigo-400" />
+            </span>
+            <h4 className="text-sm font-bold text-white">Membership Value & Tier Clarity</h4>
+          </div>
+          <p className="text-xs text-zinc-400 leading-relaxed">
+            <strong>Free Membership:</strong> Daily public feed of market signals, top 3 research leads preview, 1 tracked theme, and daily web briefings.
+          </p>
+          <p className="text-xs text-zinc-400 leading-relaxed">
+            <strong>Pro Membership ($29/mo or $290/yr):</strong> Unlimited research leads, full validated opportunity blueprints (unit economics, 6-week MVP build scopes, customer interview scripts), unlimited theme tracking, real-time alert notifications on corroborating signals, and CSV/JSON export.
+          </p>
+          <div className="pt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
+            <span>Stripe Billing Status: Test Mode configured (never claims live payment processing unless verified).</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row md:flex-col gap-2 justify-center">
+          <Link
+            href="/pricing"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 transition-all text-center"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            <span>View Pro Membership</span>
+          </Link>
+          <Link
+            href="/watchlist"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 border border-zinc-700/60 transition-all text-center"
+          >
+            <Bookmark className="w-3.5 h-3.5" />
+            <span>Configure Alerts</span>
+          </Link>
+        </div>
+      </div>
     </section>
   );
 }
 
-function MarketSignalCard({ signal }: { signal: MarketSignalFeedItemDTO }) {
+function MarketSignalCard({
+  signal,
+  isSaved,
+  onToggleSave,
+}: {
+  signal: MarketSignalFeedItemDTO;
+  isSaved: boolean;
+  onToggleSave: () => void;
+}) {
   const pubDateFormatted = signal.publishedAt
     ? new Date(signal.publishedAt).toLocaleDateString("en-US", {
         month: "short",
@@ -261,35 +468,57 @@ function MarketSignalCard({ signal }: { signal: MarketSignalFeedItemDTO }) {
         </p>
 
         {/* Mandatory Label */}
-        <div className="pt-2">
+        <div className="pt-2 flex items-center justify-between gap-2">
           <span className="inline-block text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded">
             {signal.label}
           </span>
         </div>
       </div>
 
-      {/* Footer: Date & Canonical Link */}
-      <div className="pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500">
+      {/* Footer: Date, Canonical Link & Watchlist Action */}
+      <div className="pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500 gap-2">
         <div className="flex items-center gap-1">
           <Calendar className="w-3 h-3 text-zinc-600" />
           <span>Source: <strong className="text-zinc-400 font-mono">{pubDateFormatted}</strong></span>
         </div>
-        {signal.canonicalUrl && (
-          <a
-            href={signal.canonicalUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 font-medium"
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleSave}
+            title={isSaved ? "Saved in Watchlist" : "Save to Watchlist"}
+            className={`p-1.5 rounded transition-colors ${
+              isSaved
+                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                : "bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200"
+            }`}
           >
-            Source <ExternalLink className="w-3 h-3" />
-          </a>
-        )}
+            {isSaved ? <BookmarkCheck className="w-3.5 h-3.5 text-indigo-400" /> : <Bookmark className="w-3.5 h-3.5" />}
+          </button>
+          {signal.canonicalUrl && (
+            <a
+              href={signal.canonicalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 font-medium"
+            >
+              Source <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function HypothesisCard({ item }: { item: DiscoveryFeedItemDTO }) {
+function HypothesisCard({
+  item,
+  isSaved,
+  onToggleSave,
+}: {
+  item: DiscoveryFeedItemDTO;
+  isSaved: boolean;
+  onToggleSave: () => void;
+}) {
   const pubDateFormatted = item.publicationDate
     ? new Date(item.publicationDate).toLocaleDateString("en-US", {
         month: "short",
@@ -404,23 +633,45 @@ function HypothesisCard({ item }: { item: DiscoveryFeedItemDTO }) {
         </div>
       </div>
 
-      {/* Footer dates */}
-      <div className="pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500">
+      {/* Footer dates & Save action */}
+      <div className="pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500 gap-2">
         <div className="flex items-center gap-1">
           <Calendar className="w-3 h-3 text-zinc-600" />
           <span>Source Date: <strong className="text-zinc-400 font-mono">{pubDateFormatted}</strong></span>
         </div>
-        {item.discoveredAt && (
-          <div className="text-[10px] text-zinc-600">
-            Discovered: {new Date(item.discoveredAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleSave}
+            title={isSaved ? "Saved in Watchlist" : "Save to Watchlist"}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+              isSaved
+                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/60"
+            }`}
+          >
+            {isSaved ? <BookmarkCheck className="w-3.5 h-3.5 text-indigo-400" /> : <Bookmark className="w-3.5 h-3.5" />}
+            <span>{isSaved ? "Saved" : "Save"}</span>
+          </button>
+          {item.discoveredAt && (
+            <div className="text-[10px] text-zinc-600 hidden sm:block">
+              Discovered: {new Date(item.discoveredAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function ResearchLeadCard({ item }: { item: ResearchLeadFeedItemDTO }) {
+function ResearchLeadCard({
+  item,
+  isSaved,
+  onToggleSave,
+}: {
+  item: ResearchLeadFeedItemDTO;
+  isSaved: boolean;
+  onToggleSave: () => void;
+}) {
   const pubDateFormatted = item.publishedAt
     ? new Date(item.publishedAt).toLocaleDateString("en-US", {
         month: "short",
@@ -518,17 +769,31 @@ function ResearchLeadCard({ item }: { item: ResearchLeadFeedItemDTO }) {
         </div>
       </div>
 
-      {/* Footer dates */}
-      <div className="pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500">
+      {/* Footer dates & Save action */}
+      <div className="pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500 gap-2">
         <div className="flex items-center gap-1">
           <Calendar className="w-3 h-3 text-zinc-600" />
           <span>Source Date: <strong className="text-zinc-400 font-mono">{pubDateFormatted}</strong></span>
         </div>
-        {item.discoveredAt && (
-          <div className="text-[10px] text-zinc-600">
-            Discovered: {new Date(item.discoveredAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleSave}
+            title={isSaved ? "Saved in Watchlist" : "Save to Watchlist"}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+              isSaved
+                ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
+                : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/60"
+            }`}
+          >
+            {isSaved ? <BookmarkCheck className="w-3.5 h-3.5 text-teal-400" /> : <Bookmark className="w-3.5 h-3.5" />}
+            <span>{isSaved ? "Saved" : "Save"}</span>
+          </button>
+          {item.discoveredAt && (
+            <div className="text-[10px] text-zinc-600 hidden sm:block">
+              Discovered: {new Date(item.discoveredAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

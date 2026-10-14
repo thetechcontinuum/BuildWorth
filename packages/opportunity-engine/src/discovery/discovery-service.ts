@@ -204,6 +204,18 @@ export function deriveSpecificAudience(text: string, actorRole?: string | null):
   if (lower.includes("hardware") || lower.includes("embedded") || lower.includes("firmware")) {
     return "Embedded Systems & Hardware Engineering Teams";
   }
+  if (lower.includes("visual studio") || lower.includes("vsix") || lower.includes("compiler") || lower.includes("template") || lower.includes("ide") || lower.includes("extension") || lower.includes("sdk")) {
+    return "Software Tooling & Systems Developers";
+  }
+  if (lower.includes("linux") || lower.includes("sysadmin") || lower.includes("storage") || lower.includes("server") || lower.includes("kernel")) {
+    return "IT Systems & Infrastructure Administrators";
+  }
+  if (lower.includes("compliance") || lower.includes("audit") || lower.includes("soc2") || lower.includes("gdpr") || lower.includes("governance")) {
+    return "Governance & Compliance Engineering Leads";
+  }
+  if (lower.includes("payment") || lower.includes("billing") || lower.includes("stripe") || lower.includes("invoice") || lower.includes("fintech")) {
+    return "FinTech & Payment Engineering Teams";
+  }
   if (
     lower.includes("developer") ||
     lower.includes("dev ") ||
@@ -564,7 +576,7 @@ export async function getDailyDiscoveryFeed(
           },
         },
         orderBy: { createdAt: "desc" },
-        take: 30,
+        take: 100,
         include: {
           rawSignal: {
             include: {
@@ -829,6 +841,83 @@ export async function getDailyDiscoveryFeed(
       researchLeads.some((lead) => new Date(lead.discoveredAt) >= todayStart) ||
       marketSignals.some((sig) => new Date(sig.discoveredAt) >= todayStart);
 
+    const themesConfig = [
+      {
+        theme: "DevOps & Cloud Infrastructure",
+        keywords: ["devops", "cloud", "aws", "kubernetes", "k8s", "docker", "ci/cd", "infrastructure", "latency", "pipeline", "network"],
+        defaultAction: "Benchmark build and deployment error logs with 5 DevOps leads to validate pipeline recovery hours",
+      },
+      {
+        theme: "Developer Tooling & Systems",
+        keywords: ["developer", "code", "ide", "compiler", "extension", "visual studio", "sdk", "template", "workflow", "git", "test"],
+        defaultAction: "Conduct user discovery sessions on manual tool workarounds with 5 engineering leads",
+      },
+      {
+        theme: "Data Engineering & FinOps",
+        keywords: ["data", "finops", "kafka", "database", "postgres", "query", "spend", "cost", "warehouse", "analytics", "sql", "gpu"],
+        defaultAction: "Analyze query timeout patterns and audit cloud cluster teardown logs with 3 platform leads",
+      },
+      {
+        theme: "Security & Compliance",
+        keywords: ["security", "cve", "vulnerability", "auth", "compliance", "soc2", "audit", "patch", "exploit", "reachability"],
+        defaultAction: "Scan staging clusters to measure exposure window and test automated mitigation rules",
+      },
+      {
+        theme: "Embedded Systems & IoT",
+        keywords: ["iot", "sensor", "firmware", "hardware", "embedded", "uart", "serial", "bus", "hvac", "rotex"],
+        defaultAction: "Deploy packet-sniffing protocol prototype against 3 real hardware setups to confirm frame parsing",
+      },
+    ];
+
+    const themesBrief = themesConfig.map((tc) => {
+      const matchingSignals = marketSignals.filter((s) =>
+        tc.keywords.some((k) => `${s.title} ${s.excerpt}`.toLowerCase().includes(k))
+      );
+      const matchingLeads = researchLeads.filter((l) =>
+        tc.keywords.some((k) => `${l.title} ${l.summary} ${l.problemSummary || ""}`.toLowerCase().includes(k))
+      );
+      const matchingOpps = opportunityHypotheses.filter((h) =>
+        tc.keywords.some((k) => `${h.title} ${h.summary} ${h.businessHypothesis?.painFriction || ""} ${h.businessHypothesis?.proposedSolution || ""}`.toLowerCase().includes(k))
+      );
+
+      const totalThemeItems = matchingSignals.length + matchingLeads.length + matchingOpps.length;
+      let topPainHeadline = "Monitoring recurring workflow bottlenecks across public developer signals";
+      if (matchingOpps.length > 0 && matchingOpps[0]) {
+        topPainHeadline = matchingOpps[0].title;
+      } else if (matchingLeads.length > 0 && matchingLeads[0]) {
+        topPainHeadline = matchingLeads[0].title;
+      } else if (matchingSignals.length > 0 && matchingSignals[0]) {
+        topPainHeadline = matchingSignals[0].title;
+      }
+
+      let suggestedValidationAction = tc.defaultAction;
+      if (matchingOpps.length > 0 && matchingOpps[0]?.businessHypothesis?.validationExperiment) {
+        suggestedValidationAction = matchingOpps[0].businessHypothesis.validationExperiment;
+      } else if (matchingLeads.length > 0 && matchingLeads[0]?.concreteValidationStep) {
+        suggestedValidationAction = matchingLeads[0].concreteValidationStep;
+      }
+
+      const momentum = totalThemeItems > 0
+        ? `+${totalThemeItems} active signal${totalThemeItems > 1 ? "s" : ""} detected`
+        : "Steady baseline monitoring";
+
+      return {
+        theme: tc.theme,
+        signalsCount: matchingSignals.length,
+        leadsCount: matchingLeads.length,
+        corroboratedCount: matchingOpps.length,
+        topPainHeadline,
+        suggestedValidationAction,
+        momentum,
+      };
+    });
+
+    const dailyBrief = {
+      date: new Date().toISOString().slice(0, 10),
+      summary: `Intelligence briefing covering ${marketSignals.length} market signals, ${researchLeads.length} research leads, and ${opportunityHypotheses.length} corroborated opportunities across 5 engineering themes.`,
+      themes: themesBrief,
+    };
+
     return {
       success: true,
       totalCount: opportunityHypotheses.length + researchLeads.length + marketSignals.length,
@@ -837,6 +926,7 @@ export async function getDailyDiscoveryFeed(
       marketSignals,
       researchLeads,
       opportunityHypotheses,
+      dailyBrief,
       items: opportunityHypotheses, // backwards compatibility
     };
   } catch (err: any) {

@@ -237,11 +237,15 @@ export function PricingClient() {
             <ul className="space-y-3 pt-6 border-t border-zinc-800/80 text-xs text-zinc-300">
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />
-                <span>Browse validated market opportunities</span>
+                <span>Daily feed of genuine Market Signals</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />
-                <span>Basic 100-point composite opportunity scores</span>
+                <span>Preview top 3 Research Leads with validation steps</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />
+                <span>Personalized Daily Brief for 1 tracked theme</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />

@@ -70,6 +70,22 @@ export interface MarketSignalFeedItemDTO {
   label: "Market signal — not a validated business opportunity";
 }
 
+export interface DailyThemeBriefDTO {
+  theme: string;
+  signalsCount: number;
+  leadsCount: number;
+  corroboratedCount: number;
+  topPainHeadline: string;
+  suggestedValidationAction: string;
+  momentum: string;
+}
+
+export interface DailyPersonalizedBriefDTO {
+  date: string;
+  summary: string;
+  themes: DailyThemeBriefDTO[];
+}
+
 export interface DiscoveryFeedResponseDTO {
   success: boolean;
   totalCount: number;
@@ -79,4 +95,5 @@ export interface DiscoveryFeedResponseDTO {
   researchLeads: ResearchLeadFeedItemDTO[];
   opportunityHypotheses: DiscoveryFeedItemDTO[];
   items: DiscoveryFeedItemDTO[]; // Preserved for backwards compatibility
+  dailyBrief?: DailyPersonalizedBriefDTO;
 }
