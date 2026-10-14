@@ -135,7 +135,36 @@ export function isConcreteProblemOrWorkaround(signal: {
     return false;
   }
 
-  // 7. Explicit concrete friction / breakdown / workaround / cost pain indicators
+  // 7. Strict Exclusions: CVEs, security vulnerability advisories, KEV bulletins
+  // e.g. "CVE-2026-0322: Palo Alto Networks PAN-OS...", "CVE-2026-105133: Ahsay..."
+  // cannot be treated as user workflow pain unless they describe actual production friction, outage, or manual recovery
+  const isCveAdvisory =
+    srcKey === "cisakev" ||
+    url.includes("cve.org") ||
+    url.includes("nvd.nist.gov") ||
+    /^cve-\d+/i.test(title) ||
+    /\b(cve-\d{4}-\d+)\b/i.test(fullText);
+
+  if (isCveAdvisory) {
+    if (!/\b(broken in production|production outage|manual recovery|data corruption|data loss|workaround|hacky workaround)\b/i.test(fullText)) {
+      return false;
+    }
+  }
+
+  // 8. Strict Exclusions: Generic news reporting, venture deals, funding rounds, corporate PR
+  // e.g. "Deals in brief: NEU Battery Materials...", "Pony.ai and Uber plan to roll out...", "Gartner: 80% of Neocloud..."
+  const isGenericNewsOrDeals =
+    srcKey === "krasia" ||
+    /^(deals in brief|funding alert|raises \$|secures series|plans to roll out|gartner:)\b/i.test(title) ||
+    /\b(raises \$|secures series|series [a-z] funding|venture capital|funding round|private equity)\b/i.test(fullText);
+
+  if (isGenericNewsOrDeals) {
+    if (!/\b(broken in production|production outage|manual recovery|workaround|cost spike|data leak)\b/i.test(fullText)) {
+      return false;
+    }
+  }
+
+  // 9. Explicit concrete friction / breakdown / workaround / cost pain indicators
   // The excerpt or title must describe actual failure, broken functionality, error, or manual hack
   const hasConcreteBreakdown =
     /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|throttled|timeout|workaround|hacky workaround|manual fix|costing|ruined|waste|wasted|unexpected spend|bill spike)\b/i.test(fullText);
@@ -349,7 +378,9 @@ export async function getDailyDiscoveryFeed(
     const seenUrls = new Set<string>();
     const seenTitles = new Set<string>();
     const leadSeenUrls = new Set<string>();
+    const leadSeenTitles = new Set<string>();
     const sourceCounts = new Map<string, number>();
+    const leadSourceCounts = new Map<string, number>();
     const opportunityHypotheses: DiscoveryFeedItemDTO[] = [];
     const researchLeads: ResearchLeadFeedItemDTO[] = [];
     const researchLeadsLimit = options.researchLeadsLimit ?? 6;
@@ -433,10 +464,19 @@ export async function getDailyDiscoveryFeed(
       // A hypothesis must be based on a recent signal (published within 14 days)
       const now = Date.now();
       const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
-      const effectivePubDate = primaryPublishedAt || opp.createdAt;
-      const pubTime = effectivePubDate instanceof Date ? effectivePubDate.getTime() : new Date(effectivePubDate).getTime();
-      if (now - pubTime > FOURTEEN_DAYS_MS) {
+      const candidatePubDate = primaryPublishedAt || opp.createdAt;
+      if (!candidatePubDate) {
         continue;
+      }
+      const pubTime = candidatePubDate instanceof Date ? candidatePubDate.getTime() : new Date(candidatePubDate).getTime();
+      if (isNaN(pubTime) || now - pubTime > FOURTEEN_DAYS_MS || pubTime > now + 24 * 60 * 60 * 1000) {
+        continue;
+      }
+      if (primaryPublishedAt) {
+        const primTime = primaryPublishedAt instanceof Date ? primaryPublishedAt.getTime() : new Date(primaryPublishedAt).getTime();
+        if (now - primTime > FOURTEEN_DAYS_MS) {
+          continue;
+        }
       }
 
       // A single GitHub issue is only a Market Signal unless independent evidence confirms the broader need
@@ -529,7 +569,7 @@ export async function getDailyDiscoveryFeed(
       };
 
       const market = deriveMarketRegion(primarySourceKey, primarySourceFamily, opp.industry);
-      const pubDate = primaryPublishedAt ? primaryPublishedAt.toISOString() : opp.createdAt.toISOString();
+      const pubDate = (primaryPublishedAt ? (primaryPublishedAt instanceof Date ? primaryPublishedAt : new Date(primaryPublishedAt)) : (opp.createdAt instanceof Date ? opp.createdAt : new Date(opp.createdAt))).toISOString();
 
       // Sanitize summary to ensure no legacy boilerplate leaks
       let summary = (opp.oneSentenceSummary || "").trim();
@@ -569,13 +609,13 @@ export async function getDailyDiscoveryFeed(
               isEnabled: true,
               policyStatus: { not: "BLOCKED" },
             },
-            OR: [
-              { publishedAt: null, createdAt: { gte: fourteenDaysAgo } },
-              { publishedAt: { gte: fourteenDaysAgo } },
-            ],
+            publishedAt: {
+              not: null,
+              gte: fourteenDaysAgo,
+            },
           },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: { publishedAt: "desc" },
         take: 100,
         include: {
           rawSignal: {
@@ -592,11 +632,12 @@ export async function getDailyDiscoveryFeed(
         const src = raw?.source;
         if (!raw || !src) continue;
 
-        // 1. Recency requirement: signal must be published within 14 days
-        const obsDate = raw.publishedAt || ns.publishedAt || raw.createdAt;
-        const obsTime = obsDate instanceof Date ? obsDate.getTime() : new Date(obsDate).getTime();
+        // 1. Recency requirement: signal must be published within 14 days and never undated
+        const rawPubDate = raw.publishedAt || ns.publishedAt;
+        if (!rawPubDate) continue;
+        const obsTime = rawPubDate instanceof Date ? rawPubDate.getTime() : new Date(rawPubDate).getTime();
         const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
-        if (Date.now() - obsTime > FOURTEEN_DAYS_MS) {
+        if (isNaN(obsTime) || Date.now() - obsTime > FOURTEEN_DAYS_MS || obsTime > Date.now() + 24 * 60 * 60 * 1000) {
           continue;
         }
 
@@ -628,11 +669,11 @@ export async function getDailyDiscoveryFeed(
         const titleKey = (raw.title || ns.sourceTitle || "").toLowerCase().trim();
 
         if (urlKey && (seenUrls.has(urlKey) || leadSeenUrls.has(urlKey))) continue;
-        if (titleKey && seenTitles.has(titleKey)) continue;
+        if (titleKey && (seenTitles.has(titleKey) || leadSeenTitles.has(titleKey))) continue;
 
         const effectiveSourceKey = src.key || "unknown";
         const currentSourceCount = sourceCounts.get(effectiveSourceKey) || 0;
-        if (currentSourceCount >= maxItemsPerSource) continue;
+        const currentLeadSourceCount = leadSourceCounts.get(effectiveSourceKey) || 0;
 
         const title = raw.title || ns.sourceTitle || "Unmet Need Identified in Market Discussion";
         const cleanTitle = title.replace(/\s+/g, " ").trim();
@@ -644,7 +685,7 @@ export async function getDailyDiscoveryFeed(
           continue;
         }
 
-        const obsDateIso = obsDate instanceof Date ? obsDate.toISOString() : new Date(obsDate).toISOString();
+        const obsDateIso = (rawPubDate instanceof Date ? rawPubDate : new Date(rawPubDate)).toISOString();
 
         const observation = {
           id: ns.id,
@@ -660,7 +701,6 @@ export async function getDailyDiscoveryFeed(
         const proposedSolution = derivePlausibleProductDirection(cleanTitle, targetAudience);
         const validationExperiment = deriveSpecificValidationExperiment(fullProblemText, targetAudience);
 
-        // 3. Evidence of recurring customer problem, expensive workaround, or explicit purchase intent
         const hasExplicitPurchaseIntent =
           ns.purchaseIntent === true ||
           ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((ns.signalType || "").toUpperCase());
@@ -669,10 +709,10 @@ export async function getDailyDiscoveryFeed(
           /\b(recurring|recurs|constant(ly)?|every (day|week|month|hour)|daily|repeatedly|ongoing|workaround|hacky workaround|manual fix|costs? \$|\$([0-9,]+)\/(mo|month|yr|year)|bill spike|idle spend)\b/i.test(fullProblemText);
 
         const market = deriveMarketRegion(src.key, src.sourceFamily);
-        const pubDate = raw.publishedAt ? new Date(raw.publishedAt).toISOString() : new Date(raw.createdAt).toISOString();
         const safeSlug = (cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50) || "lead") + "-" + ns.id.slice(0, 8);
 
-        if ((hasExplicitPurchaseIntent || hasRecurringProblemEvidence) && opportunityHypotheses.length < limit) {
+        // If recurring problem or purchase intent is proven, and capacity exists, create an early unverified hypothesis candidate
+        if ((hasExplicitPurchaseIntent || hasRecurringProblemEvidence) && opportunityHypotheses.length < limit && currentSourceCount < maxItemsPerSource) {
           if (urlKey) seenUrls.add(urlKey);
           if (titleKey) seenTitles.add(titleKey);
           sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
@@ -698,7 +738,7 @@ export async function getDailyDiscoveryFeed(
             observedFacts: [observation.excerpt],
             evidenceObservations: [observation],
             businessHypothesis,
-            publicationDate: pubDate,
+            publicationDate: obsDateIso,
             discoveredAt: (raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt)).toISOString(),
             market,
             canonicalUrl: canonical || `https://buildworth.app/signals/${ns.id}`,
@@ -708,10 +748,10 @@ export async function getDailyDiscoveryFeed(
             signalCount: 1,
             status: "HYPOTHESIS",
           });
-        } else if (researchLeads.length < researchLeadsLimit) {
+        } else if (researchLeads.length < researchLeadsLimit && currentLeadSourceCount < maxItemsPerSource) {
           if (urlKey) leadSeenUrls.add(urlKey);
-          if (titleKey) seenTitles.add(titleKey);
-          sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
+          if (titleKey) leadSeenTitles.add(titleKey);
+          leadSourceCounts.set(effectiveSourceKey, currentLeadSourceCount + 1);
 
           researchLeads.push({
             id: "lead-" + ns.id,
@@ -747,7 +787,7 @@ export async function getDailyDiscoveryFeed(
     const signalSourceCounts = new Map<string, number>();
     const maxItemsPerSourceInFeed = 2;
 
-    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
     const rawSignalRecords = prisma.rawSignal?.findMany
       ? await prisma.rawSignal.findMany({
@@ -756,12 +796,12 @@ export async function getDailyDiscoveryFeed(
               isEnabled: true,
               policyStatus: { not: "BLOCKED" },
             },
-            OR: [
-              { publishedAt: null },
-              { publishedAt: { gte: ninetyDaysAgo } },
-            ],
+            publishedAt: {
+              not: null,
+              gte: fourteenDaysAgo,
+            },
           },
-          orderBy: { createdAt: "desc" },
+          orderBy: { publishedAt: "desc" },
           take: Math.max(100, signalsLimit * 10),
           include: {
             source: true,
@@ -770,13 +810,26 @@ export async function getDailyDiscoveryFeed(
         }).catch(() => [])
       : [];
 
+    const signalSeenTitles = new Set<string>();
+
     // Pass 1: Diverse source representation (capped per source)
     for (const raw of rawSignalRecords) {
       if (marketSignals.length >= signalsLimit) break;
-      if (raw.publishedAt && new Date(raw.publishedAt).getTime() < ninetyDaysAgo.getTime()) continue;
+      if (!raw.publishedAt) continue;
+      const pubTime = raw.publishedAt instanceof Date ? raw.publishedAt.getTime() : new Date(raw.publishedAt).getTime();
+      if (isNaN(pubTime) || Date.now() - pubTime > 45 * 24 * 60 * 60 * 1000 || pubTime > Date.now() + 24 * 60 * 60 * 1000) {
+        continue;
+      }
       const canonical = raw.normalizedSignal?.canonicalUrl || raw.sourceUrl;
-      const urlKey = canonical.toLowerCase().trim();
-      if (!urlKey || signalSeenUrls.has(urlKey)) continue;
+      const urlKey = canonical ? canonical.toLowerCase().trim() : "";
+      const rawTitle = raw.title || raw.normalizedSignal?.sourceTitle || "";
+      const titleKey = rawTitle.toLowerCase().trim();
+      if (!urlKey || signalSeenUrls.has(urlKey) || (titleKey && signalSeenTitles.has(titleKey))) continue;
+
+      // Filter irrelevant or noise signals
+      if (!rawTitle || rawTitle.trim().length < 5) continue;
+      if (/^(untitled|unknown|test|404|not found)$/i.test(rawTitle.trim())) continue;
+      if (raw.normalizedSignal?.verificationStatus === "REJECTED" || raw.normalizedSignal?.signalType === "NOISE") continue;
 
       const src = raw.source;
       const srcKey = src?.key || "unknown";
@@ -784,10 +837,9 @@ export async function getDailyDiscoveryFeed(
       if (currentCount >= maxItemsPerSourceInFeed) continue;
 
       signalSeenUrls.add(urlKey);
+      if (titleKey) signalSeenTitles.add(titleKey);
       signalSourceCounts.set(srcKey, currentCount + 1);
 
-      const pubDate = raw.publishedAt || raw.createdAt || new Date();
-      const discDate = raw.createdAt || new Date();
       const market = deriveMarketRegion(src?.key, src?.sourceFamily);
 
       marketSignals.push({
@@ -795,11 +847,11 @@ export async function getDailyDiscoveryFeed(
         sourceKey: src?.key || "unknown",
         sourceName: src?.name || "Market Source",
         sourceFamily: src?.sourceFamily || "COMMUNITY",
-        title: raw.title || raw.normalizedSignal?.sourceTitle || "Market Discussion",
-        excerpt: raw.normalizedSignal?.sanitizedExcerpt || (raw.rawContent ? raw.rawContent.slice(0, 280) : raw.title || ""),
+        title: rawTitle,
+        excerpt: raw.normalizedSignal?.sanitizedExcerpt || (raw.rawContent ? raw.rawContent.slice(0, 280) : rawTitle),
         canonicalUrl: canonical,
-        publishedAt: (pubDate instanceof Date ? pubDate : new Date(pubDate)).toISOString(),
-        discoveredAt: (discDate instanceof Date ? discDate : new Date(discDate)).toISOString(),
+        publishedAt: (raw.publishedAt instanceof Date ? raw.publishedAt : new Date(raw.publishedAt)).toISOString(),
+        discoveredAt: (raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt || raw.publishedAt)).toISOString(),
         market,
         label: "Market signal — not a validated business opportunity",
       });
@@ -809,15 +861,25 @@ export async function getDailyDiscoveryFeed(
     if (marketSignals.length < signalsLimit) {
       for (const raw of rawSignalRecords) {
         if (marketSignals.length >= signalsLimit) break;
-        if (raw.publishedAt && new Date(raw.publishedAt).getTime() < ninetyDaysAgo.getTime()) continue;
+        if (!raw.publishedAt) continue;
+        const pubTime = raw.publishedAt instanceof Date ? raw.publishedAt.getTime() : new Date(raw.publishedAt).getTime();
+        if (isNaN(pubTime) || Date.now() - pubTime > 45 * 24 * 60 * 60 * 1000 || pubTime > Date.now() + 24 * 60 * 60 * 1000) {
+          continue;
+        }
         const canonical = raw.normalizedSignal?.canonicalUrl || raw.sourceUrl;
-        const urlKey = canonical.toLowerCase().trim();
-        if (!urlKey || signalSeenUrls.has(urlKey)) continue;
+        const urlKey = canonical ? canonical.toLowerCase().trim() : "";
+        const rawTitle = raw.title || raw.normalizedSignal?.sourceTitle || "";
+        const titleKey = rawTitle.toLowerCase().trim();
+        if (!urlKey || signalSeenUrls.has(urlKey) || (titleKey && signalSeenTitles.has(titleKey))) continue;
+
+        // Filter irrelevant or noise signals
+        if (!rawTitle || rawTitle.trim().length < 5) continue;
+        if (/^(untitled|unknown|test|404|not found)$/i.test(rawTitle.trim())) continue;
+        if (raw.normalizedSignal?.verificationStatus === "REJECTED" || raw.normalizedSignal?.signalType === "NOISE") continue;
 
         signalSeenUrls.add(urlKey);
+        if (titleKey) signalSeenTitles.add(titleKey);
         const src = raw.source;
-        const pubDate = raw.publishedAt || raw.createdAt || new Date();
-        const discDate = raw.createdAt || new Date();
         const market = deriveMarketRegion(src?.key, src?.sourceFamily);
 
         marketSignals.push({
@@ -825,11 +887,11 @@ export async function getDailyDiscoveryFeed(
           sourceKey: src?.key || "unknown",
           sourceName: src?.name || "Market Source",
           sourceFamily: src?.sourceFamily || "COMMUNITY",
-          title: raw.title || raw.normalizedSignal?.sourceTitle || "Market Discussion",
-          excerpt: raw.normalizedSignal?.sanitizedExcerpt || (raw.rawContent ? raw.rawContent.slice(0, 280) : raw.title || ""),
+          title: rawTitle,
+          excerpt: raw.normalizedSignal?.sanitizedExcerpt || (raw.rawContent ? raw.rawContent.slice(0, 280) : rawTitle),
           canonicalUrl: canonical,
-          publishedAt: (pubDate instanceof Date ? pubDate : new Date(pubDate)).toISOString(),
-          discoveredAt: (discDate instanceof Date ? discDate : new Date(discDate)).toISOString(),
+          publishedAt: (raw.publishedAt instanceof Date ? raw.publishedAt : new Date(raw.publishedAt)).toISOString(),
+          discoveredAt: (raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt || raw.publishedAt)).toISOString(),
           market,
           label: "Market signal — not a validated business opportunity",
         });
@@ -881,20 +943,35 @@ export async function getDailyDiscoveryFeed(
       );
 
       const totalThemeItems = matchingSignals.length + matchingLeads.length + matchingOpps.length;
-      let topPainHeadline = "Monitoring recurring workflow bottlenecks across public developer signals";
+      let topPainHeadline = "no qualifying pain signals";
+      let suggestedValidationAction = tc.defaultAction;
+
       if (matchingOpps.length > 0 && matchingOpps[0]) {
         topPainHeadline = matchingOpps[0].title;
+        if (matchingOpps[0]?.businessHypothesis?.validationExperiment) {
+          suggestedValidationAction = matchingOpps[0].businessHypothesis.validationExperiment;
+        }
       } else if (matchingLeads.length > 0 && matchingLeads[0]) {
         topPainHeadline = matchingLeads[0].title;
-      } else if (matchingSignals.length > 0 && matchingSignals[0]) {
-        topPainHeadline = matchingSignals[0].title;
-      }
-
-      let suggestedValidationAction = tc.defaultAction;
-      if (matchingOpps.length > 0 && matchingOpps[0]?.businessHypothesis?.validationExperiment) {
-        suggestedValidationAction = matchingOpps[0].businessHypothesis.validationExperiment;
-      } else if (matchingLeads.length > 0 && matchingLeads[0]?.concreteValidationStep) {
-        suggestedValidationAction = matchingLeads[0].concreteValidationStep;
+        if (matchingLeads[0]?.concreteValidationStep) {
+          suggestedValidationAction = matchingLeads[0].concreteValidationStep;
+        }
+      } else {
+        const qualifyingSignal = matchingSignals.find((s) =>
+          isConcreteProblemOrWorkaround({
+            title: s.title,
+            sanitizedExcerpt: s.excerpt,
+            canonicalUrl: s.canonicalUrl,
+            sourceKey: s.sourceKey,
+            sourceFamily: s.sourceFamily,
+          })
+        );
+        if (qualifyingSignal) {
+          topPainHeadline = qualifyingSignal.title;
+          suggestedValidationAction = tc.defaultAction;
+        } else {
+          topPainHeadline = "no qualifying pain signals";
+        }
       }
 
       const momentum = totalThemeItems > 0
