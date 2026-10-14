@@ -248,8 +248,8 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
   });
 
   it("populates authentic MarketSignalFeedItemDTO items separately with required labels and fields", async () => {
-    const mockPublishedAt = new Date("2026-09-24T12:00:00Z");
-    const mockCreatedAt = new Date("2026-09-25T00:30:00Z");
+    const mockPublishedAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const mockCreatedAt = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000);
 
     const mockRawSignals = [
       {
@@ -590,5 +590,228 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
     expect(dataFinOpsTheme).toBeDefined();
     expect(dataFinOpsTheme?.corroboratedCount).toBe(1);
     expect(dataFinOpsTheme?.topPainHeadline).toBe("Kubernetes Idle GPU Watchdog & Job Reaper");
+  });
+
+  it("strictly enforces 14-day publication limit, excluding July 25 and September 30 stale records and undated items", async () => {
+    // Current date is mid-October 2026
+    const baseNow = new Date("2026-10-14T21:45:00.000Z");
+    const freshDate = new Date("2026-10-12T10:00:00.000Z"); // 2 days old (valid)
+    const september30Date = new Date("2026-09-30T07:56:17.000Z"); // 14.5 days old (stale)
+    const july25Date = new Date("2026-07-25T07:11:24.000Z"); // 81 days old (stale)
+
+    const mockRawSignals = [
+      // 1. Fresh signal (within 14 days) -> should be included
+      {
+        id: "raw-fresh-1",
+        title: "Docker container network DNS resolution failure in production",
+        sourceUrl: "https://news.ycombinator.com/item?id=888801",
+        createdAt: baseNow,
+        publishedAt: freshDate,
+        source: { key: "hackernews", name: "Hacker News", sourceFamily: "COMMUNITY", isEnabled: true },
+        normalizedSignal: {
+          canonicalUrl: "https://news.ycombinator.com/item?id=888801",
+          sourceTitle: "Docker container network DNS resolution failure in production",
+          sanitizedExcerpt: "Containers fail to resolve internal cluster endpoints intermittently.",
+          verificationStatus: "VERIFIED",
+        },
+      },
+      // 2. September 30 record (14.5 days old) -> MUST BE EXCLUDED
+      {
+        id: "raw-stale-sept30",
+        title: "Insert ,show, update, delete picture with PDO",
+        sourceUrl: "https://stackoverflow.com/questions/80001001/insert-show-update-delete-picture",
+        createdAt: baseNow,
+        publishedAt: september30Date,
+        source: { key: "stackexchange", name: "Stack Exchange & Stack Overflow", sourceFamily: "COMMUNITY", isEnabled: true },
+        normalizedSignal: {
+          canonicalUrl: "https://stackoverflow.com/questions/80001001/insert-show-update-delete-picture",
+          sourceTitle: "Insert ,show, update, delete picture with PDO",
+          sanitizedExcerpt: "How to handle image upload and blob storage in PDO.",
+          verificationStatus: "VERIFIED",
+        },
+      },
+      // 3. July 25 record (81 days old) -> MUST BE EXCLUDED
+      {
+        id: "raw-stale-july25",
+        title: "Kamal deploy SQLite error on start: unable to open database file",
+        sourceUrl: "https://stackoverflow.com/questions/80001002/kamal-deploy-sqlite-error",
+        createdAt: baseNow,
+        publishedAt: july25Date,
+        source: { key: "stackexchange", name: "Stack Exchange & Stack Overflow", sourceFamily: "COMMUNITY", isEnabled: true },
+        normalizedSignal: {
+          canonicalUrl: "https://stackoverflow.com/questions/80001002/kamal-deploy-sqlite-error",
+          sourceTitle: "Kamal deploy SQLite error on start: unable to open database file",
+          sanitizedExcerpt: "Deploying sqlite with kamal fails on boot due to permission denied.",
+          verificationStatus: "VERIFIED",
+        },
+      },
+      // 4. Undated record (publishedAt: null) -> MUST BE EXCLUDED (discovery date cannot be substituted)
+      {
+        id: "raw-undated-1",
+        title: "Undated legacy signal without publication timestamp",
+        sourceUrl: "https://example.com/undated-issue",
+        createdAt: baseNow,
+        publishedAt: null,
+        source: { key: "github", name: "GitHub Issues", sourceFamily: "DEVELOPER_ECOSYSTEM", isEnabled: true },
+        normalizedSignal: {
+          canonicalUrl: "https://example.com/undated-issue",
+          sourceTitle: "Undated legacy signal without publication timestamp",
+          sanitizedExcerpt: "No published date in feed source.",
+          verificationStatus: "VERIFIED",
+        },
+      },
+      // 5. Duplicate of fresh signal (same title) -> MUST BE DEDUPLICATED
+      {
+        id: "raw-fresh-dup",
+        title: "Docker container network DNS resolution failure in production",
+        sourceUrl: "https://lobste.rs/s/docker01",
+        createdAt: baseNow,
+        publishedAt: freshDate,
+        source: { key: "lobsters", name: "Lobsters", sourceFamily: "COMMUNITY", isEnabled: true },
+        normalizedSignal: {
+          canonicalUrl: "https://lobste.rs/s/docker01",
+          sourceTitle: "Docker container network DNS resolution failure in production",
+          sanitizedExcerpt: "Containers fail to resolve internal cluster endpoints intermittently.",
+          verificationStatus: "VERIFIED",
+        },
+      },
+    ];
+
+    const mockPrisma = {
+      opportunity: { findMany: async () => [] },
+      normalizedSignal: { findMany: async () => [] },
+      rawSignal: {
+        findMany: async (args: any) => {
+          // Simulate prisma filter on publishedAt >= fourteenDaysAgo and not null
+          const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+          return mockRawSignals.filter((r) => r.publishedAt && r.publishedAt >= fourteenDaysAgo);
+        },
+      },
+    };
+
+    const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 10, signalsLimit: 10 });
+
+    // Verify only the 1 unique fresh signal was included
+    expect(feed.marketSignals).toHaveLength(1);
+    expect(feed.marketSignals[0].title).toBe("Docker container network DNS resolution failure in production");
+    expect(feed.marketSignals[0].publishedAt).toBe(freshDate.toISOString());
+
+    // Explicitly verify stale July 25 and September 30 records are excluded
+    const titles = feed.marketSignals.map((s) => s.title);
+    expect(titles).not.toContain("Insert ,show, update, delete picture with PDO");
+    expect(titles).not.toContain("Kamal deploy SQLite error on start: unable to open database file");
+    expect(titles).not.toContain("Undated legacy signal without publication timestamp");
+  });
+
+  it("ensures news, research papers, and CVEs are not labeled 'top pain' unless containing evidence of user friction", async () => {
+    const baseNow = new Date("2026-10-14T21:45:00.000Z");
+
+    const mockRawSignals = [
+      // 1. Research paper from arXiv (scientific preprint, no user friction)
+      {
+        id: "raw-arxiv-1",
+        title: "Two Clocks: Why Larger Rollout Batches Learn Slower in Reinforcement Learning",
+        sourceUrl: "https://arxiv.org/abs/2610.18874v1",
+        createdAt: baseNow,
+        publishedAt: baseNow,
+        source: { key: "arxiv", name: "arXiv Preprints", sourceFamily: "DISCOVERY", isEnabled: true },
+        normalizedSignal: {
+          canonicalUrl: "https://arxiv.org/abs/2610.18874v1",
+          sourceTitle: "Two Clocks: Why Larger Rollout Batches Learn Slower in Reinforcement Learning",
+          sanitizedExcerpt: "We investigate rollout batch scaling behavior in deep reinforcement learning.",
+          verificationStatus: "VERIFIED",
+        },
+      },
+      // 2. CVE vulnerability bulletin (advisory, no concrete user friction)
+      {
+        id: "raw-cve-1",
+        title: "CVE-2026-0322: Palo Alto Networks PAN-OS Code Injection Vulnerability",
+        sourceUrl: "https://nvd.nist.gov/vuln/detail/CVE-2026-0322",
+        createdAt: baseNow,
+        publishedAt: baseNow,
+        source: { key: "cisakev", name: "CISA Known Exploited Vulnerabilities", sourceFamily: "DISCOVERY", isEnabled: true },
+        normalizedSignal: {
+          canonicalUrl: "https://nvd.nist.gov/vuln/detail/CVE-2026-0322",
+          sourceTitle: "CVE-2026-0322: Palo Alto Networks PAN-OS Code Injection Vulnerability",
+          sanitizedExcerpt: "PAN-OS contains a remote command injection vulnerability.",
+          verificationStatus: "VERIFIED",
+        },
+      },
+      // 3. Generic news article (venture deal / funding announcement)
+      {
+        id: "raw-news-1",
+        title: "Deals in brief: NEU Battery Materials raises USD 7.6 million Series A",
+        sourceUrl: "https://kr-asia.com/neu-battery-series-a",
+        createdAt: baseNow,
+        publishedAt: baseNow,
+        source: { key: "krasia", name: "KrASIA", sourceFamily: "DISCOVERY", isEnabled: true },
+        normalizedSignal: {
+          canonicalUrl: "https://kr-asia.com/neu-battery-series-a",
+          sourceTitle: "Deals in brief: NEU Battery Materials raises USD 7.6 million Series A",
+          sanitizedExcerpt: "Bringing you updates on venture funding across APAC markets.",
+          verificationStatus: "VERIFIED",
+        },
+      },
+    ];
+
+    const mockPrisma = {
+      opportunity: { findMany: async () => [] },
+      normalizedSignal: { findMany: async () => [] },
+      rawSignal: { findMany: async () => mockRawSignals },
+    };
+
+    const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5, signalsLimit: 5 });
+
+    expect(feed.marketSignals).toHaveLength(3);
+    expect(feed.researchLeads).toHaveLength(0);
+    expect(feed.opportunityHypotheses).toHaveLength(0);
+
+    // Verify daily brief themes: NONE of the news, paper, or CVE records can be labeled "top pain"
+    for (const theme of feed.dailyBrief?.themes || []) {
+      expect(theme.topPainHeadline).toBe("no qualifying pain signals");
+    }
+  });
+
+  it("keeps single-source items labeled Research Leads and never validated opportunities", async () => {
+    const baseNow = new Date("2026-10-14T21:45:00.000Z");
+
+    const mockSingleSourceSignal = {
+      id: "ns-single-1",
+      canonicalUrl: "https://stackoverflow.com/questions/80009813/multi-project-visual-studio-template-error",
+      sourceTitle: "Multi-Project Visual Studio Template Error",
+      sanitizedExcerpt: "Visual studio fails to expand project parameters during multi-project template creation.",
+      problemSummary: "Multi-Project Visual Studio Template Error breaking build automation.",
+      actorRole: "Software Tooling & Systems Developers",
+      signalType: "PAIN",
+      verificationStatus: "VERIFIED",
+      publishedAt: baseNow,
+      rawSignal: {
+        id: "raw-single-1",
+        title: "Multi-Project Visual Studio Template Error",
+        sourceUrl: "https://stackoverflow.com/questions/80009813/multi-project-visual-studio-template-error",
+        createdAt: baseNow,
+        publishedAt: baseNow,
+        source: { key: "stackexchange", name: "Stack Exchange & Stack Overflow", sourceFamily: "COMMUNITY", isEnabled: true },
+      },
+    };
+
+    const mockPrisma = {
+      opportunity: { findMany: async () => [] },
+      normalizedSignal: { findMany: async () => [mockSingleSourceSignal] },
+      rawSignal: { findMany: async () => [] },
+    };
+
+    const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5, signalsLimit: 5 });
+
+    // Single source item MUST be a Research Lead, NOT in opportunityHypotheses
+    expect(feed.opportunityHypotheses).toHaveLength(0);
+    expect(feed.researchLeads).toHaveLength(1);
+
+    const lead = feed.researchLeads[0];
+    expect(lead.status).toBe("RESEARCH_LEAD");
+    expect(lead.label).toBe("Research Lead — uncorroborated customer pain signal requiring validation");
+    expect(lead.plausibleBuyer).toBe("Software Tooling & Systems Developers");
+    expect(lead.aiAssumptions).toBeDefined();
+    expect(lead.concreteValidationStep).toBeDefined();
   });
 });
