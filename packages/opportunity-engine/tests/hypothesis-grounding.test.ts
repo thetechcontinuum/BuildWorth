@@ -193,20 +193,20 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
         purchaseIntent: false,
         actorRole: "DevOps Engineer",
         sourceTitle: "Kafka lag monitoring breaks silently during traffic spikes",
-        sanitizedExcerpt: "Our Kafka consumer lag alert fails silently on partition rebalance, causing hours of latency bottleneck before on-call notices.",
+        sanitizedExcerpt: "Our Kafka consumer lag alert fails silently on partition rebalance, causing recurring hours of latency bottleneck and hacky workaround manual fixes before on-call notices.",
         problemSummary: "Silent Kafka consumer lag monitoring failures during partition rebalancing.",
-        canonicalUrl: "https://github.com/segment/kafka-go/issues/9981",
-        createdAt: new Date("2026-10-12T14:00:00Z"),
+        canonicalUrl: "https://news.ycombinator.com/item?id=8831920",
+        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
         rawSignal: {
           id: "raw-auth-pain-1",
           title: "Kafka lag monitoring breaks silently during traffic spikes",
-          sourceUrl: "https://github.com/segment/kafka-go/issues/9981",
-          publishedAt: new Date("2026-10-12T13:30:00Z"),
-          createdAt: new Date("2026-10-12T14:00:00Z"),
+          sourceUrl: "https://news.ycombinator.com/item?id=8831920",
+          publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+          createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
           source: {
-            key: "github",
-            name: "GitHub Issues & Discussions",
-            sourceFamily: "DEVELOPER_ECOSYSTEM",
+            key: "hackernews",
+            name: "Hacker News",
+            sourceFamily: "COMMUNITY",
             isEnabled: true,
             policyStatus: "ALLOWED",
           },
@@ -263,7 +263,7 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
       expect(hyp.businessHypothesis.assumptions).toBeDefined();
       expect(hyp.businessHypothesis.assumptions?.length).toBeGreaterThan(0);
       expect(hyp.businessHypothesis.validationExperiment).toContain("consumer lag threshold alerts");
-      expect(hyp.canonicalUrl).toBe("https://github.com/segment/kafka-go/issues/9981");
+      expect(hyp.canonicalUrl).toBe("https://news.ycombinator.com/item?id=8831920");
     });
 
     it("treats public tenders (TED), vulnerabilities (CISA KEV), and research (arXiv) as Market Signals without synthesizing ungrounded hypotheses", async () => {
@@ -520,25 +520,61 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
         },
       };
 
-      it("retains the concrete Rotex sensor breakdown as a qualified hypothesis with specific buyer and validation experiment", async () => {
+      // 6. Slint iOS IME Bug (single unsupported GitHub issue)
+      const slintSignal = {
+        id: "ns-slint-1",
+        signalType: "PAIN",
+        purchaseIntent: false,
+        actorRole: null,
+        sourceTitle: "LineEdit cannot accept Chinese IME input on iOS device (English works fine)",
+        sanitizedExcerpt: "On a real iOS device, the LineEdit component can accept English input normally, but Chinese IME input does not work at all. After typing pinyin, no Chinese character candidate list is shown.",
+        problemSummary: "LineEdit cannot accept Chinese IME input on iOS device (English works fine)",
+        canonicalUrl: "https://github.com/slint-ui/slint/issues/14032",
+        createdAt: new Date("2026-10-13T18:06:00Z"),
+        rawSignal: {
+          id: "raw-slint-1",
+          title: "LineEdit cannot accept Chinese IME input on iOS device (English works fine)",
+          sourceUrl: "https://github.com/slint-ui/slint/issues/14032",
+          publishedAt: new Date("2026-10-13T11:02:12Z"),
+          createdAt: new Date("2026-10-13T18:06:00Z"),
+          source: {
+            key: "github",
+            name: "GitHub Issues & Discussions",
+            sourceFamily: "DEVELOPER_ECOSYSTEM",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      it("excludes the 33-day-old Rotex item from opportunity hypotheses and retains it as a clearly labeled market signal", async () => {
         const mockPrisma = {
           opportunity: { findMany: async () => [] },
           normalizedSignal: { findMany: async () => [rotexSignal] },
+          rawSignal: { findMany: async () => [rotexSignal.rawSignal] },
         };
 
         const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
         expect(feed.success).toBe(true);
-        expect(feed.opportunityHypotheses).toHaveLength(1);
+        expect(feed.opportunityHypotheses).toHaveLength(0);
+        expect(feed.marketSignals).toHaveLength(1);
+        expect(feed.marketSignals[0].title).toContain("Rotex HPSU");
+        expect(feed.marketSignals[0].label).toBe("Market signal — not a validated business opportunity");
+      });
 
-        const hyp = feed.opportunityHypotheses[0];
-        expect(hyp.title).toContain("Rotex HPSU");
-        expect(hyp.observedFacts[0]).toContain("permanently reports Unbekannt");
-        // Must NOT use generic "Early Adopter Teams"
-        expect(hyp.businessHypothesis.targetAudience).not.toBe("Early Adopter Teams");
-        expect(hyp.businessHypothesis.targetAudience).toBe("IoT & Smart HVAC Firmware Engineers");
-        // Validation experiment must be tailored, not generic interviews
-        expect(hyp.businessHypothesis.validationExperiment).toContain("packet-sniffing decoder prototype");
-        expect(hyp.businessHypothesis.purchaseIntentStatus).toBe("UNKNOWN");
+      it("excludes the unsupported Slint bug hypothesis from opportunity hypotheses and retains it as a clearly labeled market signal", async () => {
+        const mockPrisma = {
+          opportunity: { findMany: async () => [] },
+          normalizedSignal: { findMany: async () => [slintSignal] },
+          rawSignal: { findMany: async () => [slintSignal.rawSignal] },
+        };
+
+        const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+        expect(feed.success).toBe(true);
+        expect(feed.opportunityHypotheses).toHaveLength(0);
+        expect(feed.marketSignals).toHaveLength(1);
+        expect(feed.marketSignals[0].title).toContain("LineEdit cannot accept Chinese IME input");
+        expect(feed.marketSignals[0].label).toBe("Market signal — not a validated business opportunity");
       });
 
       it("excludes academic research papers from opportunity hypotheses", async () => {
@@ -585,12 +621,13 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
         expect(feed.opportunityHypotheses).toHaveLength(0);
       });
 
-      it("evaluates all 5 live candidates simultaneously and retains ONLY the genuine breakdown (Rotex)", async () => {
+      it("evaluates all candidate items simultaneously and retains none as hypotheses without independent recurring evidence", async () => {
         const mockPrisma = {
           opportunity: { findMany: async () => [] },
           normalizedSignal: {
             findMany: async () => [
               rotexSignal,
+              slintSignal,
               ebayFeatureSignal,
               vaporwarePaperSignal,
               mountxLaunchSignal,
@@ -601,9 +638,7 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
 
         const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
         expect(feed.success).toBe(true);
-        // Exactly 1 hypothesis qualifies
-        expect(feed.opportunityHypotheses).toHaveLength(1);
-        expect(feed.opportunityHypotheses[0].title).toContain("Rotex HPSU");
+        expect(feed.opportunityHypotheses).toHaveLength(0);
       });
 
       it("excludes isolated automotive physical defects (Maextro brake pedals) from opportunity hypotheses", async () => {
@@ -688,21 +723,83 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
         expect(feed.marketSignals[0].title).toContain("docs: write the project skills in English");
       });
 
-      it("retains Rotex UART signal as hypothesis with plausible product direction and identifiable buyer", async () => {
+      it("qualifies a hypothesis when supported by independent multi-source corroboration within 14 days", async () => {
+        const mockMultiSourceOpp = {
+          id: "opp-multi-1",
+          slug: "cross-cloud-latency-alerting",
+          title: "Cross Cloud Latency Alerting",
+          oneSentenceSummary: "Monitors and alerts on inter-region latency spikes",
+          problemStatement: "Distributed streaming pipelines suffer recurring silent cross-region latency spikes costing hours of downtime.",
+          status: "DRAFT",
+          publicationQualityStatus: "HYPOTHESIS",
+          isDemoFixture: false,
+          createdAt: new Date(),
+          evidenceLinks: [
+            {
+              id: "link-1",
+              claimType: "PAIN_EXISTENCE",
+              normalizedSignal: {
+                id: "sig-1",
+                signalType: "PAIN_COMPLAINT",
+                purchaseIntent: false,
+                sourceTitle: "Cross-region network latency spike",
+                sanitizedExcerpt: "Recurring cross-region network latency spikes cause Kafka consumer group lag and manual failover headaches.",
+                problemSummary: "Cross-region latency spikes cause Kafka lag.",
+                canonicalUrl: "https://news.ycombinator.com/item?id=9928172",
+                rawSignal: {
+                  id: "raw-1",
+                  title: "Cross-region network latency spike",
+                  sourceUrl: "https://news.ycombinator.com/item?id=9928172",
+                  publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+                  createdAt: new Date(),
+                  source: {
+                    key: "hackernews",
+                    name: "Hacker News",
+                    sourceFamily: "COMMUNITY",
+                  },
+                },
+              },
+            },
+            {
+              id: "link-2",
+              claimType: "WORKAROUND_EXISTENCE",
+              normalizedSignal: {
+                id: "sig-2",
+                signalType: "WORKAROUND",
+                purchaseIntent: false,
+                sourceTitle: "Manual scripts to detect inter-region latency",
+                sanitizedExcerpt: "We built hacky workaround bash scripts to monitor AWS to GCP ping latency because native alerts fail silently.",
+                problemSummary: "Hacky bash scripts to detect inter-region latency.",
+                canonicalUrl: "https://lobste.rs/s/latency123",
+                rawSignal: {
+                  id: "raw-2",
+                  title: "Manual scripts to detect inter-region latency",
+                  sourceUrl: "https://lobste.rs/s/latency123",
+                  publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+                  createdAt: new Date(),
+                  source: {
+                    key: "lobsters",
+                    name: "Lobsters",
+                    sourceFamily: "COMMUNITY",
+                  },
+                },
+              },
+            },
+          ],
+        };
+
         const mockPrisma = {
-          opportunity: { findMany: async () => [] },
-          normalizedSignal: { findMany: async () => [rotexSignal] },
+          opportunity: { findMany: async () => [mockMultiSourceOpp] },
         };
 
         const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
         expect(feed.success).toBe(true);
         expect(feed.opportunityHypotheses).toHaveLength(1);
-        const hypo = feed.opportunityHypotheses[0];
-        expect(hypo.businessHypothesis.targetAudience).toBe("IoT & Smart HVAC Firmware Engineers");
-        expect(hypo.businessHypothesis.proposedSolution).toBe(
-          "Diagnostic serial bridge & protocol adapter CLI with automated frame parsing for legacy HVAC and sensor buses"
-        );
-        expect(hypo.businessHypothesis.validationExperiment).toContain("packet-sniffing decoder prototype");
+        const hyp = feed.opportunityHypotheses[0];
+        expect(hyp.title).toBe("Cross Cloud Latency Alerting");
+        expect(hyp.businessHypothesis.targetAudience).toBe("Distributed Systems & Streaming Infrastructure Engineers");
+        expect(hyp.businessHypothesis.validationExperiment).toBeDefined();
+        expect(hyp.businessHypothesis.purchaseIntentStatus).toBe("UNKNOWN");
       });
     });
   });
