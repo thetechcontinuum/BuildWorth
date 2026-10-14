@@ -463,4 +463,132 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
     expect(tedItems).toHaveLength(1);
     expect(githubItems.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("generates three distinct levels and computes daily personalized brief with theme metrics", async () => {
+    const now = new Date();
+    const mockNormalizedSignals = [
+      {
+        id: "norm-lead-1",
+        signalType: "PAIN",
+        sourceTitle: "Kafka consumer rebalance latency spikes under high partition churn",
+        sanitizedExcerpt: "Our streaming data consumers experience massive 45-second latency spikes when partitions rebalance, causing downstream data loss.",
+        problemSummary: "Streaming consumers suffer latency spikes and buffer overflow during partition rebalance.",
+        actorRole: "Streaming Platform Engineer",
+        canonicalUrl: "https://lobste.rs/s/kafka99",
+        rawSignal: {
+          id: "raw-lead-1",
+          sourceUrl: "https://lobste.rs/s/kafka99",
+          title: "Kafka consumer rebalance latency spikes under high partition churn",
+          publishedAt: now,
+          createdAt: now,
+          source: { key: "lobsters", name: "Lobsters", sourceFamily: "COMMUNITY", isEnabled: true, policyStatus: "ALLOWED" },
+        },
+      },
+    ];
+
+    const mockRawSignals = [
+      {
+        id: "raw-sig-1",
+        sourceUrl: "https://nvd.nist.gov/vuln/detail/CVE-2026-1111",
+        title: "CVE-2026-1111: Critical Auth Bypass",
+        rawContent: "Exploited vulnerability in enterprise gateway.",
+        publishedAt: now,
+        createdAt: now,
+        source: { key: "cisakev", name: "CISA KEV", sourceFamily: "DISCOVERY", isEnabled: true, policyStatus: "ALLOWED" },
+      },
+    ];
+
+    const mockCorroboratedOpp = {
+      id: "opp-corrob-1",
+      slug: "kubernetes-idle-gpu-watchdog",
+      title: "Kubernetes Idle GPU Watchdog & Job Reaper",
+      oneSentenceSummary: "Automatically detects and drains idle GPU instances on cloud clusters.",
+      problemStatement: "Machine learning teams leave idle H100 pods allocated, driving $20k monthly waste.",
+      industry: "Data Engineering & FinOps",
+      economicBuyer: "Head of Infrastructure",
+      endUser: "ML Platform Engineer",
+      proposedProduct: "Real-time Kubernetes daemonset measuring GPU utilization and auto-evicting dead jobs",
+      status: "DRAFT",
+      publicationQualityStatus: "HYPOTHESIS",
+      isDemoFixture: false,
+      createdAt: now,
+      evidenceLinks: [
+        {
+          id: "link-c-1",
+          normalizedSignal: {
+            id: "sig-c-1",
+            sourceTitle: "GPU cluster idle spend costing $20k monthly",
+            sanitizedExcerpt: "Idle GPU clusters draining infrastructure budget without monitoring.",
+            problemSummary: "GPU spend waste.",
+            canonicalUrl: "https://news.ycombinator.com/item?id=99999",
+            publishedAt: now,
+            rawSignal: {
+              id: "raw-c-1",
+              title: "GPU cluster idle spend costing $20k monthly",
+              sourceUrl: "https://news.ycombinator.com/item?id=99999",
+              createdAt: now,
+              publishedAt: now,
+              source: { key: "hackernews", name: "Hacker News", sourceFamily: "COMMUNITY", isEnabled: true },
+            },
+          },
+        },
+        {
+          id: "link-c-2",
+          normalizedSignal: {
+            id: "sig-c-2",
+            sourceTitle: "Cloud GPU cost overrun alerts missing in current k8s stack",
+            sanitizedExcerpt: "We cannot track dangling GPU allocations across teams in EKS.",
+            problemSummary: "Missing GPU cost watchdog.",
+            canonicalUrl: "https://lobste.rs/s/gpu001",
+            publishedAt: now,
+            rawSignal: {
+              id: "raw-c-2",
+              title: "Cloud GPU cost overrun alerts missing in current k8s stack",
+              sourceUrl: "https://lobste.rs/s/gpu001",
+              createdAt: now,
+              publishedAt: now,
+              source: { key: "lobsters", name: "Lobsters", sourceFamily: "COMMUNITY", isEnabled: true },
+            },
+          },
+        },
+      ],
+    };
+
+    const mockPrisma = {
+      opportunity: { findMany: async () => [mockCorroboratedOpp] },
+      normalizedSignal: { findMany: async () => mockNormalizedSignals },
+      rawSignal: { findMany: async () => mockRawSignals },
+    };
+
+    const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5, signalsLimit: 5 });
+
+    // 1. Level 1: Market Signals
+    expect(feed.marketSignals).toHaveLength(1);
+    expect(feed.marketSignals[0].sourceKey).toBe("cisakev");
+    expect(feed.marketSignals[0].label).toBe("Market signal — not a validated business opportunity");
+
+    // 2. Level 2: Research Leads (Uncorroborated single source with concrete problem)
+    expect(feed.researchLeads).toHaveLength(1);
+    const lead = feed.researchLeads[0];
+    expect(lead.title).toContain("Kafka consumer rebalance latency spikes");
+    expect(lead.plausibleBuyer).toBe("Streaming Platform Engineer");
+    expect(lead.aiAssumptions).toHaveLength(3);
+    expect(lead.concreteValidationStep).toBeDefined();
+    expect(lead.concreteValidationStep).toContain("rebalance benchmark");
+
+    // 3. Level 3: Corroborated Opportunities
+    expect(feed.opportunityHypotheses).toHaveLength(1);
+    expect(feed.opportunityHypotheses[0].title).toBe("Kubernetes Idle GPU Watchdog & Job Reaper");
+    expect(feed.opportunityHypotheses[0].signalCount).toBe(2);
+
+    // 4. Daily Brief Intelligence Summary
+    expect(feed.dailyBrief).toBeDefined();
+    expect(feed.dailyBrief?.date).toBe(now.toISOString().slice(0, 10));
+    expect(feed.dailyBrief?.themes).toHaveLength(5);
+
+    const dataFinOpsTheme = feed.dailyBrief?.themes.find((t) => t.theme === "Data Engineering & FinOps");
+    expect(dataFinOpsTheme).toBeDefined();
+    expect(dataFinOpsTheme?.corroboratedCount).toBe(1);
+    expect(dataFinOpsTheme?.topPainHeadline).toBe("Kubernetes Idle GPU Watchdog & Job Reaper");
+  });
 });

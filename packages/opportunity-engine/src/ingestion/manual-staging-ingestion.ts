@@ -52,6 +52,7 @@ export interface ManualIngestionOptions {
   maxHistoricalSignals?: number;
   maxPublishedOpportunities?: number;
   targetSourceKeys?: string[];
+  targetQueries?: string[];
   aiProvider?: LLMProvider;
   executionTimeoutMs?: number;
   cleanSyntheticPrior?: boolean;
@@ -1127,23 +1128,27 @@ export async function executeManualStagingIngestion(
     }[] = [];
 
     // Extract search keywords from existing unverified candidate problem statements
-    let targetQueries: string[] = [];
-    try {
-      const priorCandidates = await prisma.opportunity.findMany({
-        where: {
-          isDemoFixture: false,
-        },
-        select: { title: true, problemStatement: true },
-        take: 5,
-        orderBy: { createdAt: "desc" },
-      });
-      const texts = priorCandidates.map((c: any) => `${c.title || ""} ${c.problemStatement || ""}`);
-      targetQueries = extractTargetQueries(texts);
-      if (targetQueries.length > 0) {
-        logger.info("Targeting live searches for candidate keywords", { targetQueries });
+    let targetQueries: string[] = options.targetQueries && options.targetQueries.length > 0
+      ? [...options.targetQueries]
+      : [];
+    if (targetQueries.length === 0) {
+      try {
+        const priorCandidates = await prisma.opportunity.findMany({
+          where: {
+            isDemoFixture: false,
+          },
+          select: { title: true, problemStatement: true },
+          take: 5,
+          orderBy: { createdAt: "desc" },
+        });
+        const texts = priorCandidates.map((c: any) => `${c.title || ""} ${c.problemStatement || ""}`);
+        targetQueries = extractTargetQueries(texts);
+        if (targetQueries.length > 0) {
+          logger.info("Targeting live searches for candidate keywords", { targetQueries });
+        }
+      } catch (qErr: any) {
+        logger.warn("Could not extract candidate target queries", { error: qErr?.message });
       }
-    } catch (qErr: any) {
-      logger.warn("Could not extract candidate target queries", { error: qErr?.message });
     }
 
     perSourceStats = {};
@@ -1255,7 +1260,7 @@ export async function executeManualStagingIngestion(
           logger.warn("Checkpoint lookup warning", { source: src.key, error: cpErr?.message });
         }
 
-        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github")) {
+        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github" || src.key === "stackexchange")) {
           const queriesToRun = targetQueries.slice(0, 2);
           const perQuery = Math.max(2, Math.floor(srcSlots / queriesToRun.length));
           const fetchPromises = queriesToRun.map((q) =>
@@ -1497,7 +1502,7 @@ export async function executeManualStagingIngestion(
     const clusterCandidates: ClusterCandidate[] = [];
 
     for (const item of sanitizedSignalsToProcess) {
-      if (Date.now() > deadline - 12000) break;
+      if (Date.now() > deadline - 4000) break;
       if (typeof maxClassifiedSignals === "number" && clusterCandidates.length >= maxClassifiedSignals) break;
 
       try {
@@ -2232,11 +2237,13 @@ export async function executeManualStagingIngestion(
       candidateEvaluations,
     };
 
+    const finalCandidatesCount = Math.max(candidatesCount, candidateEvaluations.length);
+
     await markRunCompleted(prisma, runId, {
       totalFetched,
       totalDeduplicated,
       rawSignalsCount,
-      candidatesCount,
+      candidatesCount: finalCandidatesCount,
       publishedCount,
       publishedSlugs,
       summary: runSummary,
@@ -2262,7 +2269,7 @@ export async function executeManualStagingIngestion(
         deduplicated: totalDeduplicated,
         rawSignals: rawSignalsCount,
         rejected: totalRejected,
-        candidates: candidatesCount,
+        candidates: finalCandidatesCount,
         published: publishedCount,
       },
       publishedSlugs,
