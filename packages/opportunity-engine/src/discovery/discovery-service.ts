@@ -239,13 +239,29 @@ export function deriveSpecificAudience(text: string, actorRole?: string | null):
   if (lower.includes("database") || lower.includes("postgres") || lower.includes("mysql") || lower.includes("query timeout")) {
     return "Database Administrators & Backend Leads";
   }
-  if (lower.includes("kubernetes") || lower.includes("k8s") || lower.includes("pod") || lower.includes("ingress")) {
+  if (
+    lower.includes("kubernetes") ||
+    lower.includes("k8s") ||
+    lower.includes("pod") ||
+    lower.includes("ingress") ||
+    lower.includes("container") ||
+    lower.includes("oom") ||
+    lower.includes("oom-killed") ||
+    lower.includes("memory leak") ||
+    (lower.includes("production") && /\b(outage|crash|crashes|freeze|freezes|dies?|kill|killed|leaks?)\b/i.test(lower))
+  ) {
     return "Platform Engineering & Site Reliability Teams";
   }
   if (lower.includes("security") || lower.includes("vulnerability") || lower.includes("cve") || lower.includes("exploit")) {
     return "Security Operations & AppSec Engineers";
   }
-  if (lower.includes("ci/cd") || lower.includes("github actions") || lower.includes("pipeline") || lower.includes("docker")) {
+  if (
+    lower.includes("ci/cd") ||
+    lower.includes("github actions") ||
+    lower.includes("pipeline") ||
+    lower.includes("docker") ||
+    lower.includes("workflow")
+  ) {
     return "DevOps & Release Engineering Teams";
   }
   if (lower.includes("cloud") || lower.includes("aws") || lower.includes("latency") || lower.includes("network") || lower.includes("cross-cloud") || lower.includes("infrastructure")) {
@@ -324,6 +340,9 @@ export function derivePlausibleProductDirection(problemSummary: string, targetAu
   if (lower.includes("kubernetes") || lower.includes("k8s") || lower.includes("pod") || lower.includes("ingress")) {
     return "Automated ingress traffic triage & pod eviction root-cause visualizer for production clusters";
   }
+  if (lower.includes("container") || lower.includes("oom") || lower.includes("memory leak") || lower.includes("freezes")) {
+    return "Automated container memory profiling & leak watchdog with proactive session eviction for production workloads";
+  }
   if (lower.includes("security") || lower.includes("vulnerability") || lower.includes("cve")) {
     return "Continuous runtime vulnerability reachability analyzer with automated PR patch generation";
   }
@@ -352,6 +371,9 @@ export function deriveSpecificValidationExperiment(problemSummary: string, targe
   }
   if (lower.includes("security") || lower.includes("vulnerability") || lower.includes("cve")) {
     return "Scan 10 production staging clusters to measure exposure window and test automated mitigation rules";
+  }
+  if (lower.includes("container") || lower.includes("oom") || lower.includes("memory leak") || lower.includes("freeze")) {
+    return "Profile container heap dumps across 5 production deployments to benchmark memory leak trajectory and automated restart efficacy";
   }
 
   if (targetAudience && !targetAudience.startsWith("Unknown")) {
@@ -1001,13 +1023,46 @@ export async function getDailyDiscoveryFeed(
     }
 
     // 1b. If no candidate opportunity rows exist in database or we have capacity for research leads,
-    // evaluate unclustered signals directly from recent authentic NormalizedSignals.
-    if ((opportunityHypotheses.length < limit || researchLeads.length < researchLeadsLimit) && prisma.normalizedSignal?.findMany) {
+    // evaluate unclustered signals directly from recent authentic NormalizedSignals or RawSignals.
+    if (opportunityHypotheses.length < limit || researchLeads.length < researchLeadsLimit) {
       const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-      const unclusteredSignals = await prisma.normalizedSignal.findMany({
-        where: {
-          verificationStatus: { not: "REJECTED" },
-          rawSignal: {
+      let unclusteredSignals: any[] = [];
+
+      if (prisma.normalizedSignal?.findMany) {
+        unclusteredSignals = await prisma.normalizedSignal.findMany({
+          where: {
+            verificationStatus: { not: "REJECTED" },
+            rawSignal: {
+              source: {
+                isEnabled: true,
+                policyStatus: { not: "BLOCKED" },
+              },
+              publishedAt: {
+                not: null,
+                gte: fourteenDaysAgo,
+              },
+            },
+          },
+          orderBy: { publishedAt: "desc" },
+          take: 100,
+          include: {
+            rawSignal: {
+              include: {
+                source: true,
+              },
+            },
+          },
+        }).catch((err: any) => {
+          logger.warn("Failed to query unclustered NormalizedSignals", { error: err?.message || err });
+          return [];
+        });
+      }
+
+      // If no normalized signals exist (e.g. raw signals ingested directly without normalization worker),
+      // synthesize candidate signals from recent raw signals so genuine production issues are not lost.
+      if (unclusteredSignals.length === 0 && prisma.rawSignal?.findMany) {
+        const rawSignals = await prisma.rawSignal.findMany({
+          where: {
             source: {
               isEnabled: true,
               policyStatus: { not: "BLOCKED" },
@@ -1017,17 +1072,39 @@ export async function getDailyDiscoveryFeed(
               gte: fourteenDaysAgo,
             },
           },
-        },
-        orderBy: { publishedAt: "desc" },
-        take: 100,
-        include: {
-          rawSignal: {
-            include: {
-              source: true,
-            },
+          orderBy: { publishedAt: "desc" },
+          take: 100,
+          include: {
+            source: true,
+            normalizedSignal: true,
           },
-        },
-      }).catch(() => []);
+        }).catch((err: any) => {
+          logger.warn("Failed to query unclustered RawSignals for candidates", { error: err?.message || err });
+          return [];
+        });
+
+        unclusteredSignals = rawSignals.map((r: any) => {
+          if (r.normalizedSignal) {
+            return {
+              id: r.normalizedSignal.id || "norm-" + r.id,
+              ...r.normalizedSignal,
+              rawSignal: r,
+            };
+          }
+          return {
+            id: "norm-" + r.id,
+            rawSignalId: r.id,
+            rawSignal: r,
+            sourceTitle: r.title,
+            sanitizedExcerpt: r.rawContent ? r.rawContent.slice(0, 500) : r.title,
+            problemSummary: r.rawContent ? r.rawContent.slice(0, 500) : r.title,
+            signalType: "PAIN",
+            canonicalUrl: r.sourceUrl,
+            publishedAt: r.publishedAt,
+            verificationStatus: "UNVERIFIED",
+          };
+        });
+      }
 
       // Pass 1: Filter, corroborate, and score candidate signals
       const candidatePool: Array<{
@@ -1115,7 +1192,8 @@ export async function getDailyDiscoveryFeed(
           ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((ns.signalType || "").toUpperCase());
 
         const market = deriveMarketRegion(src.key, src.sourceFamily);
-        const safeSlug = (cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50) || "lead") + "-" + ns.id.slice(0, 8);
+        const signalId = String(ns.id || raw.id || "signal");
+        const safeSlug = (cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50) || "lead") + "-" + signalId.slice(0, 8);
 
         // Find corroborating signals from independent sources supporting the exact same problem
         const corroboratingSignals = unclusteredSignals.filter((otherNs: any) => {

@@ -361,5 +361,69 @@ describe("Opportunity Discovery Quality & Candidate Ranking Suite", () => {
       expect(feed.totalCount).toBe(0);
       expect(feed.hasItemsToday).toBe(false);
     });
+
+    it("surfaces genuine production container issues as unverified Research Leads while filtering obscure forum errors", async () => {
+      const now = new Date();
+      const mockRawSignals = [
+        // 1. Genuine production breakdown: container OOM killed -> MUST BE KEPT AS RESEARCH LEAD
+        {
+          id: "raw-prod-oom",
+          title: "Production container OOM-killed: Panel leaks every closed session (+ freezes, peaks, broken image build)",
+          sourceUrl: "https://github.com/tabedzki/channelmap_generator/issues/6",
+          rawContent: "The production container runs for a while and then dies with no traceback. Memory leaks every closed session.",
+          createdAt: now,
+          publishedAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
+          source: { key: "github", name: "GitHub Issues", sourceFamily: "DEVELOPER_ECOSYSTEM", isEnabled: true, policyStatus: "ALLOWED" },
+          normalizedSignal: null,
+        },
+        // 2. Obscure forum noise: GCC scalar initializer -> MUST BE FILTERED
+        {
+          id: "raw-so-gcc",
+          title: "GCC 6.5.0 C++11 compilation of concurrence.h: error: braces around scalar initializer for type ‘unsigned int’",
+          sourceUrl: "https://stackoverflow.com/questions/80009999/gcc-error",
+          rawContent: "compilation of concurrence.h: error: braces around scalar initializer",
+          createdAt: now,
+          publishedAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
+          source: { key: "stackexchange", name: "Stack Overflow", sourceFamily: "COMMUNITY", isEnabled: true, policyStatus: "ALLOWED" },
+          normalizedSignal: null,
+        },
+        // 3. Obscure forum noise: code 13 internal error -> MUST BE FILTERED
+        {
+          id: "raw-so-diarization",
+          title: "combining speaker diarization and speech adaptation causes a code 13 INTERNAL error",
+          sourceUrl: "https://stackoverflow.com/questions/80008888/diarization-error",
+          rawContent: "speech adaptation causes a code 13 INTERNAL error in isolated test",
+          createdAt: now,
+          publishedAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
+          source: { key: "stackexchange", name: "Stack Overflow", sourceFamily: "COMMUNITY", isEnabled: true, policyStatus: "ALLOWED" },
+          normalizedSignal: null,
+        },
+      ];
+
+      const mockPrisma = {
+        opportunity: { findMany: async () => [] },
+        normalizedSignal: { findMany: async () => [] },
+        rawSignal: { findMany: async () => mockRawSignals },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5, researchLeadsLimit: 5 });
+
+      expect(feed.opportunityHypotheses).toHaveLength(0); // Uncorroborated single GitHub issue cannot be a hypothesis
+      expect(feed.researchLeads).toHaveLength(1);
+
+      const lead = feed.researchLeads[0];
+      expect(lead.title).toContain("Production container OOM-killed");
+      expect(lead.status).toBe("RESEARCH_LEAD");
+      expect(lead.verificationStatus).toBe("UNVERIFIED");
+      expect(lead.likelyAffectedUsers).toBe("Platform Engineering & Site Reliability Teams");
+      expect(lead.priorityRank).toBe("MEDIUM");
+      expect(lead.candidateScore).toBeGreaterThanOrEqual(30);
+      expect(lead.concreteValidationStep).toContain("Profile container heap dumps");
+      expect(lead.evidenceGaps.length).toBeGreaterThanOrEqual(3);
+
+      const titles = feed.researchLeads.map((l) => l.title);
+      expect(titles).not.toContain("GCC 6.5.0 C++11 compilation of concurrence.h: error: braces around scalar initializer for type ‘unsigned int’");
+      expect(titles).not.toContain("combining speaker diarization and speech adaptation causes a code 13 INTERNAL error");
+    });
   });
 });
