@@ -1058,9 +1058,9 @@ export async function getDailyDiscoveryFeed(
         });
       }
 
-      // If no normalized signals exist (e.g. raw signals ingested directly without normalization worker),
-      // synthesize candidate signals from recent raw signals so genuine production issues are not lost.
-      if (unclusteredSignals.length === 0 && prisma.rawSignal?.findMany) {
+      // Ingest recent raw signals alongside normalized signals so genuine production issues
+      // not yet processed by the async normalization worker are evaluated as candidate leads.
+      if (prisma.rawSignal?.findMany) {
         const rawSignals = await prisma.rawSignal.findMany({
           where: {
             source: {
@@ -1083,27 +1083,37 @@ export async function getDailyDiscoveryFeed(
           return [];
         });
 
-        unclusteredSignals = rawSignals.map((r: any) => {
+        const seenRawIds = new Set(
+          unclusteredSignals
+            .map((s: any) => s.rawSignalId || s.rawSignal?.id)
+            .filter(Boolean),
+        );
+
+        for (const r of rawSignals) {
+          if (seenRawIds.has(r.id)) continue;
+          seenRawIds.add(r.id);
+
           if (r.normalizedSignal) {
-            return {
+            unclusteredSignals.push({
               id: r.normalizedSignal.id || "norm-" + r.id,
               ...r.normalizedSignal,
               rawSignal: r,
-            };
+            });
+          } else {
+            unclusteredSignals.push({
+              id: "norm-" + r.id,
+              rawSignalId: r.id,
+              rawSignal: r,
+              sourceTitle: r.title,
+              sanitizedExcerpt: r.rawContent ? r.rawContent.slice(0, 500) : r.title,
+              problemSummary: r.rawContent ? r.rawContent.slice(0, 500) : r.title,
+              signalType: "PAIN",
+              canonicalUrl: r.sourceUrl,
+              publishedAt: r.publishedAt,
+              verificationStatus: "UNVERIFIED",
+            });
           }
-          return {
-            id: "norm-" + r.id,
-            rawSignalId: r.id,
-            rawSignal: r,
-            sourceTitle: r.title,
-            sanitizedExcerpt: r.rawContent ? r.rawContent.slice(0, 500) : r.title,
-            problemSummary: r.rawContent ? r.rawContent.slice(0, 500) : r.title,
-            signalType: "PAIN",
-            canonicalUrl: r.sourceUrl,
-            publishedAt: r.publishedAt,
-            verificationStatus: "UNVERIFIED",
-          };
-        });
+        }
       }
 
       // Pass 1: Filter, corroborate, and score candidate signals
