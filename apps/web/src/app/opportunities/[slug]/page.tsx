@@ -1,16 +1,13 @@
-import {
-  SOC2_BLUEPRINT_DEV_FIXTURE,
-  SNOWFLAKE_BLUEPRINT_DEV_FIXTURE,
-} from "@/lib/blueprint-fixtures";
 import React from "react";
 import Link from "next/link";
-import { ArrowLeft, Users } from "lucide-react";
+import { ArrowLeft, Users, AlertTriangle, ShieldCheck } from "lucide-react";
 import { ClaimType, OpportunityBlueprint } from "@buildworth/shared";
 import { getStoredOpportunityBySlug, StoredOpportunity } from "@/lib/opportunity-store";
 import { cookies } from "next/headers";
 import { prisma, resolveServerSession } from "@buildworth/database";
 import { resolveUserEntitlements } from "@buildworth/entitlements";
 import { filterOpportunityForContext, filterFounderFitForContext } from "@buildworth/opportunity-engine";
+import { resolveBlueprintForOpportunity } from "@/lib/blueprint-resolver";
 
 import { MarketEvidenceSection } from "@/components/MarketEvidenceSection";
 import { ClaimEvidenceBadge } from "@/components/ClaimEvidenceBadge";
@@ -91,17 +88,49 @@ export default async function OpportunityDetailPage({
   const entitlementContext = resolveUserEntitlements(dbUser as any, new Date(), {
     isLiveEnvironment: isLive,
   });
-  let opp = getStoredOpportunityBySlug(params.slug);
+  let opp: StoredOpportunity | null = null;
+  let dbOppRecord: any = null;
   try {
     const dbOpp = await prisma.opportunity.findUnique({
       where: { slug: params.slug },
       include: {
         scorecards: { orderBy: { createdAt: "desc" }, take: 1 },
-        evidenceLinks: { include: { normalizedSignal: true } },
+        evidenceLinks: {
+          include: {
+            normalizedSignal: {
+              include: {
+                rawSignal: {
+                  include: { source: true },
+                },
+              },
+            },
+          },
+        },
+        revisions: {
+          orderBy: { revisionNumber: "desc" },
+          take: 1,
+          include: {
+            blueprint: {
+              include: {
+                customerSegments: true,
+                mvpFeatures: true,
+                competitors: true,
+                financialScenarios: true,
+                costLineItems: true,
+                benefitDrivers: true,
+                risks: true,
+                assumptions: true,
+                validationExperiments: true,
+                decisionEvaluation: true,
+              },
+            },
+          },
+        },
       },
     });
 
     if (dbOpp) {
+      dbOppRecord = dbOpp;
       const sc = dbOpp.scorecards[0];
       const evidenceLinks = (dbOpp.evidenceLinks || []).map((el: any) => ({
         id: el.id,
@@ -172,6 +201,11 @@ export default async function OpportunityDetailPage({
     console.error("Failed to load db opportunity for slug " + params.slug, err);
   }
 
+  // In non-production or test environments, allow checking stored opportunities
+  if (!opp && !isLive) {
+    opp = getStoredOpportunityBySlug(params.slug) || null;
+  }
+
   if (!opp) {
     return (
       <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
@@ -181,7 +215,7 @@ export default async function OpportunityDetailPage({
   }
 
   // Security & Boundary Guard: DRAFT opportunities are strictly inaccessible to non-administrators
-  const isDraftOpp = (opp as any).status === "DRAFT" || opp.publicationQualityStatus === "HYPOTHESIS";
+  const isDraftOpp = (opp as any).status === "DRAFT";
   if (isDraftOpp && (!sessionUser || sessionUser.role !== "ADMIN")) {
     return (
       <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
@@ -190,14 +224,11 @@ export default async function OpportunityDetailPage({
     );
   }
 
-  const isSnowflake = params.slug.includes("snowflake");
-  const fullBlueprintFixture: OpportunityBlueprint = isSnowflake
-    ? SNOWFLAKE_BLUEPRINT_DEV_FIXTURE
-    : SOC2_BLUEPRINT_DEV_FIXTURE;
-
-  const opportunityDTO = filterOpportunityForContext(opp, fullBlueprintFixture, entitlementContext);
+  const fullBlueprint: OpportunityBlueprint = resolveBlueprintForOpportunity(dbOppRecord || opp);
+  const opportunityDTO = filterOpportunityForContext(opp, fullBlueprint, entitlementContext);
 
   const hasAuthenticatedProfile = !!sessionUser;
+  const isSnowflake = params.slug.toLowerCase().includes("snowflake");
   let rawFitEvaluation: any = null;
   if (hasAuthenticatedProfile) {
     if (dbFitEvaluation) {
@@ -502,7 +533,9 @@ export default async function OpportunityDetailPage({
   const buyerDemandCount = getClaimEvidenceCount("BUYER_DEMAND");
 
   const isProContent = !opportunityDTO.isLocked && "blueprint" in opportunityDTO;
-  const blueprintData = isProContent ? opportunityDTO.blueprint : fullBlueprintFixture;
+  const blueprintData = isProContent ? opportunityDTO.blueprint : fullBlueprint;
+
+  const isVerifiedStatus = opp.publicationQualityStatus === "VERIFIED";
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto py-4">
@@ -525,6 +558,36 @@ export default async function OpportunityDetailPage({
           }
         />
       </div>
+
+      {/* Verification Status & Transparency Banner */}
+      {isVerifiedStatus ? (
+        <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-900/40 flex items-center justify-between gap-3 text-xs text-emerald-300">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>
+              <strong className="text-emerald-200">Policy v2.0.0 Verified Opportunity:</strong> Rigorously corroborated across at least 5 empirical signals and 3 independent sources.
+            </span>
+          </div>
+          <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            VERIFIED
+          </span>
+        </div>
+      ) : (
+        <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-900/40 flex items-start gap-3 text-xs text-amber-200/90">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <strong className="text-amber-300 font-semibold">Grounded Early Hypothesis:</strong>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                UNVERIFIED HYPOTHESIS
+              </span>
+            </div>
+            <p className="text-zinc-300">
+              Discovered from real recurring developer/market friction. Target buyer profiles, proposed product architecture, and willingness-to-pay are explicitly labeled as assumptions undergoing field validation under Policy v2.0.0.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 1. Executive Decision Summary Banner */}
       <ExecutiveDecisionSummary

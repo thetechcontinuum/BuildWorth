@@ -28,7 +28,8 @@ export function OpportunityFeedClient() {
   const [selectedIndustry, setSelectedIndustry] = useState<string>("ALL");
   const [minScore, setMinScore] = useState<number>(0);
   const [minConfidence, setMinConfidence] = useState<number>(0);
-  const [sortBy, setSortBy] = useState<string>("BEST_MATCH");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "VERIFIED" | "HYPOTHESIS">("ALL");
+  const [sortBy, setSortBy] = useState<string>("DATE");
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
 
   const fetchOpportunities = async () => {
@@ -75,6 +76,12 @@ export function OpportunityFeedClient() {
         if (op.confidenceScore < minConfidence) {
           return false;
         }
+        if (statusFilter === "VERIFIED" && op.publicationQualityStatus !== "VERIFIED") {
+          return false;
+        }
+        if (statusFilter === "HYPOTHESIS" && op.publicationQualityStatus === "VERIFIED") {
+          return false;
+        }
         return true;
       })
       .sort((a, b) => {
@@ -87,7 +94,7 @@ export function OpportunityFeedClient() {
         if (sortBy === "SIGNALS") return b.signalsCount - a.signalsCount;
         return 0;
       });
-  }, [opportunities, searchQuery, selectedIndustry, minScore, minConfidence, sortBy]);
+  }, [opportunities, searchQuery, selectedIndustry, minScore, minConfidence, statusFilter, sortBy]);
 
   const industries = [
     "ALL",
@@ -185,6 +192,39 @@ export function OpportunityFeedClient() {
         {/* Filters Row */}
         <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-800/80 text-xs">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 max-w-full">
+            <span className="text-zinc-500 font-mono text-[11px] mr-1">Status:</span>
+            <button
+              onClick={() => setStatusFilter("ALL")}
+              className={`px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors ${
+                statusFilter === "ALL"
+                  ? "bg-indigo-600 text-white font-medium shadow-sm"
+                  : "bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800"
+              }`}
+            >
+              All Briefs ({opportunities.length})
+            </button>
+            <button
+              onClick={() => setStatusFilter("VERIFIED")}
+              className={`px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors ${
+                statusFilter === "VERIFIED"
+                  ? "bg-emerald-600 text-white font-medium shadow-sm"
+                  : "bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800"
+              }`}
+            >
+              Policy v2.0.0 Verified ({opportunities.filter((o) => o.publicationQualityStatus === "VERIFIED").length})
+            </button>
+            <button
+              onClick={() => setStatusFilter("HYPOTHESIS")}
+              className={`px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors ${
+                statusFilter === "HYPOTHESIS"
+                  ? "bg-amber-600 text-white font-medium shadow-sm"
+                  : "bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800"
+              }`}
+            >
+              Early Hypotheses ({opportunities.filter((o) => o.publicationQualityStatus !== "VERIFIED").length})
+            </button>
+
+            <span className="text-zinc-600 mx-1">|</span>
             <Filter className="w-3.5 h-3.5 text-zinc-500 mr-1" />
             <span className="text-zinc-500 font-mono text-[11px] mr-1">Vertical:</span>
             {industries.map((ind) => (
@@ -276,12 +316,12 @@ export function OpportunityFeedClient() {
             </div>
             <h3 className="text-base font-semibold text-white">
               {opportunities.length === 0
-                ? "No Verified Opportunities Published Yet"
+                ? "No Opportunity Briefs Published Yet"
                 : "No Opportunities Match Selected Filters"}
             </h3>
             <p className="text-sm text-zinc-400 max-w-md mx-auto">
               {opportunities.length === 0
-                ? "Opportunities are only published to Verified after meeting strict Policy v2.0.0 criteria: at least 5 verified signals across 3 independent sources and 2 distinct families. Check the 'New Ideas to Explore' tab for early signals and emerging hypotheses."
+                ? "Market signals are continuously monitored. As concrete recurring problems and corroborating evidence are discovered and synthesized, briefs are published here automatically with explicit verification status."
                 : "Try resetting your filter parameters or search terms to see available opportunities."}
             </p>
             {opportunities.length > 0 && (
@@ -333,6 +373,14 @@ export function OpportunityFeedClient() {
                           <Sparkles className="w-3 h-3" /> NEW DISCOVERY
                         </span>
                       )}
+
+                      <span className="text-xs font-mono text-zinc-500 ml-auto">
+                        {new Date(op.publishedAt).toLocaleDateString(undefined, {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </span>
                     </div>
 
                     <Link href={`/opportunities/${op.slug}`} className="group block">
@@ -342,6 +390,37 @@ export function OpportunityFeedClient() {
                     </Link>
 
                     <p className="text-sm text-zinc-400 leading-relaxed">{op.summary}</p>
+
+                    {/* Cited Empirical Evidence Links */}
+                    {op.evidenceLinks && op.evidenceLinks.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[11px] font-mono text-zinc-500 uppercase tracking-wider block">
+                          Cited Evidence ({op.evidenceLinks.length} signal{op.evidenceLinks.length === 1 ? "" : "s"}):
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          {op.evidenceLinks.slice(0, 4).map((link, lIdx) => {
+                            const sig = link.signal;
+                            const targetUrl = sig?.canonicalUrl;
+                            const sourceLabel = sig?.sourceName || "Source";
+                            const excerptSnippet = sig?.sourceTitle || sig?.sanitizedExcerpt || "Evidence link";
+                            return targetUrl ? (
+                              <a
+                                key={lIdx}
+                                href={targetUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-950/80 border border-zinc-850 hover:border-indigo-500/50 text-[11px] text-zinc-300 hover:text-indigo-300 transition-colors font-mono"
+                                title={excerptSnippet}
+                              >
+                                <span className="text-indigo-400 font-semibold">{sourceLabel}:</span>
+                                <span className="truncate max-w-[180px] sm:max-w-[240px]">{excerptSnippet}</span>
+                                <ArrowRight className="w-3 h-3 text-zinc-500 shrink-0" />
+                              </a>
+                            ) : null;
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Phase 3 Dynamic Personalized Founder Fit Ribbon */}
                     {(() => {

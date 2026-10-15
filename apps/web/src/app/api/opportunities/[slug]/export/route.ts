@@ -4,10 +4,7 @@ import { prisma, resolveServerSession } from "@buildworth/database";
 import { resolveUserEntitlements } from "@buildworth/entitlements";
 import { executeOpportunityExport } from "@buildworth/opportunity-engine";
 import { getStoredOpportunityBySlug } from "@/lib/opportunity-store";
-import {
-  SOC2_BLUEPRINT_DEV_FIXTURE,
-  SNOWFLAKE_BLUEPRINT_DEV_FIXTURE,
-} from "@/lib/blueprint-fixtures";
+import { resolveBlueprintForOpportunity } from "@/lib/blueprint-resolver";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +57,31 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     });
 
     // Resolve Opportunity and Blueprint data from DB or store
-    let opp = await prisma.opportunity.findUnique({ where: { slug } });
+    let opp: any = await prisma.opportunity.findUnique({
+      where: { slug },
+      include: {
+        revisions: {
+          orderBy: { revisionNumber: "desc" },
+          take: 1,
+          include: {
+            blueprint: {
+              include: {
+                customerSegments: true,
+                mvpFeatures: true,
+                competitors: true,
+                financialScenarios: true,
+                costLineItems: true,
+                benefitDrivers: true,
+                risks: true,
+                assumptions: true,
+                validationExperiments: true,
+                decisionEvaluation: true,
+              },
+            },
+          },
+        },
+      },
+    });
     let revisionId: string | undefined;
 
     if (!opp) {
@@ -129,14 +150,13 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
       return NextResponse.json({ error: "Opportunity not found." }, { status: 404 });
     }
 
-    // Security Guard: Non-administrators cannot export DRAFT / HYPOTHESIS opportunities
-    const isDraftOpp = (opp as any).status === "DRAFT" || opp.publicationQualityStatus === "HYPOTHESIS";
+    // Security Guard: Non-administrators cannot export DRAFT opportunities
+    const isDraftOpp = (opp as any).status === "DRAFT";
     if (isDraftOpp && sessionUser.role !== "ADMIN") {
       return NextResponse.json({ error: "Opportunity not found." }, { status: 404 });
     }
 
-    const isSnowflake = slug.includes("snowflake");
-    const blueprintData = isSnowflake ? SNOWFLAKE_BLUEPRINT_DEV_FIXTURE : SOC2_BLUEPRINT_DEV_FIXTURE;
+    const blueprintData = resolveBlueprintForOpportunity(opp);
 
     const result = await executeOpportunityExport(prisma, sessionUser.id, slug, format, {
       context: entitlementContext,

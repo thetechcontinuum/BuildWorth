@@ -70,6 +70,13 @@ function createMockPrisma() {
       },
     },
     source: {
+      findFirst: async ({ where }: any) => {
+        return store.sources.find((s) => {
+          if (where?.key && s.key !== where.key) return false;
+          if (where?.isEnabled !== undefined && s.isEnabled !== where.isEnabled) return false;
+          return true;
+        }) || null;
+      },
       findMany: async ({ where, take }: any) => {
         let list = store.sources.filter((s) => {
           if (where.isEnabled !== undefined && s.isEnabled !== where.isEnabled) return false;
@@ -121,6 +128,14 @@ function createMockPrisma() {
           return true;
         }) || null;
       },
+      findMany: async ({ where, take }: any) => {
+        let list = store.rawSignals.filter((r) => {
+          if (where?.normalizedSignal === null && r.normalizedSignal) return false;
+          return true;
+        });
+        if (take) list = list.slice(0, take);
+        return list;
+      },
       create: async ({ data }: any) => {
         const rec = { id: "raw-" + (store.rawSignals.length + 1), ...data };
         store.rawSignals.push(rec);
@@ -128,8 +143,11 @@ function createMockPrisma() {
       },
     },
     normalizedSignal: {
-      findMany: async ({ take }: any) => {
-        let list = [...store.normalizedSignals];
+      findMany: async ({ where, take }: any) => {
+        let list = store.normalizedSignals.filter((n) => {
+          if (where?.evidenceLinks?.none && n.evidenceLinks?.length > 0) return false;
+          return true;
+        });
         if (take) list = list.slice(0, take);
         return list;
       },
@@ -1063,6 +1081,145 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       // Must not create any new opportunities from pure news
       expect(run.counters.published).toBe(0);
       expect(prisma._store.opportunities.length).toBe(0);
+    });
+
+    it("recovers and processes unnormalized RawSignals and unlinked NormalizedSignals without relying on fresh fetches", async () => {
+      const prisma = createMockPrisma();
+
+      // Seed an unnormalized raw signal with concrete problem friction
+      prisma._store.rawSignals.push({
+        id: "raw-backlog-1",
+        sourceId: "src-gh",
+        source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
+        externalId: "gh-backlog-12345",
+        sourceUrl: "https://github.com/org/repo/issues/12345",
+        title: "Docker container OOM memory leak in background worker",
+        rawContent: "Worker process leaks memory until container is OOM-killed, causing production pipeline failure",
+        contentHash: "hash-backlog-1",
+        normalizedSignal: null,
+        createdAt: new Date(Date.now() - 3600000),
+      });
+
+      // Global fetch returns empty so ingestion cannot depend on new network records
+      vi.stubGlobal("fetch", async () => {
+        return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
+      });
+
+      const problemAi: any = {
+        name: "problem-ai",
+        generateStructured: async (messages: any) => {
+          const userMsg = messages.find((m: any) => m.role === "user")?.content || "";
+          if (userMsg.includes("Classify this")) {
+            return {
+              data: { signalType: "PAIN", confidenceScore: 85 },
+              rawResponse: JSON.stringify({ signalType: "PAIN", confidenceScore: 85 }),
+            };
+          }
+          const data = {
+            signalType: "PAIN",
+            sanitizedExcerpt: userMsg.slice(0, 100),
+            problemSummary: "Docker container OOM memory leak in background worker",
+            actorRole: "DevOps Engineer",
+            workflowContext: "Containerized background processing",
+            severityScore: 4,
+            frequencyScore: 4,
+            intentToPayScore: 60,
+            extractedEntities: ["Docker", "Kubernetes", "Memory Leak"],
+            confidenceScore: 85,
+          };
+          return { data, rawResponse: JSON.stringify(data) };
+        },
+        generateEmbedding: async () => {
+          return { embedding: new Array(64).fill(0.2), dimensions: 64, costMinorUnits: 0 };
+        },
+      };
+
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-backlog-recovery-001",
+        aiProvider: problemAi,
+        maxCandidates: 3,
+        maxPublishedOpportunities: 3,
+        targetSourceKeys: ["github"],
+      });
+
+      expect(run.status).toBe("COMPLETED");
+      // The unnormalized signal was normalized and processed
+      expect(prisma._store.normalizedSignals.length).toBeGreaterThan(0);
+      // An opportunity brief was created and published as hypothesis
+      expect(prisma._store.opportunities.length).toBe(1);
+      const opp = prisma._store.opportunities[0];
+      expect(opp.status).toBe("PUBLISHED");
+      expect(opp.publicationQualityStatus).toBe("HYPOTHESIS");
+      expect(opp.economicBuyer).toContain("[Assumption]");
+      expect(opp.proposedProduct).toContain("[Assumption]");
+      expect(opp.targetCustomerSegments[0]).toContain("[Assumption]");
+      expect(opp.majorAssumptions.some((a: string) => a.startsWith("[Assumption]"))).toBe(true);
+      expect(run.counters.published).toBe(1);
+      expect(run.publishedSlugs).toContain(opp.slug);
+    });
+
+    it("persists each supported brief with explicit [Assumption] labels, validation experiment, and evidence gaps", async () => {
+      const prisma = createMockPrisma();
+
+      prisma._store.rawSignals.push({
+        id: "raw-backlog-2",
+        sourceId: "src-gh",
+        source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
+        externalId: "gh-backlog-9999",
+        sourceUrl: "https://github.com/org/repo/issues/9999",
+        title: "Dispatcher git push workaround failing silently in headless PR workflow",
+        rawContent: "Custom git push workaround fails silently when workflow dispatcher runs in headless mode",
+        contentHash: "hash-backlog-2",
+        normalizedSignal: null,
+        createdAt: new Date(),
+      });
+
+      vi.stubGlobal("fetch", async () => {
+        return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
+      });
+
+      const problemAi: any = {
+        name: "problem-ai-2",
+        generateStructured: async () => ({
+          data: {
+            signalType: "WORKAROUND",
+            sanitizedExcerpt: "Custom git push workaround fails silently",
+            problemSummary: "Dispatcher git push workaround failing silently in headless PR workflow",
+            actorRole: "DevOps Engineer",
+            workflowContext: "CI/CD Git workflows",
+            severityScore: 3,
+            frequencyScore: 3,
+            intentToPayScore: 40,
+            extractedEntities: ["Git", "GitHub Actions"],
+            confidenceScore: 80,
+          },
+          rawResponse: "{}",
+        }),
+        generateEmbedding: async () => ({
+          embedding: new Array(64).fill(0.3),
+          dimensions: 64,
+          costMinorUnits: 0,
+        }),
+      };
+
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-brief-assumptions-002",
+        aiProvider: problemAi,
+        targetSourceKeys: ["github"],
+      });
+
+      expect(run.status).toBe("COMPLETED");
+      expect(prisma._store.opportunities.length).toBe(1);
+      const opp = prisma._store.opportunities[0];
+
+      // Verification of requirement 3
+      expect(opp.status).toBe("PUBLISHED");
+      expect(opp.economicBuyer).toMatch(/^\[Assumption\]/);
+      expect(opp.proposedProduct).toMatch(/^\[Assumption\]/);
+      expect(opp.targetCustomerSegments[0]).toMatch(/^\[Assumption\]/);
+      expect(opp.recommendedNextExperiment).toBeDefined();
+      expect(opp.majorRisks.length).toBeGreaterThan(0); // Evidence gaps
+      expect(prisma._store.evidenceLinks.length).toBeGreaterThan(0); // Cited evidence
     });
   });
 });
