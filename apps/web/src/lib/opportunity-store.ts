@@ -446,7 +446,7 @@ export function getAllStoredOpportunities(): StoredOpportunity[] {
 }
 
 export function getStoredOpportunityBySlug(slug: string): StoredOpportunity | undefined {
-  return dynamicOpportunities.find((o) => o.slug === slug) || INITIAL_OPPORTUNITIES[0];
+  return dynamicOpportunities.find((o) => o.slug === slug);
 }
 
 export function addStoredOpportunity(opp: StoredOpportunity): void {

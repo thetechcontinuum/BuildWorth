@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const dbOpps = await prisma.opportunity.findMany({
-      where: { status: "PUBLISHED" },
+      where: { status: "PUBLISHED", isDemoFixture: false },
       include: {
         scorecards: {
           orderBy: { createdAt: "desc" },
@@ -18,7 +18,13 @@ export async function GET() {
         },
         evidenceLinks: {
           include: {
-            normalizedSignal: true,
+            normalizedSignal: {
+              include: {
+                rawSignal: {
+                  include: { source: true },
+                },
+              },
+            },
           },
         },
       },
@@ -42,12 +48,13 @@ export async function GET() {
           signal: el.normalizedSignal
             ? {
                 id: el.normalizedSignal.id,
-                sourceTitle: el.normalizedSignal.sourceTitle || "",
+                sourceTitle: el.normalizedSignal.sourceTitle || el.normalizedSignal.rawSignal?.title || "",
                 sanitizedExcerpt: el.normalizedSignal.sanitizedExcerpt || "",
-                canonicalUrl: el.normalizedSignal.canonicalUrl || "",
+                canonicalUrl: el.normalizedSignal.canonicalUrl || el.normalizedSignal.rawSignal?.sourceUrl || "",
                 signalType: el.normalizedSignal.signalType || "PAIN",
                 verificationStatus: el.normalizedSignal.verificationStatus || "VERIFIED",
                 confidenceScore: el.normalizedSignal.confidenceScore || 80,
+                sourceName: el.normalizedSignal.rawSignal?.source?.name || "Market Signal",
               }
             : undefined,
         }));
@@ -72,7 +79,7 @@ export async function GET() {
             max: o.estimatedTimeToMvpMaxWeeks,
           },
           buyer: o.economicBuyer,
-          signalsCount: evidenceLinks.length || 5,
+          signalsCount: evidenceLinks.length,
           recommendedExperiment: o.recommendedNextExperiment,
           jobsToBeDone: o.jobsToBeDone,
           narrowMvpScope: o.narrowMvpScope,

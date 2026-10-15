@@ -99,9 +99,9 @@ export function HomeTopOpportunitiesClient() {
           <div className="inline-flex p-3 rounded-full bg-zinc-800/50 text-zinc-400 mb-1">
             <ShieldCheck className="w-6 h-6 text-zinc-500" />
           </div>
-          <h3 className="text-base font-semibold text-white">No Verified Opportunities Published Yet</h3>
+          <h3 className="text-base font-semibold text-white">No Opportunities Published Yet</h3>
           <p className="text-sm text-zinc-400 max-w-md mx-auto">
-            Opportunities require at least 5 verified signals across 3 independent sources to achieve VERIFIED status under Policy v2.0.0. Early unverified signals and hypotheses are actively monitored in the Market Opportunity Feed below.
+            Continuous intelligence pipeline monitoring active. Fresh opportunity briefs appear here automatically as empirical market friction signals are processed and calibrated.
           </p>
         </div>
       ) : (
@@ -112,10 +112,21 @@ export function HomeTopOpportunitiesClient() {
               className="p-6 rounded-xl bg-zinc-900/60 border border-zinc-800 hover:border-zinc-700 transition-all flex flex-col justify-between space-y-6"
             >
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded">
-                    {op.industry}
-                  </span>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded">
+                      {op.industry}
+                    </span>
+                    {op.publicationQualityStatus === "VERIFIED" ? (
+                      <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        VERIFIED
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        EARLY HYPOTHESIS
+                      </span>
+                    )}
+                  </div>
                   <ScoreBadge score={op.opportunityScore} />
                 </div>
                 <h3 className="text-lg font-semibold text-white group-hover:text-indigo-400">
@@ -128,7 +139,7 @@ export function HomeTopOpportunitiesClient() {
 
               <div className="space-y-4 pt-4 border-t border-zinc-800/60">
                 <ConfidenceMeter confidence={op.confidenceScore} />
-                <div className="flex items-center justify-between text-xs text-zinc-400">
+                <div className="flex items-center justify-between text-xs text-zinc-400 flex-wrap gap-2">
                   <div>
                     <span className="text-zinc-500">Est. MVP:</span>{" "}
                     <span className="text-zinc-200 font-mono font-medium">
@@ -137,9 +148,16 @@ export function HomeTopOpportunitiesClient() {
                   </div>
                   <div>
                     <span className="text-zinc-500">Buyer:</span>{" "}
-                    <span className="text-zinc-200 font-medium">{op.buyer}</span>
+                    <span className="text-zinc-200 font-medium">
+                      {op.buyer.replace("[Assumption] Inferred Buyer: ", "[Assumption] ")}
+                    </span>
                   </div>
                 </div>
+                {op.publishedAt && (
+                  <div className="text-[11px] font-mono text-zinc-500 pt-1">
+                    Published: {new Date(op.publishedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </div>
+                )}
               </div>
             </div>
           ))}

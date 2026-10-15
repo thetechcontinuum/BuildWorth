@@ -10,8 +10,7 @@ export default function HomePage() {
       {/* Hero Section */}
       <section className="text-center space-y-4 max-w-3xl mx-auto pt-8">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-          <Activity className="w-3.5 h-3.5 animate-pulse" /> Radar Active: 4,120 Market Signals
-          Analyzed
+          <Activity className="w-3.5 h-3.5 animate-pulse" /> Live Market Intelligence: Continuous Problem Detection
         </div>
         <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">
           Discover Startup Ideas Grounded in{" "}
