@@ -60,6 +60,8 @@ export interface ResearchLeadFeedItemDTO {
   isPromoted: boolean;
   problemSummary?: string;
   status: "RESEARCH_LEAD";
+  priorityRank?: "HIGH" | "MEDIUM" | "LOW";
+  candidateScore?: number;
 }
 
 export interface MarketSignalFeedItemDTO {

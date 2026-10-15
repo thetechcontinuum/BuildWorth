@@ -164,10 +164,43 @@ export function isConcreteProblemOrWorkaround(signal: {
     }
   }
 
-  // 9. Explicit concrete friction / breakdown / workaround / cost pain indicators
+  // 9. Strict Exclusions: Isolated compiler, linker, syntax errors, and language-specific typos/toy errors
+  // without broader workflow friction, tooling demand, or production impact.
+  // e.g. "error: braces around scalar initializer for type...", "undefined reference to...", "syntax error: unexpected token"
+  const isCompilerOrSyntaxTypo =
+    /\b(scalar initializer for type|braces around scalar initializer|undefined reference to|cannot convert ['"].*['"] to|no matching function for call to|template argument deduction\/substitution failed|conflicting types for|stray ['"]?\\['"]? in program|expected [a-z0-9_<>]+ before|invalid conversion from|cannot find module .* or its corresponding type declarations|unhandled recheck error|syntaxerror:|typeerror: .* is not a function|nullpointerexception|attributeerror: '.*' object has no attribute|nameerror: name '.*' is not defined|indexoutofboundsexception|referenceerror: .* is not defined)\b/i.test(fullText);
+
+  if (isCompilerOrSyntaxTypo) {
+    if (!/\b(production outage|cluster failure|downtime|cost spike|data loss|data corruption|affects all teams|across multiple repositories)\b/i.test(fullText)) {
+      return false;
+    }
+  }
+
+  // 10. Strict Exclusions: Isolated internal API / library status codes lacking systemic operational context
+  // e.g. "combining speaker diarization and speech adaptation causes a code 13 INTERNAL error"
+  const isIsolatedInternalCode =
+    /\b(code 13 internal error|status code \d{3} in my test|causes a code \d+ internal error|returns code \d+ internal)\b/i.test(fullText) ||
+    /causes a code \d+ internal error/i.test(title);
+
+  if (isIsolatedInternalCode) {
+    if (!/\b(production outage|downtime|cost spike|data loss|workaround|hacky workaround|manual fix)\b/i.test(fullText)) {
+      return false;
+    }
+  }
+
+  // 11. Strict Exclusions: Beginner styling, spreadsheet quirks, or toy script questions
+  // e.g. "Similar Link Between Excel Files Update When Not Asked", "How do I fix an image repeating in background"
+  if (
+    /\b(similar link between excel files|fix an image ["']?repeating["']?|center a div|background of a html website)\b/i.test(fullText) ||
+    /^(how do i fix|how to fix|center a div|repeating in the background)\b/i.test(title)
+  ) {
+    return false;
+  }
+
+  // 12. Explicit concrete friction / breakdown / workaround / cost pain indicators
   // The excerpt or title must describe actual failure, broken functionality, error, or manual hack
   const hasConcreteBreakdown =
-    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|throttled|timeout|workaround|hacky workaround|manual fix|costing|ruined|waste|wasted|unexpected spend|bill spike)\b/i.test(fullText);
+    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes)\b/i.test(fullText);
 
   // High quality problem types from GitHub / StackOverflow / HN or unclassified signals with problem keywords
   const isProblemType = [
@@ -181,7 +214,7 @@ export function isConcreteProblemOrWorkaround(signal: {
     "UNCLASSIFIED",
   ].includes(sigType);
 
-  return hasConcreteBreakdown || (isProblemType && /\b(error|bug|issue|failure|broken|problem|bottleneck|friction|pain|cost|spend|waste|latency|spike)\b/i.test(fullText));
+  return hasConcreteBreakdown || (isProblemType && /\b(error|bug|issue|failure|broken|problem|bottleneck|friction|pain|cost|spend|waste|latency|spikes?|deadlock|deadlocks|downtime)\b/i.test(fullText));
 }
 
 /**
@@ -233,7 +266,14 @@ export function deriveSpecificAudience(text: string, actorRole?: string | null):
   if (lower.includes("hardware") || lower.includes("embedded") || lower.includes("firmware")) {
     return "Embedded Systems & Hardware Engineering Teams";
   }
-  if (lower.includes("visual studio") || lower.includes("vsix") || lower.includes("compiler") || lower.includes("template") || lower.includes("ide") || lower.includes("extension") || lower.includes("sdk")) {
+  if (
+    lower.includes("visual studio") ||
+    lower.includes("vsix") ||
+    /\b(compiler (toolchain|infrastructure|architecture|plugin|backend|frontend)|llvm|clang|tree-sitter|language server|custom compiler)\b/i.test(lower) ||
+    lower.includes("ide plugin") ||
+    lower.includes("extension") ||
+    lower.includes("sdk")
+  ) {
     return "Software Tooling & Systems Developers";
   }
   if (lower.includes("linux") || lower.includes("sysadmin") || lower.includes("storage") || lower.includes("server") || lower.includes("kernel")) {
@@ -492,6 +532,195 @@ export function evaluateResearchLeadPromotion(
       "Only observed in a single source; lacks corroboration from independent sources",
       "Must remain strictly labeled UNVERIFIED until independent proof of recurrence is collected",
     ],
+  };
+}
+
+export interface CandidateScoringInput {
+  title?: string | null;
+  sanitizedExcerpt?: string | null;
+  problemSummary?: string | null;
+  signalType?: string | null;
+  purchaseIntent?: boolean | null;
+  actorRole?: string | null;
+  rawContent?: string | null;
+  canonicalUrl?: string | null;
+  sourceKey?: string | null;
+  sourceFamily?: string | null;
+  metadata?: any;
+  corroboratingSignals?: Array<{
+    id?: string;
+    sourceTitle?: string;
+    canonicalUrl?: string;
+    sourceName?: string;
+    sourceFamily?: string;
+    sourceKey?: string;
+    actorRole?: string;
+  }>;
+}
+
+export interface CandidateQualityScore {
+  totalScore: number;
+  operationalFailureScore: number;
+  recurrenceScore: number;
+  costlyWorkaroundScore: number;
+  independenceScore: number;
+  purchaseIntentScore: number;
+  noisePenalty: number;
+  rankPriority: "HIGH" | "MEDIUM" | "LOW" | "NOISE";
+  reasons: string[];
+}
+
+/**
+ * Scores and prioritizes candidate signals for opportunity discovery.
+ * Prioritizes:
+ * 1. Recurrence evidence (cadence, frequent repetition, cross-team scope, community score)
+ * 2. Costly workarounds (manual hacks, stopgaps, cloud bill spikes, engineering downtime)
+ * 3. Independent users/sources (multi-source corroboration, distinct authors)
+ * 4. Explicit purchase intent (commercial buying language, budget, willingness to pay)
+ * Demotes isolated obscure errors (syntax typos, compiler flags, internal status codes) to NOISE.
+ */
+export function scoreCandidateQuality(input: CandidateScoringInput): CandidateQualityScore {
+  const title = (input.title || "").trim();
+  const excerpt = (input.sanitizedExcerpt || "").trim();
+  const summary = (input.problemSummary || "").trim();
+  const rawContent = (input.rawContent || "").trim();
+  const fullText = `${title} ${excerpt} ${summary} ${rawContent}`.toLowerCase();
+  const reasons: string[] = [];
+
+  let operationalFailureScore = 0;
+  let recurrenceScore = 0;
+  let costlyWorkaroundScore = 0;
+  let independenceScore = 0;
+  let purchaseIntentScore = 0;
+  let noisePenalty = 0;
+
+  // 1. Concrete Operational Breakdown / Problem Baseline (up to 15 points)
+  if (
+    /\b(broken|breaks|breaking (build|pipeline|automation|tests)|broken (build|pipeline)|build automation|fails|failing|failed|crash|crashes|leak|leaks|silent failure|data corruption|unable to parse|cannot decode|outage|throttled|timeout|permission denied|unusable)\b/i.test(fullText)
+  ) {
+    operationalFailureScore = 15;
+    reasons.push("Concrete operational failure or broken workflow verified");
+  }
+
+  // 2. Evidence of Recurrence (up to 40 points)
+  if (
+    /\b(recurring|recurs|constant(ly)?|every (day|week|sprint|release|hour|month)|daily|weekly|repeatedly|ongoing|intermittent(ly)?|keeps happening|frequently|all the time|continuous(ly)?)\b/i.test(fullText)
+  ) {
+    recurrenceScore += 15;
+    reasons.push("Explicit recurring cadence or frequent repetition observed");
+  }
+  if (
+    /\b(across (all|multiple|our) (teams|clusters|nodes|environments|services|repos|tenants|pods)|reproducible across|every engineer|all developers|multiple users reporting|affects multiple|widespread)\b/i.test(fullText)
+  ) {
+    recurrenceScore += 15;
+    reasons.push("Multi-environment or multi-team organizational impact observed");
+  }
+  const meta = input.metadata || {};
+  if (typeof meta.score === "number" && meta.score >= 20) {
+    recurrenceScore += 10;
+    reasons.push(`High community verification score (${meta.score} upvotes)`);
+  } else if (typeof meta.score === "number" && meta.score >= 5) {
+    recurrenceScore += 5;
+    reasons.push(`Community verification score (${meta.score} upvotes)`);
+  }
+  if (typeof meta.viewCount === "number" && meta.viewCount >= 1000) {
+    recurrenceScore += 5;
+    reasons.push(`Broad organic visibility (${meta.viewCount} views)`);
+  }
+  recurrenceScore = Math.min(40, recurrenceScore);
+
+  // 2. Costly Workarounds & Operational Waste (up to 40 points)
+  if (
+    /\b(workaround|hacky workaround|manual fix|temporary script|manual reconciliation|custom script to|have to manually|have to restart|cron job to kill|rebooting|patching every time|bandaid|stopgap)\b/i.test(fullText)
+  ) {
+    costlyWorkaroundScore += 20;
+    reasons.push("Manual stopgap or hacky workaround required in workflow");
+  }
+  if (
+    /\b(costs? \$|\$([0-9,]+)|bill spike|unexpected spend|idle spend|cloud bill|wasted (days|weeks|hours)|\d+\s*hours (spent|wasted|debugging)|downtime|outage|sla breach|production failure|data loss|data corruption|memory leak in production|oom-killed|production container)\b/i.test(fullText)
+  ) {
+    costlyWorkaroundScore += 20;
+    reasons.push("Quantified financial loss, engineering time waste, or production downtime");
+  }
+  costlyWorkaroundScore = Math.min(40, costlyWorkaroundScore);
+
+  // 3. Independent Users & Multi-Source Corroboration (up to 35 points)
+  const corroborating = input.corroboratingSignals || [];
+  if (corroborating.length >= 2) {
+    independenceScore += 35;
+    reasons.push(`Corroborated across ${corroborating.length + 1} independent sources`);
+  } else if (corroborating.length === 1) {
+    independenceScore += 20;
+    reasons.push("Corroborated by independent secondary source");
+  }
+  independenceScore = Math.min(35, independenceScore);
+
+  // 4. Explicit Purchase Intent & Commercial Signals (up to 45 points)
+  const sigType = (input.signalType || "").toUpperCase();
+  if (input.purchaseIntent === true || ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes(sigType)) {
+    purchaseIntentScore += 25;
+    reasons.push("Explicit commercial purchase intent flagged");
+  }
+  if (
+    /\b(willing to pay|looking for a (paid|commercial|enterprise) (tool|solution|alternative)|budget for|procuring|ready to buy|would pay|paying customer|commercial license|rfp|procurement)\b/i.test(fullText)
+  ) {
+    purchaseIntentScore += 20;
+    reasons.push("Direct commercial buying intent language in source text");
+  }
+  purchaseIntentScore = Math.min(45, purchaseIntentScore);
+
+  // 5. Obscurity & Noise Penalties (-100 to 0 points)
+  if (
+    /\b(scalar initializer for type|braces around scalar initializer|undefined reference to|cannot convert ['"].*['"] to|stray ['"]?\\['"]? in program|syntaxerror:|typeerror: .* is not a function|nullpointerexception|attributeerror: '.*' object has no attribute|nameerror: name '.*' is not defined|indexoutofboundsexception|referenceerror: .* is not defined)\b/i.test(fullText)
+  ) {
+    if (!/\b(production outage|cluster failure|downtime|cost spike|data loss)\b/i.test(fullText)) {
+      noisePenalty -= 80;
+      reasons.push("Demoted: isolated compiler/syntax/runtime error without production impact");
+    }
+  }
+  if (
+    /\b(code 13 internal error|status code \d{3} in my test|causes a code \d+ internal error)\b/i.test(fullText)
+  ) {
+    if (!/\b(outage|downtime|workaround|cost spike|data loss)\b/i.test(fullText)) {
+      noisePenalty -= 60;
+      reasons.push("Demoted: isolated internal API status code without operational friction");
+    }
+  }
+  if (
+    operationalFailureScore === 0 &&
+    recurrenceScore === 0 &&
+    costlyWorkaroundScore === 0 &&
+    independenceScore === 0 &&
+    purchaseIntentScore === 0
+  ) {
+    noisePenalty -= 15;
+    reasons.push("Demoted: single-user observation lacking recurrence, failure, or workaround evidence");
+  }
+  noisePenalty = Math.max(-100, noisePenalty);
+
+  const totalScore = operationalFailureScore + recurrenceScore + costlyWorkaroundScore + independenceScore + purchaseIntentScore + noisePenalty;
+
+  let rankPriority: "HIGH" | "MEDIUM" | "LOW" | "NOISE" = "LOW";
+  if (totalScore >= 50) {
+    rankPriority = "HIGH";
+  } else if (totalScore >= 25) {
+    rankPriority = "MEDIUM";
+  } else if (totalScore > 0) {
+    rankPriority = "LOW";
+  } else {
+    rankPriority = "NOISE";
+  }
+
+  return {
+    totalScore,
+    operationalFailureScore,
+    recurrenceScore,
+    costlyWorkaroundScore,
+    independenceScore,
+    purchaseIntentScore,
+    noisePenalty,
+    rankPriority,
+    reasons,
   };
 }
 
@@ -800,8 +1029,33 @@ export async function getDailyDiscoveryFeed(
         },
       }).catch(() => []);
 
+      // Pass 1: Filter, corroborate, and score candidate signals
+      const candidatePool: Array<{
+        ns: any;
+        raw: any;
+        src: any;
+        canonical: string;
+        cleanTitle: string;
+        fullProblemText: string;
+        targetAudience: string;
+        obsDateIso: string;
+        corroboratingSignals: any[];
+        promotionEval: ResearchLeadPromotionEvaluation;
+        score: CandidateQualityScore;
+        effectiveSourceKey: string;
+        pubTime: number;
+        hasExplicitPurchaseIntent: boolean;
+        hasRecurringProblemEvidence: boolean;
+        isGitHub: boolean;
+        painFriction: string;
+        proposedSolution: string;
+        validationExperiment: string;
+        market: string;
+        safeSlug: string;
+        observation: any;
+      }> = [];
+
       for (const ns of unclusteredSignals) {
-        if (opportunityHypotheses.length >= limit && researchLeads.length >= researchLeadsLimit) break;
         const raw = ns.rawSignal;
         const src = raw?.source;
         if (!raw || !src) continue;
@@ -815,16 +1069,7 @@ export async function getDailyDiscoveryFeed(
           continue;
         }
 
-        // 2. A single GitHub issue is only a Market Signal unless independent evidence confirms the broader need
         const canonical = ns.canonicalUrl || raw.sourceUrl || "";
-        const isGitHub =
-          src.key === "github" ||
-          canonical.toLowerCase().includes("github.com") ||
-          src.sourceFamily === "DEVELOPER_ECOSYSTEM";
-
-        if (isGitHub) {
-          continue;
-        }
 
         // Strictly verify that this signal contains authentic problem / workaround / unmet need evidence
         const isActionable = isConcreteProblemOrWorkaround({
@@ -838,16 +1083,6 @@ export async function getDailyDiscoveryFeed(
         });
 
         if (!isActionable) continue;
-
-        const urlKey = canonical ? canonical.toLowerCase().trim() : "";
-        const titleKey = (raw.title || ns.sourceTitle || "").toLowerCase().trim();
-
-        if (urlKey && (seenUrls.has(urlKey) || leadSeenUrls.has(urlKey))) continue;
-        if (titleKey && (seenTitles.has(titleKey) || leadSeenTitles.has(titleKey))) continue;
-
-        const effectiveSourceKey = src.key || "unknown";
-        const currentSourceCount = sourceCounts.get(effectiveSourceKey) || 0;
-        const currentLeadSourceCount = leadSourceCounts.get(effectiveSourceKey) || 0;
 
         const title = raw.title || ns.sourceTitle || "Unmet Need Identified in Market Discussion";
         const cleanTitle = title.replace(/\s+/g, " ").trim();
@@ -879,9 +1114,6 @@ export async function getDailyDiscoveryFeed(
           ns.purchaseIntent === true ||
           ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY"].includes((ns.signalType || "").toUpperCase());
 
-        const hasRecurringProblemEvidence =
-          /\b(recurring|recurs|constant(ly)?|every (day|week|month|hour)|daily|repeatedly|ongoing|workaround|hacky workaround|manual fix|costs? \$|\$([0-9,]+)\/(mo|month|yr|year)|bill spike|idle spend)\b/i.test(fullProblemText);
-
         const market = deriveMarketRegion(src.key, src.sourceFamily);
         const safeSlug = (cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50) || "lead") + "-" + ns.id.slice(0, 8);
 
@@ -893,7 +1125,7 @@ export async function getDailyDiscoveryFeed(
           if (!otherRaw || !otherSrc) return false;
 
           const otherCanonical = otherNs.canonicalUrl || otherRaw.sourceUrl || "";
-          const isActionable = isConcreteProblemOrWorkaround({
+          const otherIsActionable = isConcreteProblemOrWorkaround({
             title: otherRaw.title || otherNs.sourceTitle,
             sanitizedExcerpt: otherNs.sanitizedExcerpt,
             problemSummary: otherNs.problemSummary,
@@ -902,7 +1134,7 @@ export async function getDailyDiscoveryFeed(
             sourceKey: otherSrc.key,
             sourceFamily: otherSrc.sourceFamily,
           });
-          if (!isActionable) return false;
+          if (!otherIsActionable) return false;
 
           const isIndependent = isIndependentSource(
             { key: src.key, sourceFamily: src.sourceFamily, canonicalUrl: canonical },
@@ -917,6 +1149,34 @@ export async function getDailyDiscoveryFeed(
             `${otherNs.sourceTitle || ""} ${otherNs.problemSummary || ""} ${otherNs.sanitizedExcerpt || ""}`,
           );
         });
+
+        // Compute Candidate Quality Score (recurrence, costly workarounds, independent users, purchase intent, noise penalties)
+        const score = scoreCandidateQuality({
+          title: cleanTitle,
+          sanitizedExcerpt: ns.sanitizedExcerpt,
+          problemSummary: ns.problemSummary,
+          signalType: ns.signalType,
+          purchaseIntent: ns.purchaseIntent,
+          actorRole: ns.actorRole,
+          rawContent: raw.rawContent,
+          canonicalUrl: canonical,
+          sourceKey: src.key,
+          sourceFamily: src.sourceFamily,
+          metadata: raw.metadata,
+          corroboratingSignals: corroboratingSignals.map((cs: any) => ({
+            id: cs.id,
+            sourceTitle: cs.rawSignal?.title || cs.sourceTitle,
+            canonicalUrl: cs.canonicalUrl || cs.rawSignal?.sourceUrl,
+            sourceKey: cs.rawSignal?.source?.key,
+            sourceName: cs.rawSignal?.source?.name,
+            sourceFamily: cs.rawSignal?.source?.sourceFamily,
+          })),
+        });
+
+        // Demote and filter out obscure noise or non-positive score items from becoming Research Leads or Hypotheses
+        if (score.rankPriority === "NOISE" || score.totalScore <= 0) {
+          continue;
+        }
 
         const promotionEval = evaluateResearchLeadPromotion(
           {
@@ -936,9 +1196,84 @@ export async function getDailyDiscoveryFeed(
           })),
         );
 
-        // Promote when independent sources support the same problem (or proven recurring problem evidence exists)
+        const isGitHub =
+          src.key === "github" ||
+          canonical.toLowerCase().includes("github.com") ||
+          src.sourceFamily === "DEVELOPER_ECOSYSTEM";
+
+        const hasRecurringProblemEvidence =
+          /\b(recurring|recurs|constant(ly)?|every (day|week|month|hour)|daily|repeatedly|ongoing|workaround|hacky workaround|manual fix|costs? \$|\$([0-9,]+)\/(mo|month|yr|year)|bill spike|idle spend)\b/i.test(fullProblemText);
+
+        candidatePool.push({
+          ns,
+          raw,
+          src,
+          canonical,
+          cleanTitle,
+          fullProblemText,
+          targetAudience,
+          obsDateIso,
+          corroboratingSignals,
+          promotionEval,
+          score,
+          effectiveSourceKey: src.key || "unknown",
+          pubTime: obsTime,
+          hasExplicitPurchaseIntent,
+          hasRecurringProblemEvidence,
+          isGitHub,
+          painFriction,
+          proposedSolution,
+          validationExperiment,
+          market,
+          safeSlug,
+          observation,
+        });
+      }
+
+      // Pass 2: Sort candidates by quality score descending (ties broken by recency descending)
+      candidatePool.sort((a, b) => b.score.totalScore - a.score.totalScore || b.pubTime - a.pubTime);
+
+      // Pass 3: Process ranked candidates into Opportunity Hypotheses and Research Leads
+      for (const candidate of candidatePool) {
+        if (opportunityHypotheses.length >= limit && researchLeads.length >= researchLeadsLimit) break;
+
+        const {
+          ns,
+          raw,
+          canonical,
+          cleanTitle,
+          fullProblemText,
+          targetAudience,
+          obsDateIso,
+          corroboratingSignals,
+          promotionEval,
+          score,
+          effectiveSourceKey,
+          hasExplicitPurchaseIntent,
+          hasRecurringProblemEvidence,
+          isGitHub,
+          painFriction,
+          proposedSolution,
+          validationExperiment,
+          market,
+          safeSlug,
+          observation,
+        } = candidate;
+
+        const urlKey = canonical ? canonical.toLowerCase().trim() : "";
+        const titleKey = cleanTitle.toLowerCase().trim();
+
+        if (urlKey && (seenUrls.has(urlKey) || leadSeenUrls.has(urlKey))) continue;
+        if (titleKey && (seenTitles.has(titleKey) || leadSeenTitles.has(titleKey))) continue;
+
+        const currentSourceCount = sourceCounts.get(effectiveSourceKey) || 0;
+        const currentLeadSourceCount = leadSourceCounts.get(effectiveSourceKey) || 0;
+
+        // Promote when independent sources support the same problem, or when high-priority verified recurring friction is present.
+        // A single GitHub issue is NEVER promoted without independent corroboration.
         const qualifiesForHypothesis =
-          promotionEval.isEligibleForPromotion || hasExplicitPurchaseIntent || hasRecurringProblemEvidence;
+          promotionEval.isEligibleForPromotion ||
+          (!isGitHub && (hasExplicitPurchaseIntent || (hasRecurringProblemEvidence && score.rankPriority === "HIGH")));
 
         if (qualifiesForHypothesis && opportunityHypotheses.length < limit && currentSourceCount < maxItemsPerSource) {
           if (urlKey) seenUrls.add(urlKey);
@@ -963,7 +1298,6 @@ export async function getDailyDiscoveryFeed(
               publishedAt: csPubIso,
             });
 
-            // Mark corroborating signals as seen to prevent duplicate listing
             if (csCanonical) {
               seenUrls.add(csCanonical.toLowerCase().trim());
               leadSeenUrls.add(csCanonical.toLowerCase().trim());
@@ -1037,6 +1371,8 @@ export async function getDailyDiscoveryFeed(
             isPromoted: false,
             problemSummary: painFriction,
             status: "RESEARCH_LEAD",
+            priorityRank: score.rankPriority as "HIGH" | "MEDIUM" | "LOW",
+            candidateScore: score.totalScore,
           });
         }
       }
