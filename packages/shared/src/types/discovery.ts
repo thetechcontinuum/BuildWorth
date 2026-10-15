@@ -47,11 +47,17 @@ export interface ResearchLeadFeedItemDTO {
   publishedAt: string;
   discoveredAt: string;
   market: string;
-  label: "Research Lead — uncorroborated customer pain signal requiring validation";
+  label: "Research Lead — uncorroborated customer pain signal requiring validation" | string;
   observedFacts: string[];
+  sourceEvidence: string[];
   aiAssumptions: string[];
   plausibleBuyer: string;
+  likelyAffectedUsers: string;
+  evidenceGaps: string[];
   concreteValidationStep: string;
+  practicalValidationExperiment: string;
+  verificationStatus: "UNVERIFIED" | "PROMOTED";
+  isPromoted: boolean;
   problemSummary?: string;
   status: "RESEARCH_LEAD";
 }

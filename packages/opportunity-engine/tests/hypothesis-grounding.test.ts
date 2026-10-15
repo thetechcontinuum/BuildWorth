@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { synthesizeOpportunity } from "../src/synthesizer.js";
-import { getDailyDiscoveryFeed } from "../src/discovery/discovery-service.js";
+import {
+  getDailyDiscoveryFeed,
+  evaluateResearchLeadPromotion,
+  deriveEvidenceGaps,
+} from "../src/discovery/discovery-service.js";
+import { evaluatePublicationQuality, DEFAULT_QUALITY_GATE_CONFIG } from "@buildworth/validation";
 import { APP_CONSTANTS } from "@buildworth/config";
 import { SCHEDULED_TASKS } from "../../../apps/scheduler/src/index.js";
 
@@ -864,6 +869,27 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
       // Must have plausible buyer and concrete validation step
       expect(lead.plausibleBuyer).toBe("Platform Engineer");
       expect(lead.concreteValidationStep).toBeDefined();
+
+      // Source evidence must be explicitly provided
+      expect(lead.sourceEvidence).toHaveLength(1);
+      expect(lead.sourceEvidence[0]).toContain("drops active WebSocket connections");
+
+      // Likely affected users grounded in signal context without inventing demand/buyers
+      expect(lead.likelyAffectedUsers).toBe("Platform Engineer");
+
+      // Evidence gaps must be explicitly documented
+      expect(lead.evidenceGaps).toBeDefined();
+      expect(lead.evidenceGaps.length).toBeGreaterThanOrEqual(3);
+      expect(lead.evidenceGaps.some((g) => g.toLowerCase().includes("single-source") || g.toLowerCase().includes("independent"))).toBe(true);
+      expect(lead.evidenceGaps.some((g) => g.toLowerCase().includes("willingness to pay") || g.toLowerCase().includes("commercial"))).toBe(true);
+
+      // Practical validation experiment must be provided
+      expect(lead.practicalValidationExperiment).toBeDefined();
+      expect(lead.practicalValidationExperiment).toBe(lead.concreteValidationStep);
+
+      // Kept strictly labeled UNVERIFIED
+      expect(lead.verificationStatus).toBe("UNVERIFIED");
+      expect(lead.isPromoted).toBe(false);
     });
 
     it("keeps isolated issues such as Rotex and Slint strictly as Market Signals without adding them to Research Leads", async () => {
@@ -983,6 +1009,142 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
       expect(feed.researchLeads).toHaveLength(0);
       expect(feed.marketSignals).toHaveLength(0);
       expect(feed.totalCount).toBe(0);
+    });
+
+    it("promotes an unclustered problem to an opportunity hypothesis when independent sources support the same problem", async () => {
+      const now = new Date();
+      // Signal 1 from Hacker News
+      const mockHnSignal = {
+        id: "ns-corrob-hn",
+        signalType: "PAIN_COMPLAINT",
+        purchaseIntent: false,
+        actorRole: "Platform Engineer",
+        sourceTitle: "Silent failure in EKS ingress controller drops active WebSocket connections during pod rollouts",
+        sanitizedExcerpt: "Our ALB ingress controller drops active WebSocket connections during pod rollouts without draining.",
+        problemSummary: "ALB ingress drops WebSocket connections during rollouts.",
+        canonicalUrl: "https://news.ycombinator.com/item?id=9900111",
+        publishedAt: now,
+        createdAt: now,
+        rawSignal: {
+          id: "raw-corrob-hn",
+          title: "Silent failure in EKS ingress controller drops active WebSocket connections during pod rollouts",
+          sourceUrl: "https://news.ycombinator.com/item?id=9900111",
+          publishedAt: now,
+          createdAt: now,
+          source: {
+            key: "hackernews",
+            name: "Hacker News",
+            sourceFamily: "COMMUNITY",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      // Signal 2 from Lobsters (independent source supporting the exact same problem)
+      const mockLobstersSignal = {
+        id: "ns-corrob-lobsters",
+        signalType: "PAIN",
+        purchaseIntent: false,
+        actorRole: "Platform Engineer",
+        sourceTitle: "AWS ALB ingress controller failure dropping WebSocket connections on rollout",
+        sanitizedExcerpt: "Our ingress controller fails and drops active WebSocket connections during pod rollouts without draining.",
+        problemSummary: "Ingress controller failure drops active WebSocket connections on rollout.",
+        canonicalUrl: "https://lobste.rs/s/alb999",
+        createdAt: now,
+        rawSignal: {
+          id: "raw-corrob-lobsters",
+          title: "AWS ALB ingress controller failure dropping WebSocket connections on rollout",
+          sourceUrl: "https://lobste.rs/s/alb999",
+          publishedAt: now,
+          createdAt: now,
+          source: {
+            key: "lobsters",
+            name: "Lobsters",
+            sourceFamily: "COMMUNITY",
+            isEnabled: true,
+            policyStatus: "ALLOWED",
+          },
+        },
+      };
+
+      const mockPrisma = {
+        opportunity: { findMany: async () => [] },
+        normalizedSignal: { findMany: async () => [mockHnSignal, mockLobstersSignal] },
+        rawSignal: { findMany: async () => [] },
+      };
+
+      const feed = await getDailyDiscoveryFeed(mockPrisma as any, { limit: 5 });
+      expect(feed.success).toBe(true);
+
+      // Must be promoted to Opportunity Hypothesis because independent sources support the same problem
+      expect(feed.opportunityHypotheses).toHaveLength(1);
+      const promotedHypo = feed.opportunityHypotheses[0];
+      expect(promotedHypo.title).toContain("EKS ingress controller drops active WebSocket connections");
+      expect(promotedHypo.signalCount).toBe(2);
+      expect(promotedHypo.evidenceObservations).toHaveLength(2);
+      expect(promotedHypo.status).toBe("HYPOTHESIS");
+      expect(promotedHypo.verificationLabel).toBe("Early idea / Not yet verified");
+    });
+
+    it("evaluates research lead promotion rules: single source stays UNVERIFIED; independent sources qualify for promotion", () => {
+      const singleLead = {
+        title: "Silent failure in AWS EKS ingress controller",
+        canonicalUrl: "https://news.ycombinator.com/item?id=8831999",
+        sourceName: "Hacker News",
+        sourceKey: "hackernews",
+      };
+
+      // 1. Single source evaluation
+      const singleEval = evaluateResearchLeadPromotion(singleLead, []);
+      expect(singleEval.isEligibleForPromotion).toBe(false);
+      expect(singleEval.promotionStatus).toBe("UNVERIFIED");
+      expect(singleEval.independentSourcesCount).toBe(1);
+      expect(singleEval.reasons.some((r) => r.includes("single source") || r.includes("UNVERIFIED"))).toBe(true);
+
+      // 2. Corroborated with independent source (Lobsters)
+      const corroboratedEval = evaluateResearchLeadPromotion(singleLead, [
+        {
+          id: "sig-2",
+          sourceTitle: "ALB ingress drops WebSocket connections on rollout",
+          sourceKey: "lobsters",
+          sourceName: "Lobsters",
+          canonicalUrl: "https://lobste.rs/s/alb001",
+        },
+      ]);
+      expect(corroboratedEval.isEligibleForPromotion).toBe(true);
+      expect(corroboratedEval.promotionStatus).toBe("PROMOTED");
+      expect(corroboratedEval.independentSourcesCount).toBe(2);
+      expect(corroboratedEval.distinctSources).toContain("hackernews");
+      expect(corroboratedEval.distinctSources).toContain("lobsters");
+    });
+
+    it("never weakens the VERIFIED publication policy, ensuring single signals or uncorroborated leads cannot achieve VERIFIED", () => {
+      // Create minimal single-signal link
+      const singleLink: any = [
+        {
+          id: "link-1",
+          claimType: "PAIN_EXISTENCE",
+          relationshipType: "SUPPORTS",
+          signal: {
+            id: "sig-1",
+            verificationStatus: "VERIFIED",
+            evidenceOrigin: "MANUAL_INGESTION",
+            independenceKey: "hn:8831999",
+            sourceFamily: "COMMUNITY",
+            signalType: "PAIN_COMPLAINT",
+            publishedAt: new Date(),
+          },
+        },
+      ];
+
+      const res = evaluatePublicationQuality(singleLink, 50, false, DEFAULT_QUALITY_GATE_CONFIG);
+      expect(res.isEligibleForVerified).toBe(false);
+      expect(res.status).not.toBe("VERIFIED");
+      expect(res.blockers.some((b) => b.includes("Requires at least 5 verified signals"))).toBe(true);
+      expect(res.blockers.some((b) => b.includes("Requires at least 3 independent source groups"))).toBe(true);
+      expect(res.blockers.some((b) => b.includes("Requires at least 2 distinct source families"))).toBe(true);
+      expect(res.blockers.some((b) => b.includes("Missing verified evidence for critical claims"))).toBe(true);
     });
   });
 

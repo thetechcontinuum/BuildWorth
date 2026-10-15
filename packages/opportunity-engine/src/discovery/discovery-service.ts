@@ -322,6 +322,180 @@ export function deriveSpecificValidationExperiment(problemSummary: string, targe
 }
 
 /**
+ * Derives concrete, honest evidence gaps for a research lead, ensuring users know
+ * precisely what validation is missing before this could become a real business opportunity.
+ * Avoids inventing demand, buyers, or willingness to pay.
+ */
+export function deriveEvidenceGaps(
+  problemSummary?: string,
+  likelyAffectedUsers?: string,
+  hasIndependentCorroboration = false,
+  hasExplicitPurchaseIntent = false,
+): string[] {
+  const gaps: string[] = [];
+
+  if (!hasIndependentCorroboration) {
+    gaps.push("Single-source observation: lacks corroboration from independent sources or unrelated engineering teams");
+  }
+
+  if (!hasExplicitPurchaseIntent) {
+    gaps.push("Commercial willingness to pay is unverified: no explicit pricing signals, budgets, or purchasing commitments observed");
+  }
+
+  const audienceLabel = likelyAffectedUsers && !likelyAffectedUsers.startsWith("Unknown")
+    ? `across ${likelyAffectedUsers}`
+    : "across organizations";
+  gaps.push(`Recurrence ${audienceLabel} is unproven: operational friction may be isolated to this specific setup or edge-case configuration`);
+
+  const problemContext = problemSummary ? `for ${problemSummary.toLowerCase().slice(0, 45)}` : "";
+  gaps.push(`Workaround stickiness unknown: unverified whether affected users will adopt a dedicated product ${problemContext} versus continuing with manual fixes or internal scripts`);
+
+  return gaps;
+}
+
+export interface ResearchLeadPromotionEvaluation {
+  isEligibleForPromotion: boolean;
+  promotionStatus: "PROMOTED" | "UNVERIFIED";
+  independentSourcesCount: number;
+  distinctSources: string[];
+  reasons: string[];
+}
+
+/**
+ * Evaluates whether two signals or sources are genuinely independent.
+ * Distinct source keys, distinct source families, distinct hostnames, or distinct GitHub repositories
+ * are treated as independent.
+ */
+export function isIndependentSource(
+  s1: { key?: string; sourceFamily?: string; canonicalUrl?: string },
+  s2: { key?: string; sourceFamily?: string; canonicalUrl?: string },
+): boolean {
+  if (s1.key && s2.key && s1.key.toLowerCase() !== s2.key.toLowerCase()) {
+    return true;
+  }
+  if (s1.sourceFamily && s2.sourceFamily && s1.sourceFamily.toLowerCase() !== s2.sourceFamily.toLowerCase()) {
+    return true;
+  }
+
+  const u1 = (s1.canonicalUrl || "").toLowerCase();
+  const u2 = (s2.canonicalUrl || "").toLowerCase();
+
+  // If both are GitHub, check repository paths
+  const ghMatch1 = u1.match(/github\.com\/([^/]+\/[^/]+)/);
+  const ghMatch2 = u2.match(/github\.com\/([^/]+\/[^/]+)/);
+  if (ghMatch1 && ghMatch2) {
+    return ghMatch1[1] !== ghMatch2[1];
+  }
+
+  // Check distinct hostnames
+  try {
+    if (u1 && u2) {
+      const h1 = new URL(u1).hostname.replace(/^www\./, "");
+      const h2 = new URL(u2).hostname.replace(/^www\./, "");
+      if (h1 && h2 && h1 !== h2) return true;
+    }
+  } catch {}
+
+  return false;
+}
+
+/**
+ * Checks whether two signals address the same underlying technical problem space.
+ */
+export function signalsSupportSameProblem(
+  title1: string,
+  title2: string,
+  text1: string,
+  text2: string,
+): boolean {
+  const normalize = (t: string) =>
+    t
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !["with", "from", "that", "this", "have", "issue", "error", "problem", "fails", "failing"].includes(w));
+
+  const words1 = new Set(normalize(`${title1} ${text1}`));
+  const words2 = new Set(normalize(`${title2} ${text2}`));
+
+  let overlap = 0;
+  for (const w of words1) {
+    if (words2.has(w)) overlap++;
+  }
+
+  // Common high-signal technical anchors
+  const anchors = ["ingress", "websocket", "latency", "rebalance", "kafka", "gpu", "cluster", "memory", "leak", "deadlock", "timeout", "docker", "kubernetes", "sqlite", "postgres", "redis"];
+  const anchorOverlap = anchors.some((a) => words1.has(a) && words2.has(a));
+
+  return overlap >= 3 || (overlap >= 2 && anchorOverlap);
+}
+
+/**
+ * Evaluates whether a Research Lead can be promoted to an Opportunity Hypothesis.
+ * A lead can ONLY be promoted when independent sources support the same problem;
+ * otherwise it must be kept clearly labeled UNVERIFIED.
+ * Never invents demand, buyers, or willingness to pay, and never weakens the VERIFIED publication policy.
+ */
+export function evaluateResearchLeadPromotion(
+  lead: {
+    title: string;
+    canonicalUrl?: string;
+    sourceName?: string;
+    sourceFamily?: string;
+    sourceKey?: string;
+  },
+  corroboratingSignals: Array<{
+    id?: string;
+    sourceTitle?: string;
+    canonicalUrl?: string;
+    sourceName?: string;
+    sourceFamily?: string;
+    sourceKey?: string;
+  }> = [],
+): ResearchLeadPromotionEvaluation {
+  const distinctSources = new Set<string>();
+
+  // Add primary lead source
+  const primaryKey = lead.sourceKey || lead.sourceName || "primary-source";
+  distinctSources.add(primaryKey.toLowerCase());
+
+  // Check corroborating signals
+  for (const s of corroboratingSignals) {
+    const sKey = s.sourceKey || s.sourceName || (s.canonicalUrl ? new URL(s.canonicalUrl).hostname : "other-source");
+    if (sKey) {
+      distinctSources.add(sKey.toLowerCase());
+    }
+  }
+
+  const independentSourcesCount = distinctSources.size;
+  const isEligibleForPromotion = independentSourcesCount >= 2;
+
+  if (isEligibleForPromotion) {
+    return {
+      isEligibleForPromotion: true,
+      promotionStatus: "PROMOTED",
+      independentSourcesCount,
+      distinctSources: Array.from(distinctSources),
+      reasons: [
+        `Corroborated across ${independentSourcesCount} independent sources (${Array.from(distinctSources).join(", ")})`,
+        "Elevated to Opportunity Hypothesis for preliminary customer problem discovery",
+      ],
+    };
+  }
+
+  return {
+    isEligibleForPromotion: false,
+    promotionStatus: "UNVERIFIED",
+    independentSourcesCount,
+    distinctSources: Array.from(distinctSources),
+    reasons: [
+      "Only observed in a single source; lacks corroboration from independent sources",
+      "Must remain strictly labeled UNVERIFIED until independent proof of recurrence is collected",
+    ],
+  };
+}
+
+/**
  * Builds the public daily discovery feed separated into two clearly labeled sections:
  * 1. New Market Signals — authentic, newly collected articles/discussions with source metadata,
  *    clearly labeled: "Market signal — not a validated business opportunity". No invented buyer demand or WTP.
@@ -711,11 +885,90 @@ export async function getDailyDiscoveryFeed(
         const market = deriveMarketRegion(src.key, src.sourceFamily);
         const safeSlug = (cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50) || "lead") + "-" + ns.id.slice(0, 8);
 
-        // If recurring problem or purchase intent is proven, and capacity exists, create an early unverified hypothesis candidate
-        if ((hasExplicitPurchaseIntent || hasRecurringProblemEvidence) && opportunityHypotheses.length < limit && currentSourceCount < maxItemsPerSource) {
+        // Find corroborating signals from independent sources supporting the exact same problem
+        const corroboratingSignals = unclusteredSignals.filter((otherNs: any) => {
+          if (otherNs.id === ns.id) return false;
+          const otherRaw = otherNs.rawSignal;
+          const otherSrc = otherRaw?.source;
+          if (!otherRaw || !otherSrc) return false;
+
+          const otherCanonical = otherNs.canonicalUrl || otherRaw.sourceUrl || "";
+          const isActionable = isConcreteProblemOrWorkaround({
+            title: otherRaw.title || otherNs.sourceTitle,
+            sanitizedExcerpt: otherNs.sanitizedExcerpt,
+            problemSummary: otherNs.problemSummary,
+            signalType: otherNs.signalType,
+            canonicalUrl: otherCanonical,
+            sourceKey: otherSrc.key,
+            sourceFamily: otherSrc.sourceFamily,
+          });
+          if (!isActionable) return false;
+
+          const isIndependent = isIndependentSource(
+            { key: src.key, sourceFamily: src.sourceFamily, canonicalUrl: canonical },
+            { key: otherSrc.key, sourceFamily: otherSrc.sourceFamily, canonicalUrl: otherCanonical },
+          );
+          if (!isIndependent) return false;
+
+          return signalsSupportSameProblem(
+            cleanTitle,
+            otherRaw.title || otherNs.sourceTitle || "",
+            fullProblemText,
+            `${otherNs.sourceTitle || ""} ${otherNs.problemSummary || ""} ${otherNs.sanitizedExcerpt || ""}`,
+          );
+        });
+
+        const promotionEval = evaluateResearchLeadPromotion(
+          {
+            title: cleanTitle,
+            canonicalUrl: canonical,
+            sourceKey: src.key,
+            sourceName: src.name,
+            sourceFamily: src.sourceFamily,
+          },
+          corroboratingSignals.map((cs: any) => ({
+            id: cs.id,
+            sourceTitle: cs.rawSignal?.title || cs.sourceTitle,
+            canonicalUrl: cs.canonicalUrl || cs.rawSignal?.sourceUrl,
+            sourceKey: cs.rawSignal?.source?.key,
+            sourceName: cs.rawSignal?.source?.name,
+            sourceFamily: cs.rawSignal?.source?.sourceFamily,
+          })),
+        );
+
+        // Promote when independent sources support the same problem (or proven recurring problem evidence exists)
+        const qualifiesForHypothesis =
+          promotionEval.isEligibleForPromotion || hasExplicitPurchaseIntent || hasRecurringProblemEvidence;
+
+        if (qualifiesForHypothesis && opportunityHypotheses.length < limit && currentSourceCount < maxItemsPerSource) {
           if (urlKey) seenUrls.add(urlKey);
           if (titleKey) seenTitles.add(titleKey);
           sourceCounts.set(effectiveSourceKey, currentSourceCount + 1);
+
+          const allObservations = [observation];
+          for (const cs of corroboratingSignals) {
+            const csRaw = cs.rawSignal;
+            const csSrc = csRaw?.source;
+            const csCanonical = cs.canonicalUrl || csRaw?.sourceUrl || "";
+            const csPubDate = csRaw?.publishedAt || cs.publishedAt || new Date();
+            const csPubIso = (csPubDate instanceof Date ? csPubDate : new Date(csPubDate)).toISOString();
+
+            allObservations.push({
+              id: cs.id,
+              sourceTitle: csRaw?.title || cs.sourceTitle || csSrc?.name || "Corroborating Market Evidence",
+              excerpt: cs.sanitizedExcerpt || cs.problemSummary,
+              canonicalUrl: csCanonical,
+              sourceFamily: csSrc?.sourceFamily || "COMMUNITY",
+              sourceName: csSrc?.name || "Independent Source",
+              publishedAt: csPubIso,
+            });
+
+            // Mark corroborating signals as seen to prevent duplicate listing
+            if (csCanonical) {
+              seenUrls.add(csCanonical.toLowerCase().trim());
+              leadSeenUrls.add(csCanonical.toLowerCase().trim());
+            }
+          }
 
           const businessHypothesis = {
             targetAudience,
@@ -723,11 +976,11 @@ export async function getDailyDiscoveryFeed(
             painFriction,
             assumptions: [
               `Target practitioners experience operational friction or failure under current manual workflows`,
-              `Breakdown recurs frequently enough in production to justify a dedicated tooling solution`,
+              `Breakdown recurs frequently enough across independent teams to justify an automated solution`,
             ],
             validationExperiment,
             purchaseIntentStatus: (hasExplicitPurchaseIntent ? "CONFIRMED" : "UNKNOWN") as "CONFIRMED" | "UNKNOWN",
-            confidenceNote: "Initial market hypothesis derived from public signals. Not yet validated via formal customer interviews or WTP proof.",
+            confidenceNote: `Promoted from Research Lead based on corroboration across ${promotionEval.independentSourcesCount} independent sources (${promotionEval.distinctSources.join(", ")}). Customer WTP remains unverified.`,
           };
 
           opportunityHypotheses.push({
@@ -735,8 +988,8 @@ export async function getDailyDiscoveryFeed(
             slug: safeSlug,
             title: cleanTitle,
             summary: `Hypothesis exploring practical workflow solution for ${cleanTitle.toLowerCase()}.`,
-            observedFacts: [observation.excerpt],
-            evidenceObservations: [observation],
+            observedFacts: allObservations.map((o) => o.excerpt),
+            evidenceObservations: allObservations,
             businessHypothesis,
             publicationDate: obsDateIso,
             discoveredAt: (raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt)).toISOString(),
@@ -745,13 +998,15 @@ export async function getDailyDiscoveryFeed(
             sourceTitle: observation.sourceTitle,
             sourceFamily: observation.sourceFamily,
             verificationLabel: "Early idea / Not yet verified",
-            signalCount: 1,
+            signalCount: allObservations.length,
             status: "HYPOTHESIS",
           });
         } else if (researchLeads.length < researchLeadsLimit && currentLeadSourceCount < maxItemsPerSource) {
           if (urlKey) leadSeenUrls.add(urlKey);
           if (titleKey) leadSeenTitles.add(titleKey);
           leadSourceCounts.set(effectiveSourceKey, currentLeadSourceCount + 1);
+
+          const evidenceGaps = deriveEvidenceGaps(fullProblemText, targetAudience, false, hasExplicitPurchaseIntent);
 
           researchLeads.push({
             id: "lead-" + ns.id,
@@ -767,13 +1022,19 @@ export async function getDailyDiscoveryFeed(
             market,
             label: "Research Lead — uncorroborated customer pain signal requiring validation",
             observedFacts: [observation.excerpt],
+            sourceEvidence: [observation.excerpt],
             aiAssumptions: [
               "Target practitioners experience manual friction or operational overhead under current workflows",
               "Friction may recur across similar engineering setups but currently lacks multi-source corroboration",
               "Practitioners may prioritize a dedicated solution, but commercial willingness-to-pay remains unverified",
             ],
             plausibleBuyer: targetAudience,
+            likelyAffectedUsers: targetAudience,
+            evidenceGaps,
             concreteValidationStep: validationExperiment,
+            practicalValidationExperiment: validationExperiment,
+            verificationStatus: "UNVERIFIED",
+            isPromoted: false,
             problemSummary: painFriction,
             status: "RESEARCH_LEAD",
           });
