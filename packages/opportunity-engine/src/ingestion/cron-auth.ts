@@ -39,8 +39,9 @@ export function verifyCronAuthorization(options: VerifyCronAuthOptions): VerifyC
     };
   }
 
-  const cronSecret = options.serverCronSecret;
-  if (!cronSecret || cronSecret.trim().length < 10) {
+  const rawServerSecret = options.serverCronSecret;
+  const cronSecret = (rawServerSecret || "").replace(/^["']|["']$/g, "").trim();
+  if (!cronSecret || cronSecret.length < 10) {
     return {
       authorized: false,
       statusCode: 401,
@@ -57,7 +58,8 @@ export function verifyCronAuthorization(options: VerifyCronAuthOptions): VerifyC
     };
   }
 
-  const token = authHeader.slice("Bearer ".length).trim();
+  const rawToken = authHeader.slice("Bearer ".length).trim();
+  const token = rawToken.replace(/^["']|["']$/g, "").trim();
   if (!timingSafeEqualStr(token, cronSecret)) {
     return {
       authorized: false,
