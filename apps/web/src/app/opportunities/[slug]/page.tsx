@@ -6,7 +6,12 @@ import { getStoredOpportunityBySlug, StoredOpportunity } from "@/lib/opportunity
 import { cookies } from "next/headers";
 import { prisma, resolveServerSession } from "@buildworth/database";
 import { resolveUserEntitlements } from "@buildworth/entitlements";
-import { filterOpportunityForContext, filterFounderFitForContext } from "@buildworth/opportunity-engine";
+import {
+  filterOpportunityForContext,
+  filterFounderFitForContext,
+  evaluateSolutionFeasibility,
+  isSingleRepoTicket,
+} from "@buildworth/opportunity-engine";
 import { resolveBlueprintForOpportunity } from "@/lib/blueprint-resolver";
 
 import { MarketEvidenceSection } from "@/components/MarketEvidenceSection";
@@ -323,9 +328,24 @@ export default async function OpportunityDetailPage({
     );
   }
 
-  // Security & Boundary Guard: DRAFT opportunities are strictly inaccessible to non-administrators
-  const isDraftOpp = (opp as any).status === "DRAFT";
-  if (isDraftOpp && (!sessionUser || sessionUser.role !== "ADMIN")) {
+  // Security & Boundary Guard: Ineligible or unpublished opportunities are strictly inaccessible to non-administrators
+  const isNonAdmin = !sessionUser || sessionUser.role !== "ADMIN";
+  const oppStatus = (opp as any).status || dbOppRecord?.status;
+  if (isNonAdmin && (oppStatus === "DRAFT" || oppStatus === "RESEARCH_LEAD" || oppStatus === "REJECTED")) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
+        Opportunity blueprint not found.
+      </div>
+    );
+  }
+
+  const combined = `${opp.slug || ""} ${opp.title || ""} ${opp.summary || ""} ${opp.problemStatement || ""}`;
+  const feasibility = evaluateSolutionFeasibility(opp.problemStatement || opp.title);
+  const primaryUrl =
+    (opp.evidenceLinks as any)?.[0]?.signal?.canonicalUrl ||
+    (dbOppRecord?.evidenceLinks as any)?.[0]?.normalizedSignal?.canonicalUrl;
+  const isSingleRepo = isSingleRepoTicket(primaryUrl, combined);
+  if (isNonAdmin && (!feasibility.isFeasible || (isSingleRepo && (opp.evidenceLinks?.length || 0) <= 1))) {
     return (
       <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
         Opportunity blueprint not found.

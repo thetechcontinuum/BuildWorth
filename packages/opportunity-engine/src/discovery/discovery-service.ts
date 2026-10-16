@@ -241,7 +241,11 @@ export function isConcreteProblemOrWorkaround(signal: {
  * instead of generic fallback boilerplate.
  */
 export function deriveSpecificAudience(text: string, actorRole?: string | null): string {
-  if (actorRole && actorRole.trim() && !/early adopter|user|team|founder/i.test(actorRole)) {
+  if (
+    actorRole &&
+    actorRole.trim() &&
+    !/early adopter|user|team|founder|consumer|individual|orchestrator|agent|bot|worker|runner|subagent/i.test(actorRole)
+  ) {
     return actorRole.trim();
   }
 
@@ -432,6 +436,127 @@ export function deriveEvidenceGaps(
   gaps.push(`Workaround stickiness unknown: unverified whether affected users will adopt a dedicated product ${problemContext} versus continuing with manual fixes or internal scripts`);
 
   return gaps;
+}
+
+/**
+ * Derives an authentic human B2B economic buyer with budget authority.
+ * Strictly avoids generic fictitious suffixes like "Consumer Leadership" or "Orchestrator Leadership".
+ */
+export function deriveEconomicBuyerRole(audience: string, vertical?: string): string {
+  const lower = `${audience} ${vertical || ""}`.toLowerCase();
+  if (lower.includes("security") || lower.includes("compliance") || lower.includes("cve") || lower.includes("vulnerability") || lower.includes("appsec")) {
+    return "Chief Information Security Officer (CISO) or Head of Security";
+  }
+  if (lower.includes("devops") || lower.includes("ci/cd") || lower.includes("release") || lower.includes("pipeline") || lower.includes("docker") || lower.includes("workflow")) {
+    return "VP of Engineering or Head of DevOps";
+  }
+  if (lower.includes("data") || lower.includes("database") || lower.includes("streaming") || lower.includes("kafka") || lower.includes("postgres") || lower.includes("finops")) {
+    return "Head of Data Platform or VP of Engineering";
+  }
+  if (lower.includes("cloud") || lower.includes("infrastructure") || lower.includes("kubernetes") || lower.includes("platform") || lower.includes("sre")) {
+    return "Director of Infrastructure or Head of Platform Engineering";
+  }
+  if (lower.includes("firmware") || lower.includes("hardware") || lower.includes("iot") || lower.includes("embedded")) {
+    return "VP of Hardware Engineering or Head of Embedded Systems";
+  }
+  if (lower.includes("frontend") || lower.includes("web") || lower.includes("mobile")) {
+    return "VP of Product Engineering or Head of Frontend";
+  }
+  return "VP of Engineering or Technical Operations Director";
+}
+
+/**
+ * Derives the specific practitioner user affected by the technical bottleneck.
+ */
+export function deriveEndUserRole(audience: string, actorRole?: string | null): string {
+  if (actorRole && !/orchestrator|agent|bot|worker|runner|consumer|user|team|founder|leadership/i.test(actorRole)) {
+    return actorRole.trim();
+  }
+  const lower = audience.toLowerCase();
+  if (lower.includes("devops") || lower.includes("release") || lower.includes("ci/cd")) {
+    return "Senior DevOps / Release Engineer";
+  }
+  if (lower.includes("security") || lower.includes("compliance")) {
+    return "Security Engineer / AppSec Specialist";
+  }
+  if (lower.includes("data") || lower.includes("database") || lower.includes("streaming")) {
+    return "Senior Data / Distributed Systems Engineer";
+  }
+  if (lower.includes("cloud") || lower.includes("platform") || lower.includes("kubernetes")) {
+    return "Site Reliability Engineer (SRE) / Platform Engineer";
+  }
+  if (lower.includes("firmware") || lower.includes("iot") || lower.includes("embedded")) {
+    return "Embedded Systems / Firmware Engineer";
+  }
+  return "Senior Software Engineer";
+}
+
+export interface SolutionFeasibilityAssessment {
+  isFeasible: boolean;
+  blockReason?: string;
+}
+
+/**
+ * Assesses whether an independent software product/service can technically and commercially
+ * resolve the observed problem without requiring proprietary vendor platform access or bypasses.
+ */
+export function evaluateSolutionFeasibility(
+  problemSummary: string,
+  fullText: string = ""
+): SolutionFeasibilityAssessment {
+  const lower = `${problemSummary} ${fullText}`.toLowerCase();
+
+  // Closed proprietary platform authentication & recovery (e.g. Apple ID recovery):
+  if (
+    lower.includes("apple id") ||
+    lower.includes("apple account") ||
+    lower.includes("icloud lock") ||
+    lower.includes("activation lock") ||
+    (lower.includes("apple") && lower.includes("account recovery")) ||
+    (lower.includes("google") && lower.includes("account disabled"))
+  ) {
+    return {
+      isFeasible: false,
+      blockReason: "Solution involves closed, proprietary platform account recovery gated on vendor authentication servers with no 3rd-party API or automation interface.",
+    };
+  }
+
+  // Macro-industry news, trade policy, geopolitics without software workflow:
+  if (
+    lower.includes("push for domestic") ||
+    lower.includes("international competition") ||
+    lower.includes("technology safety concerns") ||
+    lower.includes("semiconductor sanctions") ||
+    lower.includes("export controls") ||
+    lower.includes("geopolitical")
+  ) {
+    return {
+      isFeasible: false,
+      blockReason: "Macro-industry trend or geopolitical trade development without a concrete customer software workflow or complaint.",
+    };
+  }
+
+  return { isFeasible: true };
+}
+
+/**
+ * Identifies whether an issue is an internal bug/chore inside a single repository
+ * that requires multi-organization corroboration before presenting a broader business opportunity.
+ */
+export function isSingleRepoTicket(url?: string, problemText?: string): boolean {
+  if (!url) return false;
+  if (url.includes("github.com") && /\/issues\/\d+/.test(url)) {
+    const lower = (problemText || "").toLowerCase();
+    if (
+      lower.includes("agents/") ||
+      lower.includes(".md") ||
+      lower.includes("workflow-gap in agents") ||
+      lower.includes("harness-feedback")
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export interface ResearchLeadPromotionEvaluation {

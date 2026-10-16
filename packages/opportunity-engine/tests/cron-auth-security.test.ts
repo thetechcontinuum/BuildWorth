@@ -85,6 +85,68 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
       });
       expect(res2.authorized).toBe(false);
       expect(res2.statusCode).toBe(401);
+
+      // Exactly 15 characters (fails minimum 16 requirement)
+      const res15 = verifyCronAuthorization({
+        serverCronSecret: "123456789012345",
+        authorizationHeader: "Bearer 123456789012345",
+      });
+      expect(res15.authorized).toBe(false);
+      expect(res15.statusCode).toBe(401);
+
+      // Exactly 16 characters (passes minimum 16 requirement)
+      const res16 = verifyCronAuthorization({
+        serverCronSecret: "1234567890123456",
+        authorizationHeader: "Bearer 1234567890123456",
+      });
+      expect(res16.authorized).toBe(true);
+      expect(res16.statusCode).toBe(200);
+    });
+
+    it("fails closed with 401 when literal [SENSITIVE] placeholders are supplied", () => {
+      const placeholderAttempts = [
+        "[SENSITIVE]",
+        '"[SENSITIVE]"',
+        "'[SENSITIVE]'",
+        "[sensitive]",
+        '"[sensitive]"',
+      ];
+
+      for (const placeholder of placeholderAttempts) {
+        // As server secret
+        const resServer = verifyCronAuthorization({
+          serverCronSecret: placeholder,
+          authorizationHeader: `Bearer ${placeholder}`,
+        });
+        expect(resServer.authorized).toBe(false);
+        expect(resServer.statusCode).toBe(401);
+
+        // As client token against valid secret
+        const resClient = verifyCronAuthorization({
+          serverCronSecret: VALID_SECRET,
+          authorizationHeader: `Bearer ${placeholder}`,
+        });
+        expect(resClient.authorized).toBe(false);
+        expect(resClient.statusCode).toBe(401);
+      }
+    });
+
+    it("requires exact Bearer token matching and rejects tokens with extra quotes or whitespace", () => {
+      // Valid secret with quotes in Bearer token must fail
+      const resQuoted = verifyCronAuthorization({
+        serverCronSecret: VALID_SECRET,
+        authorizationHeader: `Bearer "${VALID_SECRET}"`,
+      });
+      expect(resQuoted.authorized).toBe(false);
+      expect(resQuoted.statusCode).toBe(401);
+
+      // Extra leading or trailing whitespace in token must fail
+      const resPadded = verifyCronAuthorization({
+        serverCronSecret: VALID_SECRET,
+        authorizationHeader: `Bearer  ${VALID_SECRET} `,
+      });
+      expect(resPadded.authorized).toBe(false);
+      expect(resPadded.statusCode).toBe(401);
     });
 
     it("fails closed with 403 when secrets are passed in query params", () => {

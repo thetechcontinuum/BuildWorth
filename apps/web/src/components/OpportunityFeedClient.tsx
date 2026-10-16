@@ -20,7 +20,7 @@ import { WatchOpportunityButton } from "@/components/WatchOpportunityButton";
 import { DiscoveryFeedSection } from "@/components/DiscoveryFeedSection";
 
 export function OpportunityFeedClient() {
-  const [activeTab, setActiveTab] = useState<"VERIFIED" | "DISCOVERY">("VERIFIED");
+  const [activeTab, setActiveTab] = useState<"OPPORTUNITIES" | "DISCOVERY">("OPPORTUNITIES");
   const [opportunities, setOpportunities] = useState<StoredOpportunity[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +46,7 @@ export function OpportunityFeedClient() {
       }
       setOpportunities(Array.isArray(data.opportunities) ? data.opportunities : []);
     } catch (err: any) {
-      setError(err?.message || "An unexpected error occurred while fetching verified opportunities.");
+      setError(err?.message || "An unexpected error occurred while fetching opportunities.");
       setOpportunities([]);
     } finally {
       setLoading(false);
@@ -129,17 +129,17 @@ export function OpportunityFeedClient() {
       {/* Feed Mode Switcher */}
       <div className="flex border-b border-zinc-800 text-sm font-medium">
         <button
-          onClick={() => setActiveTab("VERIFIED")}
+          onClick={() => setActiveTab("OPPORTUNITIES")}
           className={`pb-3 px-4 border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === "VERIFIED"
+            activeTab === "OPPORTUNITIES"
               ? "border-indigo-500 text-white"
               : "border-transparent text-zinc-400 hover:text-zinc-200"
           }`}
         >
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Verified Opportunities</span>
+          <span>Opportunity Feed</span>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            Policy v2.0.0
+            Published
           </span>
         </button>
 

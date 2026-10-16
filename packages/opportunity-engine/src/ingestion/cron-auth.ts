@@ -1,4 +1,4 @@
-import { timingSafeEqualStr } from "./manual-staging-ingestion.js";
+import crypto from "crypto";
 
 export interface VerifyCronAuthOptions {
   authorizationHeader?: string | null;
@@ -19,13 +19,20 @@ export interface VerifyCronAuthResult {
   };
 }
 
+export const MIN_CRON_SECRET_LENGTH = 16;
+
+function isSensitivePlaceholder(val: string): boolean {
+  const normalized = val.trim().toLowerCase().replace(/^["']|["']$/g, "");
+  return normalized === "[sensitive]" || normalized.includes("[sensitive]");
+}
+
 /**
  * Strict authentication validator for scheduled discovery crons.
  * Enforces:
  * 1. Immediate 403 rejection if secrets are passed in query params.
- * 2. Fail-closed (401) if server CRON_SECRET is missing or < 16 chars.
- * 3. Fail-closed (401) if Authorization header is missing or not a Bearer token.
- * 4. Fail-closed (401) if Bearer token does not match CRON_SECRET in constant-time.
+ * 2. Fail-closed (401) if server CRON_SECRET is missing, < 16 chars, or contains [SENSITIVE] placeholders.
+ * 3. Fail-closed (401) if Authorization header is missing or not an exact Bearer token.
+ * 4. Fail-closed (401) if Bearer token is < 16 chars, contains [SENSITIVE], or does not match CRON_SECRET in constant-time.
  * 5. Attacker-controlled headers (User-Agent, x-vercel-cron, x-vercel-cron-schedule) are ONLY
  *    collected as diagnostic metadata AFTER valid Bearer authentication, and NEVER grant access alone.
  * 6. No secret values or comparison details are leaked in responses or logs.
@@ -39,9 +46,8 @@ export function verifyCronAuthorization(options: VerifyCronAuthOptions): VerifyC
     };
   }
 
-  const rawServerSecret = options.serverCronSecret;
-  const cronSecret = (rawServerSecret || "").replace(/^["']|["']$/g, "").trim();
-  if (!cronSecret || cronSecret.length < 10) {
+  const serverSecret = options.serverCronSecret;
+  if (!serverSecret || serverSecret.length < MIN_CRON_SECRET_LENGTH || isSensitivePlaceholder(serverSecret)) {
     return {
       authorized: false,
       statusCode: 401,
@@ -58,9 +64,43 @@ export function verifyCronAuthorization(options: VerifyCronAuthOptions): VerifyC
     };
   }
 
-  const rawToken = authHeader.slice("Bearer ".length).trim();
-  const token = rawToken.replace(/^["']|["']$/g, "").trim();
-  if (!timingSafeEqualStr(token, cronSecret)) {
+  const token = authHeader.slice("Bearer ".length);
+  if (!token || token.length < MIN_CRON_SECRET_LENGTH || isSensitivePlaceholder(token)) {
+    return {
+      authorized: false,
+      statusCode: 401,
+      error: "Unauthorized: Valid Cron authentication required",
+    };
+  }
+
+  // Exact Bearer-token matching required (reject extra whitespace, quotes, or padding)
+  if (
+    token.startsWith(" ") ||
+    token.endsWith(" ") ||
+    token.startsWith('"') ||
+    token.endsWith('"') ||
+    token.startsWith("'") ||
+    token.endsWith("'")
+  ) {
+    return {
+      authorized: false,
+      statusCode: 401,
+      error: "Unauthorized: Valid Cron authentication required",
+    };
+  }
+
+  const bufA = Buffer.from(token);
+  const bufB = Buffer.from(serverSecret);
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return {
+      authorized: false,
+      statusCode: 401,
+      error: "Unauthorized: Valid Cron authentication required",
+    };
+  }
+
+  if (!crypto.timingSafeEqual(bufA, bufB)) {
     return {
       authorized: false,
       statusCode: 401,
