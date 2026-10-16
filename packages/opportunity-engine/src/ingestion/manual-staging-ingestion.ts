@@ -39,8 +39,10 @@ import {
 import { logger } from "@buildworth/observability";
 
 export function timingSafeEqualStr(a: string, b: string): boolean {
-  const bufA = Buffer.from(a.trim());
-  const bufB = Buffer.from(b.trim());
+  const strA = (a || "").replace(/^["']|["']$/g, "").trim();
+  const strB = (b || "").replace(/^["']|["']$/g, "").trim();
+  const bufA = Buffer.from(strA);
+  const bufB = Buffer.from(strB);
   if (bufA.length !== bufB.length) {
     crypto.timingSafeEqual(bufA, bufA);
     return false;

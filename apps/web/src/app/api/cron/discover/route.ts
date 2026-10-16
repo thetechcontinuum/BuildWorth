@@ -39,6 +39,9 @@ async function handleScheduledIngestion(request: NextRequest) {
     logger.warn("Unauthorized attempt to trigger production ingestion cron", {
       statusCode: authResult.statusCode,
       hasAuthHeader: !!request.headers.get("authorization"),
+      serverSecretLength: (process.env.CRON_SECRET || "").length,
+      authHeaderLength: (request.headers.get("authorization") || "").length,
+      error: authResult.error,
     });
     return NextResponse.json(
       { error: authResult.error || "Unauthorized: Valid Cron authentication required" },
