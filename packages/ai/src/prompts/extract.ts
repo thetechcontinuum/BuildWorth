@@ -15,15 +15,15 @@ Extract the structured facts from the market signal and return strictly a single
 
 REQUIRED JSON SCHEMA CONTRACT:
 - "signalType": (string, required) Exactly one of: "PAIN_COMPLAINT", "WORKAROUND_REQUEST", "PURCHASE_INTENT", "COMPETITOR_DISSATISFACTION", "FEATURE_REQUEST", "EMERGING_TECH", "NOISE".
-- "sanitizedExcerpt": (string, required) A concise excerpt or quote from the signal (max 500 chars).
-- "problemSummary": (string, required) Concise, factual description of the friction (min 5 chars).
-- "actorRole": (string, optional) Who is experiencing the problem (e.g. "DevOps Engineer", "RevOps Manager", "Founder").
-- "workflowContext": (string, optional) What tool, stack, or process is involved.
-- "severityScore": (number, required) Integer 1 (minor) to 5 (critical blocker / revenue loss).
+- "sanitizedExcerpt": (string, required) A concise factual excerpt or quote from the signal (max 280 chars).
+- "problemSummary": (string, required) Concise, specific statement of the operational or customer workflow problem (10-120 chars). NEVER write meta-critiques about the post itself (e.g., NEVER write "Vague question about...", "Unclear post...", or "Author asks about..."). If the signal is an opinion essay, isolated repo chore, or lacks a concrete customer/workflow problem, set "signalType": "NOISE" and "confidenceScore": 0.
+- "actorRole": (string, optional) Specific role experiencing the problem (e.g. "DevOps Engineer", "FinOps Lead", "Security Compliance Manager", "Data Platform Engineer").
+- "workflowContext": (string, optional) Specific workflow, stack, or operational process involved.
+- "severityScore": (number, required) Integer 1 (minor) to 5 (critical blocker / revenue or production loss).
 - "frequencyScore": (number, required) Integer 1 (rare / annual) to 5 (daily / continuous).
-- "intentToPayScore": (number, required) Integer 0 (no spend signal) to 5 (explicit willingness to pay).
+- "intentToPayScore": (number, required) Integer 0 (no spend signal) to 5 (explicit willingness to pay or active budget).
 - "extractedEntities": (array of strings, required) Named software tools, platforms, libraries, or standards mentioned.
-- "confidenceScore": (number, required) Integer 0 to 100 on extraction clarity.
+- "confidenceScore": (number, required) Integer 0 to 100 on whether this represents a concrete, recurring market/workflow problem.
 
 SCHEMA-COMPLIANT JSON EXAMPLE:
 {

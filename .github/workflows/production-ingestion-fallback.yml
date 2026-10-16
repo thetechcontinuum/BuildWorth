@@ -43,52 +43,87 @@ jobs:
           echo "Invoking production discovery cron endpoint..."
           TARGET_URL="https://build-worth-web.vercel.app/api/cron/discover"
 
-          PAYLOAD="{}"
           FORCE_INPUT="${{ github.event.inputs.force }}"
           KEY_INPUT="${{ github.event.inputs.idempotency_key }}"
-          if [ "$FORCE_INPUT" = "true" ]; then
-            if [ -n "$KEY_INPUT" ]; then
-              PAYLOAD="{\"force\":true,\"idempotencyKey\":\"$KEY_INPUT\"}"
-            else
-              PAYLOAD="{\"force\":true}"
-            fi
-          elif [ -n "$KEY_INPUT" ]; then
-            PAYLOAD="{\"idempotencyKey\":\"$KEY_INPUT\"}"
-          fi
+          TODAY_KEY="cron-daily-$(date -u +%Y-%m-%d)"
+          BASE_KEY="${KEY_INPUT:-$TODAY_KEY}"
 
-          # Perform invocation with Bearer token authentication in Authorization header
-          # Secrets are masked by GitHub Actions runner and never printed in URLs or command output
-          HTTP_RESPONSE=$(curl -sS -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}" \
+          for PASS in 1 2 3; do
+            if [ "$PASS" -eq 1 ]; then
+              PASS_KEY="$BASE_KEY"
+            else
+              PASS_KEY="${BASE_KEY}-pass-${PASS}"
+            fi
+
+            if [ "$FORCE_INPUT" = "true" ] && [ "$PASS" -eq 1 ]; then
+              PAYLOAD="{\"force\":true,\"idempotencyKey\":\"$PASS_KEY\"}"
+            else
+              PAYLOAD="{\"idempotencyKey\":\"$PASS_KEY\"}"
+            fi
+
+            echo "=== Executing Resumable Ingestion Pass $PASS (Key: $PASS_KEY) ==="
+            HTTP_RESPONSE=$(curl -sS -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}" \
+              -X POST \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H "User-Agent: GitHub-Actions-Ingestion-Fallback/1.0" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" \
+              --max-time 120 \
+              "$TARGET_URL")
+
+            HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed -e '/HTTP_STATUS:/,$d')
+            HTTP_STATUS=$(echo "$HTTP_RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+            TIME_TOTAL=$(echo "$HTTP_RESPONSE" | grep "TIME_TOTAL:" | cut -d: -f2)
+
+            echo "Pass $PASS HTTP Status: $HTTP_STATUS (Elapsed: ${TIME_TOTAL}s)"
+
+            if [ "$HTTP_STATUS" -ne 200 ]; then
+              echo "::error::Production cron invocation failed on Pass $PASS with HTTP $HTTP_STATUS"
+              echo "Sanitized Response Body:"
+              echo "$HTTP_BODY" | jq '.' 2>/dev/null || echo "$HTTP_BODY" | head -n 20
+              exit 1
+            fi
+
+            echo "Pass $PASS succeeded. Sanitized result summary:"
+            echo "$HTTP_BODY" | jq '{
+              success: .success,
+              runId: .runId,
+              idempotencyKey: .idempotencyKey,
+              status: .status,
+              isExisting: .isExisting,
+              counters: .counters,
+              hasMorePending: .summary.hasMorePending,
+              remainingBacklogCount: .summary.remainingBacklogCount,
+              publishedSlugs: .publishedSlugs,
+              startedAt: .startedAt,
+              completedAt: .completedAt
+            }' 2>/dev/null || echo "$HTTP_BODY"
+
+            HAS_MORE=$(echo "$HTTP_BODY" | jq -r '.summary.hasMorePending // false' 2>/dev/null || echo "false")
+            PUBLISHED_COUNT=$(echo "$HTTP_BODY" | jq -r '.counters.published // 0' 2>/dev/null || echo "0")
+
+            if [ "$HAS_MORE" != "true" ] || [ "$PUBLISHED_COUNT" -ge 3 ]; then
+              echo "Backlog processing complete or target briefs reached (hasMorePending=$HAS_MORE, published=$PUBLISHED_COUNT)."
+              break
+            fi
+            sleep 2
+          done
+
+          echo "=== Verifying Idempotent Retry (Same Idempotency Key: $BASE_KEY) ==="
+          RETRY_RESPONSE=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
             -X POST \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "User-Agent: GitHub-Actions-Ingestion-Fallback/1.0" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD" \
-            --max-time 120 \
+            -d "{\"idempotencyKey\":\"$BASE_KEY\"}" \
+            --max-time 60 \
             "$TARGET_URL")
-
-          HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed -e '/HTTP_STATUS:/,$d')
-          HTTP_STATUS=$(echo "$HTTP_RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
-          TIME_TOTAL=$(echo "$HTTP_RESPONSE" | grep "TIME_TOTAL:" | cut -d: -f2)
-
-          echo "Response HTTP Status: $HTTP_STATUS (Elapsed: ${TIME_TOTAL}s)"
-
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "::error::Production cron invocation failed with HTTP $HTTP_STATUS"
-            echo "Sanitized Response Body:"
-            echo "$HTTP_BODY" | jq '.' 2>/dev/null || echo "$HTTP_BODY" | head -n 20
-            exit 1
-          fi
-
-          echo "Invocation succeeded. Sanitized result summary:"
-          # Parse and log sanitized counters and status without leaking internal secrets
-          echo "$HTTP_BODY" | jq '{
-            success: .success,
+          RETRY_BODY=$(echo "$RETRY_RESPONSE" | sed -e '/HTTP_STATUS:/,$d')
+          echo "$RETRY_BODY" | jq '{
             runId: .runId,
+            idempotencyKey: .idempotencyKey,
             status: .status,
+            isExisting: .isExisting,
             counters: .counters,
-            perSourceStats: .perSourceStats,
-            publishedSlugs: .publishedSlugs,
-            startedAt: .startedAt,
-            completedAt: .completedAt
-          }' 2>/dev/null || echo "$HTTP_BODY"
+            publishedSlugs: .publishedSlugs
+          }' 2>/dev/null || echo "$RETRY_BODY"

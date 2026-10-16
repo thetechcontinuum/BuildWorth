@@ -116,7 +116,15 @@ export class LobstersAdapter extends BaseSourceAdapter {
             : externalArticleUrl;
 
         const descChunk = descMatch ? this.sanitizeXmlText(descMatch[1] || "").trim() : "";
-        const rawDesc = descChunk || rawTitle;
+        const isGenericCommentsDesc =
+          !descChunk ||
+          /^comments$/i.test(descChunk) ||
+          descChunk.length < 15;
+        const rawDesc = isGenericCommentsDesc
+          ? rawTitle
+          : rawTitle && !descChunk.toLowerCase().includes(rawTitle.toLowerCase())
+            ? `${rawTitle} — ${descChunk}`
+            : descChunk;
         const pubDate = pubDateMatch ? new Date(this.sanitizeXmlText(pubDateMatch[1] || "")) : new Date();
         const author = authorMatch ? this.sanitizeXmlText(authorMatch[1] || "") : "Lobsters Community";
 
@@ -126,7 +134,12 @@ export class LobstersAdapter extends BaseSourceAdapter {
 
         if (query && query.trim().length > 0) {
           const qLower = query.trim().toLowerCase();
-          if (!rawTitle.toLowerCase().includes(qLower) && !rawDesc.toLowerCase().includes(qLower)) {
+          const terms = qLower.split(/\s+/).filter((t) => t.length >= 3);
+          const textToMatch = `${rawTitle} ${rawDesc}`.toLowerCase();
+          const matchesQuery =
+            textToMatch.includes(qLower) ||
+            (terms.length > 0 && terms.some((t) => textToMatch.includes(t)));
+          if (!matchesQuery) {
             continue;
           }
         }

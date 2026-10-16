@@ -286,30 +286,33 @@ export function resolveBlueprintForOpportunity(dbOpp: any): OpportunityBlueprint
     orderIndex: idx,
   }));
 
-  const competitors: CompetitorItem[] = [
-    {
-      id: `comp-${dbOpp.id}-1`,
-      name: "Manual Custom Shell Scripts",
-      competitorType: "INDIRECT",
-      differentiationHypothesis: "Automated, zero-maintenance, self-healing lifecycle management",
-      switchingCosts: "LOW",
-      strengths: ["Free to write initially"],
-      recurringComplaints: ["Brittle, unmaintained, and silently fail in production"],
-      provenanceType: "MODEL_ESTIMATE",
-      evidenceLinkIds: [],
-    },
-    {
-      id: `comp-${dbOpp.id}-2`,
-      name: "Generic Cloud Monitoring Platforms",
-      competitorType: "DIRECT",
-      differentiationHypothesis: "Automated remediation and session cleanup instead of passive noisy alerts",
-      switchingCosts: "MEDIUM",
-      strengths: ["Broad multi-metric dashboarding"],
-      recurringComplaints: ["High enterprise cost and lack of automated mitigation"],
-      provenanceType: "MODEL_ESTIMATE",
-      evidenceLinkIds: [],
-    },
-  ];
+  const rawCompetitors = Array.isArray(dbOpp.existingCompetitors) && dbOpp.existingCompetitors.length > 0
+    ? dbOpp.existingCompetitors
+    : ["Manual Custom Shell Scripts", "Generic Cloud Monitoring Platforms"];
+  const rawWeaknesses = Array.isArray(dbOpp.competitorWeaknesses) && dbOpp.competitorWeaknesses.length > 0
+    ? dbOpp.competitorWeaknesses
+    : [
+        "Brittle, unmaintained, and silently fail in production",
+        "High enterprise cost and lack of automated mitigation",
+      ];
+
+  const competitors: CompetitorItem[] = rawCompetitors.map((compName: string, idx: number) => ({
+    id: `comp-${dbOpp.id}-${idx + 1}`,
+    name: compName,
+    competitorType: idx === 0 ? "INDIRECT" : "DIRECT",
+    differentiationHypothesis:
+      dbOpp.proposedProduct ||
+      "Automated, zero-maintenance workflow replacing manual workarounds",
+    switchingCosts: idx === 0 ? "LOW" : "MEDIUM",
+    strengths: [idx === 0 ? "Already in place in existing workflow" : "Established market footprint"],
+    recurringComplaints: [
+      rawWeaknesses[idx] ||
+        rawWeaknesses[0] ||
+        "Requires manual intervention and lacks automated remediation",
+    ],
+    provenanceType: "MODEL_ESTIMATE",
+    evidenceLinkIds: [],
+  }));
 
   const minBuild = dbOpp.estimatedMvpCostMinCents || 1200000;
 

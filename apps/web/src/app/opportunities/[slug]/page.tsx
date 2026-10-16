@@ -27,7 +27,23 @@ import { OpportunityExportControls } from "@/components/OpportunityExportControl
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
-  const opp = getStoredOpportunityBySlug(params.slug);
+  const isProduction =
+    process.env.VERCEL_ENV === "production" || process.env.BUILDWORTH_ENV === "production";
+  try {
+    const dbOpp = await prisma.opportunity.findUnique({
+      where: { slug: params.slug },
+      select: { title: true, oneSentenceSummary: true },
+    });
+    if (dbOpp) {
+      return {
+        title: `${dbOpp.title} — BuildWorth`,
+        description: dbOpp.oneSentenceSummary,
+      };
+    }
+  } catch {
+    // Fallback to stored opportunities in non-production
+  }
+  const opp = !isProduction ? getStoredOpportunityBySlug(params.slug) : undefined;
   return {
     title: `${opp ? opp.title : "Opportunity Blueprint"} — BuildWorth`,
     description: opp
@@ -85,6 +101,8 @@ export default async function OpportunityDetailPage({
   }
 
   const isLive = process.env.NODE_ENV === "production" && process.env.TEST_ENV !== "true";
+  const isProduction =
+    process.env.VERCEL_ENV === "production" || process.env.BUILDWORTH_ENV === "production";
   const entitlementContext = resolveUserEntitlements(dbUser as any, new Date(), {
     isLiveEnvironment: isLive,
   });
@@ -132,6 +150,11 @@ export default async function OpportunityDetailPage({
     if (dbOpp) {
       dbOppRecord = dbOpp;
       const sc = dbOpp.scorecards[0];
+      const latestRev = dbOpp.revisions?.[0];
+      const snapshot =
+        latestRev?.snapshotData && typeof latestRev.snapshotData === "object"
+          ? (latestRev.snapshotData as Record<string, any>)
+          : {};
       const evidenceLinks = (dbOpp.evidenceLinks || []).map((el: any) => ({
         id: el.id,
         opportunityId: dbOpp.id,
@@ -142,28 +165,114 @@ export default async function OpportunityDetailPage({
         relationshipType: el.relationshipType as any,
         supportStrength: el.supportStrength as any,
         relevanceScore: el.relevanceScore,
+        explanation: el.explanation || undefined,
         createdAt: el.createdAt.toISOString(),
         signal: el.normalizedSignal
           ? {
               id: el.normalizedSignal.id,
+              sourceName:
+                el.normalizedSignal.rawSignal?.source?.name ||
+                el.normalizedSignal.actorRole ||
+                "Public Source",
+              sourceFamily:
+                el.normalizedSignal.rawSignal?.source?.sourceFamily || "COMMUNITY",
+              independenceKey:
+                el.normalizedSignal.independenceKey ||
+                el.normalizedSignal.rawSignal?.source?.key ||
+                el.normalizedSignal.id,
+              credibilityTier:
+                el.normalizedSignal.rawSignal?.source?.credibilityTier ||
+                "TIER_2_CREDIBLE_PUBLIC",
               sourceTitle: el.normalizedSignal.sourceTitle || "",
-              sanitizedExcerpt: el.normalizedSignal.sanitizedExcerpt || "",
+              sanitizedExcerpt:
+                el.normalizedSignal.sanitizedExcerpt ||
+                el.normalizedSignal.problemSummary ||
+                "",
               canonicalUrl: el.normalizedSignal.canonicalUrl || "",
+              publishedAt:
+                el.normalizedSignal.publishedAt?.toISOString() ||
+                el.normalizedSignal.rawSignal?.publishedAt?.toISOString() ||
+                el.normalizedSignal.createdAt?.toISOString() ||
+                el.createdAt.toISOString(),
+              authorOrg:
+                el.normalizedSignal.authorOrg ||
+                el.normalizedSignal.actorRole ||
+                el.normalizedSignal.rawSignal?.source?.name ||
+                "Identified Practitioner",
+              actorRole: el.normalizedSignal.actorRole || "Identified Practitioner",
               signalType: el.normalizedSignal.signalType || "PAIN",
+              purchaseIntent: el.normalizedSignal.purchaseIntent || false,
               verificationStatus: el.normalizedSignal.verificationStatus || "VERIFIED",
-              confidenceScore: el.normalizedSignal.confidenceScore || 80,
+              evidenceOrigin: el.normalizedSignal.evidenceOrigin || "INGESTED_SIGNAL",
+              verificationMethod:
+                el.normalizedSignal.verificationMethod || "Automated Source Validation",
+              confidenceScore: el.normalizedSignal.confidenceScore || 75,
             }
           : undefined,
       }));
+
+      const uniqueSourcesCount = new Set(
+        evidenceLinks
+          .map(
+            (el: any) =>
+              el.signal?.independenceKey ||
+              el.signal?.sourceName ||
+              el.normalizedSignalId,
+          )
+          .filter(Boolean),
+      ).size;
+      const isVerified = dbOpp.publicationQualityStatus === "VERIFIED";
+      const rawOpportunityScore =
+        sc?.opportunityScore ||
+        Math.min(82, 48 + Math.min(evidenceLinks.length, 6) * 4 + Math.min(uniqueSourcesCount, 4) * 3);
+      const rawConfidenceScore =
+        sc?.evidenceConfidenceScore ||
+        Math.min(85, 42 + Math.min(evidenceLinks.length, 6) * 5 + Math.min(uniqueSourcesCount, 4) * 4);
+      const honestOpportunityScore =
+        !isVerified && uniqueSourcesCount <= 1
+          ? Math.min(rawOpportunityScore, 64)
+          : rawOpportunityScore;
+      const honestConfidenceScore =
+        !isVerified && uniqueSourcesCount <= 1
+          ? Math.min(rawConfidenceScore, 58)
+          : rawConfidenceScore;
+
+      if (sc) {
+        sc.opportunityScore = honestOpportunityScore;
+        sc.evidenceConfidenceScore = honestConfidenceScore;
+      }
+
+      const existingCompetitors: string[] = Array.isArray(snapshot.existingCompetitors)
+        ? snapshot.existingCompetitors
+        : [];
+      const competitorWeaknesses: string[] = Array.isArray(snapshot.competitorWeaknesses)
+        ? snapshot.competitorWeaknesses
+        : [];
+      const evidenceOfDemand: string[] = Array.isArray(snapshot.evidenceOfDemand)
+        ? snapshot.evidenceOfDemand
+        : [];
+      const evidenceOfWillingnessToPay: string[] = Array.isArray(snapshot.evidenceOfWillingnessToPay)
+        ? snapshot.evidenceOfWillingnessToPay
+        : [];
 
       opp = {
         slug: dbOpp.slug,
         title: dbOpp.title,
         summary: dbOpp.oneSentenceSummary,
+        problemStatement: dbOpp.problemStatement,
+        proposedProduct: dbOpp.proposedProduct,
+        endUser: dbOpp.endUser,
+        targetCustomerSegments: dbOpp.targetCustomerSegments || [],
+        existingCompetitors,
+        competitorWeaknesses,
+        majorAssumptions: dbOpp.majorAssumptions || [],
+        majorRisks: dbOpp.majorRisks || [],
+        evidenceOfDemand,
+        evidenceOfWillingnessToPay,
         industry: dbOpp.industry,
         customerType: dbOpp.customerType,
-        opportunityScore: sc?.opportunityScore || 85,
-        confidenceScore: sc?.evidenceConfidenceScore || 80,
+        opportunityScore: honestOpportunityScore,
+        confidenceScore: honestConfidenceScore,
         publicationQualityStatus: dbOpp.publicationQualityStatus as any,
         isDemoFixture: dbOpp.isDemoFixture,
         costRange: {
@@ -176,7 +285,7 @@ export default async function OpportunityDetailPage({
           max: dbOpp.estimatedTimeToMvpMaxWeeks,
         },
         buyer: dbOpp.economicBuyer,
-        signalsCount: evidenceLinks.length || 5,
+        signalsCount: evidenceLinks.length,
         recommendedExperiment: dbOpp.recommendedNextExperiment,
         jobsToBeDone: dbOpp.jobsToBeDone,
         narrowMvpScope: dbOpp.narrowMvpScope,
@@ -201,8 +310,8 @@ export default async function OpportunityDetailPage({
     console.error("Failed to load db opportunity for slug " + params.slug, err);
   }
 
-  // In non-production or test environments, allow checking stored opportunities
-  if (!opp && !isLive) {
+  // In non-production or local test environments, allow checking stored opportunities
+  if (!opp && !isProduction && !isLive) {
     opp = getStoredOpportunityBySlug(params.slug) || null;
   }
 
@@ -274,7 +383,7 @@ export default async function OpportunityDetailPage({
         inputHash: dbFitEvaluation.inputHash,
         calculatedAt: dbFitEvaluation.calculatedAt?.toISOString() || new Date().toISOString(),
       };
-    } else if (isSnowflake) {
+    } else if (!isProduction && isSnowflake) {
       rawFitEvaluation = {
         founderFitScore: 88,
         fitConfidence: 70,
@@ -403,7 +512,7 @@ export default async function OpportunityDetailPage({
         inputHash: "4f9e8a71b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789a",
         calculatedAt: new Date().toISOString(),
       };
-    } else {
+    } else if (!isProduction && !isLive) {
       rawFitEvaluation = {
         founderFitScore: 88,
         fitConfidence: 85,
@@ -606,24 +715,114 @@ export default async function OpportunityDetailPage({
       {/* Sticky Section Navigation */}
       <StickySectionNav />
 
-      {/* 2. Problem Space & Workaround */}
+      {/* 2. Actionable Opportunity Brief & Problem Space */}
       <section
         id="section-problem-workaround"
-        className="p-6 sm:p-8 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4 shadow-lg"
+        className="p-6 sm:p-8 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-6 shadow-lg"
       >
         <div className="flex items-center justify-between flex-wrap gap-2 border-b border-zinc-800 pb-4">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Users className="w-5 h-5 text-indigo-400" /> Problem Space & Workaround
+            <Users className="w-5 h-5 text-indigo-400" /> Opportunity Brief: Problem, Product & Validation
           </h2>
           <div className="flex items-center gap-2">
             <ClaimEvidenceBadge claimType="PAIN_EXISTENCE" sourcesCount={painCount} />
             <ClaimEvidenceBadge claimType="BUYER_DEMAND" sourcesCount={buyerDemandCount} />
           </div>
         </div>
-        <p className="text-sm text-zinc-300 leading-relaxed">
-          {opportunityDTO.existingWorkflow ||
-            "Manual engineering scripts and fragmented spreadsheet tracking."}
-        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          {/* Specific Problem & Affected Customer */}
+          <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-2.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 block">
+              Specific Problem & Affected Customer
+            </span>
+            <p className="text-zinc-200 leading-relaxed text-sm">
+              {opp.problemStatement || opp.summary}
+            </p>
+            <div className="pt-2 border-t border-zinc-800/60 space-y-1 text-zinc-400">
+              <div>
+                <span className="text-zinc-500">Affected Customer:</span>{" "}
+                <span className="text-zinc-200 font-medium">
+                  {opp.endUser || opp.targetCustomerSegments?.[0] || "Engineering & Operations Practitioners"}
+                </span>{" "}
+                <span className="text-zinc-500">• Economic Buyer:</span>{" "}
+                <span className="text-zinc-200 font-medium">{opp.buyer}</span>
+              </div>
+              <div>
+                <span className="text-zinc-500">Existing Workaround:</span>{" "}
+                <span className="text-zinc-300">
+                  {opportunityDTO.existingWorkflow || "Manual engineering scripts and fragmented spreadsheet tracking."}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Proposed Product & Existing Alternatives */}
+          <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-2.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
+              Proposed Product & Existing Alternatives
+            </span>
+            <p className="text-zinc-200 leading-relaxed text-sm">
+              {opp.proposedProduct || opp.narrowMvpScope?.[0] || opp.summary}
+            </p>
+            <div className="pt-2 border-t border-zinc-800/60 space-y-1 text-zinc-400">
+              <div>
+                <span className="text-zinc-500">Existing Alternatives:</span>{" "}
+                <span className="text-zinc-300">
+                  {opp.existingCompetitors && opp.existingCompetitors.length > 0
+                    ? opp.existingCompetitors.join(", ")
+                    : "Manual custom scripts & incumbent tooling"}
+                </span>
+              </div>
+              {opp.competitorWeaknesses && opp.competitorWeaknesses.length > 0 && (
+                <div>
+                  <span className="text-zinc-500">Incumbent Gap:</span>{" "}
+                  <span className="text-zinc-300">{opp.competitorWeaknesses[0]}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Supported Commercial Indicators */}
+          <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400 block">
+              Supported Commercial Indicators
+            </span>
+            <p className="text-zinc-300 leading-relaxed">
+              <strong className="text-zinc-200">Demand Evidence:</strong>{" "}
+              {opp.evidenceOfDemand?.[0] ||
+                `${opp.signalsCount} empirical signal(s) documenting recurring operational friction`}
+            </p>
+            <p className="text-zinc-300 leading-relaxed">
+              <strong className="text-zinc-200">Willingness-to-Pay / Budget:</strong>{" "}
+              {opp.evidenceOfWillingnessToPay?.[0] ||
+                (opp.buyingTrigger
+                  ? `Triggered by ${opp.buyingTrigger}`
+                  : "Willingness-to-pay is an unverified hypothesis pending pilot outreach")}
+            </p>
+          </div>
+
+          {/* Assumptions, Evidence Gaps & Next Validation Step */}
+          <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block">
+              Assumptions, Evidence Gaps & Next Validation Step
+            </span>
+            <p className="text-zinc-300 leading-relaxed">
+              <strong className="text-zinc-200">Key Assumption:</strong>{" "}
+              {opp.majorAssumptions?.[0] ||
+                `[Assumption] ${opp.buyer} will allocate budget to automate this workflow.`}
+            </p>
+            <p className="text-zinc-300 leading-relaxed">
+              <strong className="text-zinc-200">Evidence Gap:</strong>{" "}
+              {opp.majorRisks?.[0] ||
+                "Multi-source buyer corroboration and paid pilot conversion remain unverified."}
+            </p>
+            <p className="text-indigo-300 leading-relaxed pt-1 border-t border-zinc-800/60">
+              <strong className="text-indigo-200">Next Validation Step:</strong>{" "}
+              {opp.recommendedExperiment}
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* 3. Customer Segments & ICP */}

@@ -34,6 +34,7 @@ import {
   derivePlausibleProductDirection,
   deriveSpecificValidationExperiment,
   deriveEvidenceGaps,
+  signalsSupportSameProblem,
 } from "../discovery/discovery-service.js";
 import { logger } from "@buildworth/observability";
 
@@ -146,11 +147,12 @@ export function extractTargetQueries(problemTexts: string[]): string[] {
     "being", "their", "them", "they", "our", "we", "us", "you", "your", "my", "me", "i", "it", "its",
     "this", "that", "these", "those", "tool", "tools", "using", "use", "process", "manual", "causing",
     "recurring", "issues", "problem", "challenges", "friction", "without", "complex",
-    "custom", "scripts", "delays"
+    "custom", "scripts", "delays", "vague", "question", "value", "harnesses", "industry", "context"
   ]);
 
   for (const text of problemTexts) {
     if (!text || typeof text !== "string") continue;
+    if (/vague question about|without industry context/i.test(text)) continue;
     const cleaned = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ");
     const words = cleaned.split(/\s+/).filter((w) => w.length > 2 && !stopWords.has(w));
     if (words.length >= 2) {
@@ -188,8 +190,42 @@ export const KNOWN_SYNTHETIC_FIXTURE_URLS = [
   "https://producthunt.com/posts/example-devops-tool",
 ];
 
+async function deleteOpportunityAndDependents(prisma: any, oppId: string): Promise<void> {
+  await prisma.evidenceLink?.deleteMany?.({
+    where: { OR: [{ opportunityId: oppId }, { opportunityRevision: { opportunityId: oppId } }] },
+  }).catch(() => {});
+
+  await prisma.scoreDimension?.deleteMany?.({
+    where: { scorecard: { opportunityId: oppId } },
+  }).catch(() => {});
+
+  await prisma.scorecard?.deleteMany?.({
+    where: { opportunityId: oppId },
+  }).catch(() => {});
+
+  await prisma.savedOpportunity?.deleteMany?.({
+    where: { opportunityId: oppId },
+  }).catch(() => {});
+
+  await prisma.opportunityChangeEvent?.deleteMany?.({
+    where: { opportunityId: oppId },
+  }).catch(() => {});
+
+  await prisma.opportunityBlueprint?.deleteMany?.({
+    where: { revision: { opportunityId: oppId } },
+  }).catch(() => {});
+
+  await prisma.opportunityRevision?.deleteMany?.({
+    where: { opportunityId: oppId },
+  }).catch(() => {});
+
+  await prisma.opportunity?.delete?.({
+    where: { id: oppId },
+  }).catch(() => {});
+}
+
 /**
- * Cleans the previous synthetic staging opportunity and associated synthetic test records.
+ * Cleans the previous synthetic staging opportunity, invalid meta-critique records, and associated synthetic test records.
  */
 export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
   cleanedOpportunities: number;
@@ -198,6 +234,7 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
 }> {
   const syntheticSlugs = [
     "manual-reconciliation-process-causing-recurring-quarterly-de",
+    "vague-question-about-value-of-harnesses-without-industry-c",
   ];
 
   let cleanedOpportunities = 0;
@@ -211,42 +248,26 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
     }).catch(() => null);
 
     if (opp) {
-      // Clean child entities
-      await prisma.evidenceLink.deleteMany({
-        where: { OR: [{ opportunityId: opp.id }, { opportunityRevision: { opportunityId: opp.id } }] },
-      }).catch(() => {});
-
-      await prisma.scoreDimension.deleteMany({
-        where: { scorecard: { opportunityId: opp.id } },
-      }).catch(() => {});
-
-      await prisma.scorecard.deleteMany({
-        where: { opportunityId: opp.id },
-      }).catch(() => {});
-
-      await prisma.savedOpportunity.deleteMany({
-        where: { opportunityId: opp.id },
-      }).catch(() => {});
-
-      await prisma.opportunityChangeEvent.deleteMany({
-        where: { opportunityId: opp.id },
-      }).catch(() => {});
-
-      await prisma.opportunityBlueprint.deleteMany({
-        where: { revision: { opportunityId: opp.id } },
-      }).catch(() => {});
-
-      await prisma.opportunityRevision.deleteMany({
-        where: { opportunityId: opp.id },
-      }).catch(() => {});
-
-      await prisma.opportunity.delete({
-        where: { id: opp.id },
-      }).catch(() => {});
-
+      await deleteOpportunityAndDependents(prisma, opp.id);
       cleanedOpportunities++;
     }
   }
+
+  // Also clean any non-demo opportunity whose title/slug/problem is a meta-critique ("vague question about...")
+  try {
+    const allOpps = await prisma.opportunity.findMany({
+      where: { isDemoFixture: false },
+      select: { id: true, slug: true, title: true, problemStatement: true },
+      take: 25,
+    }).catch(() => []);
+    for (const o of allOpps) {
+      const combined = `${o.slug || ""} ${o.title || ""} ${o.problemStatement || ""}`;
+      if (/vague-question-about|^vague question about|without industry context/i.test(combined)) {
+        await deleteOpportunityAndDependents(prisma, o.id);
+        cleanedOpportunities++;
+      }
+    }
+  } catch {}
 
   // Clean old test raw and normalized signals demonstrably produced by removed adapter fixtures
   const rawList = await prisma.rawSignal.findMany({
@@ -259,13 +280,13 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
   }).catch(() => []);
 
   for (const raw of rawList) {
-    await prisma.evidenceLink.deleteMany({
+    await prisma.evidenceLink?.deleteMany?.({
       where: { normalizedSignal: { rawSignalId: raw.id } },
     }).catch(() => {});
-    await prisma.normalizedSignal.deleteMany({
+    await prisma.normalizedSignal?.deleteMany?.({
       where: { rawSignalId: raw.id },
     }).catch(() => {});
-    await prisma.rawSignal.delete({
+    await prisma.rawSignal?.delete?.({
       where: { id: raw.id },
     }).catch(() => {});
     cleanedRawSignals++;
@@ -382,6 +403,193 @@ export function buildEmpiricalClaimLinks(
   });
 }
 
+function deriveDomainAlternatives(problemText: string): {
+  competitors: string[];
+  weaknesses: string[];
+  existingWorkflow: string;
+} {
+  const lower = problemText.toLowerCase();
+  if (lower.includes("kafka") || lower.includes("partition") || lower.includes("consumer lag") || lower.includes("streaming")) {
+    return {
+      competitors: [
+        "Confluent Control Center (enterprise tier)",
+        "Prometheus + custom JMX exporter rules",
+        "Manual Kafka consumer offset CLI scripts",
+      ],
+      weaknesses: [
+        "High enterprise licensing cost for basic lag triage",
+        "Fragile custom JMX alert thresholds that miss silent rebalances",
+        "Manual partition recovery requires on-call intervention",
+      ],
+      existingWorkflow: "Engineers manually inspect consumer group offsets via CLI and run custom rebalance scripts during incidents",
+    };
+  }
+  if (lower.includes("kubernetes") || lower.includes("k8s") || lower.includes("container") || lower.includes("oom") || lower.includes("pod") || lower.includes("eks")) {
+    return {
+      competitors: [
+        "Datadog Container Monitoring (high per-node pricing)",
+        "Prometheus + Alertmanager custom YAML rules",
+        "Manual kubectl rollout & cron restart scripts",
+      ],
+      weaknesses: [
+        "Per-host telemetry overages scale unpredictably",
+        "Reactive OOM alerts fire only after pod termination",
+        "Custom cron restart workarounds mask underlying memory leaks",
+      ],
+      existingWorkflow: "SREs maintain custom healthcheck scripts and manually inspect pod eviction logs after OOM crashes",
+    };
+  }
+  if (lower.includes("postgres") || lower.includes("database") || lower.includes("sql") || lower.includes("schema") || lower.includes("migration") || lower.includes("connection pool")) {
+    return {
+      competitors: [
+        "Liquibase / Flyway Enterprise",
+        "PgBouncer + custom connection watchdog scripts",
+        "Native cloud RDS Performance Insights",
+      ],
+      weaknesses: [
+        "Lack of automated pre-deploy query regression interception",
+        "Manual schema drift reconciliation across staging environments",
+        "Connection pool exhaustion requires manual backend restarts",
+      ],
+      existingWorkflow: "Backend engineers manually review migration SQL and run ad-hoc connection cleanup scripts during traffic spikes",
+    };
+  }
+  if (lower.includes("soc2") || lower.includes("compliance") || lower.includes("audit") || lower.includes("iam") || lower.includes("security")) {
+    return {
+      competitors: [
+        "Vanta / Drata enterprise compliance suites",
+        "Manual AWS CLI & screenshot evidence spreadsheets",
+        "Custom CI compliance check scripts",
+      ],
+      weaknesses: [
+        "Annual enterprise contracts starting at $15k+/yr",
+        "Manual screenshot gathering consumes days of engineering time per audit",
+        "Point-in-time checks miss continuous IAM drift",
+      ],
+      existingWorkflow: "Engineering leads manually export IAM configs and collect terminal screenshots into shared spreadsheets before audits",
+    };
+  }
+  if (lower.includes("finops") || lower.includes("billing") || lower.includes("cloud cost") || lower.includes("gpu") || lower.includes("spend")) {
+    return {
+      competitors: [
+        "Vantage / CloudHealth enterprise FinOps platforms",
+        "Native AWS Cost Explorer & billing alarms",
+        "Manual spreadsheet tag & invoice reconciliation",
+      ],
+      weaknesses: [
+        "Billing alerts lag 12–24 hours behind runaway compute spikes",
+        "Percentage-of-spend enterprise fees deter mid-sized teams",
+        "Manual cost attribution across shared clusters is error-prone",
+      ],
+      existingWorkflow: "Platform leads export monthly cloud billing CSVs and manually reconcile untagged resources in spreadsheets",
+    };
+  }
+  return {
+    competitors: [
+      "Manual custom scripts and cron workarounds",
+      "Internal ad-hoc operational runbooks",
+      "Incumbent enterprise suites lacking targeted workflow automation",
+    ],
+    weaknesses: [
+      "High ongoing manual maintenance overhead across engineering sprints",
+      "Fragile custom scripts with silent failures and no alerting",
+      "Enterprise platforms require complex setup and high annual commitments",
+    ],
+    existingWorkflow: "Practitioners rely on unmaintained custom scripts and manual operational handoffs when workflows fail",
+  };
+}
+
+function deriveSupportedCommercialIndicators(
+  verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }>,
+): {
+  evidenceOfDemand: string;
+  evidenceOfWillingnessToPay: string;
+  hasExplicitWtp: boolean;
+  distinctSourcesCount: number;
+  opportunityScore: number;
+  evidenceConfidenceScore: number;
+} {
+  const sourceNames = Array.from(
+    new Set(verifiedSignals.map((vs) => vs.source?.name || vs.source?.key || "Public Source")),
+  );
+  const distinctSourceKeys = new Set(
+    verifiedSignals.map((vs) => {
+      const url = String(vs.rawSignal?.sourceUrl || vs.normalizedSignal?.canonicalUrl || "").toLowerCase();
+      const ghRepo = url.match(/github\.com\/([^/]+\/[^/]+)/);
+      if (ghRepo) return `gh:${ghRepo[1]}`;
+      return vs.source?.key || url;
+    }),
+  );
+  const distinctSourcesCount = Math.max(1, distinctSourceKeys.size);
+  const combinedText = verifiedSignals
+    .map((vs) => `${vs.rawSignal?.title || ""} ${vs.normalizedSignal?.sanitizedExcerpt || ""} ${vs.normalizedSignal?.problemSummary || ""}`)
+    .join(" ");
+
+  const hasExplicitWtp = verifiedSignals.some(
+    (vs) =>
+      vs.normalizedSignal?.purchaseIntent === true ||
+      ["PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "PROCUREMENT"].includes(String(vs.normalizedSignal?.signalType || "").toUpperCase()) ||
+      /\b(willing to pay|would pay|budget|paid tool|commercial alternative|procurement|tender)\b/i.test(
+        `${vs.normalizedSignal?.sanitizedExcerpt || ""}`,
+      ),
+  );
+
+  const hasQuantifiedWaste = /\b(\$\d+|hours|days|weeks|downtime|outage|every day|daily|weekly|recurring|bill spike|costing)\b/i.test(
+    combinedText,
+  );
+
+  const evidenceOfDemand =
+    distinctSourcesCount >= 2
+      ? `Corroborated across ${verifiedSignals.length} signals from ${distinctSourcesCount} independent sources (${sourceNames.join(", ")}) reporting recurring operational friction and manual workarounds.`
+      : `Observed in ${verifiedSignals.length} signal(s) from ${sourceNames.join(", ")} documenting concrete workflow breakdown and manual recovery overhead.`;
+
+  const evidenceOfWillingnessToPay = hasExplicitWtp
+    ? `Direct commercial intent or procurement budget indicator observed in cited source evidence (${sourceNames.join(", ")}).`
+    : hasQuantifiedWaste
+      ? `No direct buyer price commitment observed yet; commercial indicator is inferred from documented operational downtime, cloud waste, or engineering hours spent on manual workarounds.`
+      : `Unverified willingness to pay (early hypothesis): requires direct customer discovery interviews to confirm budget priority.`;
+
+  const avgConfidence =
+    verifiedSignals.reduce((acc, vs) => acc + (Number(vs.normalizedSignal?.confidenceScore) || 75), 0) /
+    Math.max(1, verifiedSignals.length);
+
+  const evidenceConfidenceScore = Math.min(
+    88,
+    Math.max(
+      45,
+      Math.round(
+        avgConfidence * 0.55 +
+          Math.min(20, verifiedSignals.length * 7) +
+          (distinctSourcesCount >= 2 ? 12 : 0) +
+          (hasExplicitWtp ? 8 : 0),
+      ),
+    ),
+  );
+
+  const opportunityScore = Math.min(
+    89,
+    Math.max(
+      55,
+      Math.round(
+        54 +
+          Math.min(14, verifiedSignals.length * 5) +
+          (distinctSourcesCount >= 2 ? 9 : 0) +
+          (hasQuantifiedWaste ? 6 : 0) +
+          (hasExplicitWtp ? 6 : 0),
+      ),
+    ),
+  );
+
+  return {
+    evidenceOfDemand,
+    evidenceOfWillingnessToPay,
+    hasExplicitWtp,
+    distinctSourcesCount,
+    opportunityScore,
+    evidenceConfidenceScore,
+  };
+}
+
 async function createCandidateWithRevisionAndLinks(
   prisma: any,
   oppData: any,
@@ -393,16 +601,19 @@ async function createCandidateWithRevisionAndLinks(
     data: oppData,
   });
 
+  const oppScore = blueprint.scorecard?.opportunityScore || 68;
+  const confScore = blueprint.scorecard?.evidenceConfidenceScore || 62;
+
   await prisma.scorecard.create({
     data: {
       opportunityId: opp.id,
-      opportunityScore: blueprint.scorecard?.opportunityScore || 85,
-      evidenceConfidenceScore: blueprint.scorecard?.evidenceConfidenceScore || 80,
-      demandScore: 82,
-      feasibilityScore: 88,
-      economicsScore: 84,
-      competitionScore: 80,
-      goMarketScore: 82,
+      opportunityScore: oppScore,
+      evidenceConfidenceScore: confScore,
+      demandScore: Math.min(90, Math.max(45, oppScore - 4)),
+      feasibilityScore: 84,
+      economicsScore: 78,
+      competitionScore: 75,
+      goMarketScore: 76,
       rubricVersion: "2.0.0",
       isHypothesisOnly: !isVerified,
     },
@@ -426,7 +637,7 @@ async function createCandidateWithRevisionAndLinks(
     salesCycleMinDays: 7,
     salesCycleMaxDays: 30,
     salesMotion: "FOUNDER_LED",
-    confidenceScore: 80,
+    confidenceScore: confScore,
     provenanceType: "MODEL_ESTIMATE",
     evidenceLinkIds: [],
   }));
@@ -444,14 +655,14 @@ async function createCandidateWithRevisionAndLinks(
     orderIndex: idx,
   }));
 
-  const competitors: CompetitorItem[] = (blueprint.existingCompetitors || []).map((name: string) => ({
+  const competitors: CompetitorItem[] = (blueprint.existingCompetitors || []).map((name: string, idx: number) => ({
     id: "comp-" + crypto.randomUUID(),
     name,
-    competitorType: "DIRECT",
-    differentiationHypothesis: blueprint.competitorWeaknesses?.[0] || "Lightweight and automated",
+    competitorType: idx === 0 ? "DIRECT" : "WORKAROUND",
+    differentiationHypothesis: blueprint.competitorWeaknesses?.[idx] || blueprint.competitorWeaknesses?.[0] || "Lightweight and automated",
     switchingCosts: "MEDIUM",
-    strengths: ["Brand awareness"],
-    recurringComplaints: ["High enterprise cost"],
+    strengths: ["Existing adoption in engineering workflows"],
+    recurringComplaints: [blueprint.competitorWeaknesses?.[idx] || "High manual maintenance or enterprise cost"],
     provenanceType: "MODEL_ESTIMATE",
     evidenceLinkIds: [],
   }));
@@ -469,7 +680,7 @@ async function createCandidateWithRevisionAndLinks(
       provenanceType: "MODEL_ESTIMATE",
       evidenceLinkIds: [],
       assumptionIds: [],
-      confidenceScore: 80,
+      confidenceScore: confScore,
     },
   ];
 
@@ -487,7 +698,7 @@ async function createCandidateWithRevisionAndLinks(
       provenanceType: "MODEL_ESTIMATE",
       evidenceLinkIds: [],
       assumptionIds: [],
-      confidenceScore: 80,
+      confidenceScore: confScore,
     },
   ];
 
@@ -498,7 +709,7 @@ async function createCandidateWithRevisionAndLinks(
     description: desc,
     impactScore: 3,
     probabilityScore: 3,
-    mitigationStrategy: "Build resilient multi-cloud adapters",
+    mitigationStrategy: "Validate across independent engineering teams before expanding scope",
     status: "IDENTIFIED",
     provenanceType: "MODEL_ESTIMATE",
     evidenceLinkIds: [],
@@ -528,8 +739,8 @@ async function createCandidateWithRevisionAndLinks(
       estimatedCostCents: 50000,
       estimatedDurationDays: 14,
       acquisitionChannel: "DIRECT_OUTREACH",
-      procedureSummary: "Reach out to 5 qualified engineering leaders",
-      successMetric: "Paid preorder commitments",
+      procedureSummary: blueprint.recommendedNextExperiment || "Reach out to 5 qualified engineering leaders",
+      successMetric: "Confirmed recurring workflow pain and pilot commitment",
       successThreshold: ">= 3 commitments",
       failureThreshold: "< 1 commitment",
       killCriterion: "Zero responses after 20 outreach attempts",
@@ -568,8 +779,8 @@ async function createCandidateWithRevisionAndLinks(
     risks,
     assumptions,
     experiments,
-    opportunityScore: 85,
-    evidenceConfidence: 80,
+    opportunityScore: oppScore,
+    evidenceConfidence: confScore,
     criticalClaimsCovered: verifiedSignals.length,
     costSummary: {
       minBuildMinorCents: blueprint.economics.estimatedMvpCost.minMinor,
@@ -620,7 +831,7 @@ export async function searchIndependentCorroboration(
   problemText: string,
   primarySourceKey: string,
   processedHashes: Set<string>,
-  timeoutMs = 10000,
+  timeoutMs = 3500,
 ): Promise<Array<{ normalizedSignal: any; rawSignal: any; source: any }>> {
   const corroboratingVerifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
   const candidateSourceKeys = ["github", "hackernews", "stackexchange", "lobsters"].filter(
@@ -630,16 +841,17 @@ export async function searchIndependentCorroboration(
   const searchQueries = extractTargetQueries([problemText]);
   if (searchQueries.length === 0) return corroboratingVerifiedSignals;
 
-  const targetQuery = searchQueries[0];
+  const targetQuery = searchQueries[0] || "";
+  if (!targetQuery) return corroboratingVerifiedSignals;
+  const queryTerms = targetQuery.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
   logger.info("Executing active corroboration search", { targetQuery, candidateSourceKeys });
 
-  for (const srcKey of candidateSourceKeys) {
-    if (corroboratingVerifiedSignals.length >= 3) break;
-    try {
+  const perSourceResults = await Promise.allSettled(
+    candidateSourceKeys.map(async (srcKey) => {
       const srcRecord = await prisma.source.findFirst({
         where: { key: srcKey, isEnabled: true, policyStatus: { not: "BLOCKED" } },
       });
-      if (!srcRecord) continue;
+      if (!srcRecord) return null;
 
       let adapter = sourceRegistry.getAdapter(srcKey);
       if (!adapter && srcRecord.adapterType === "GENERIC_RSS" && srcRecord.baseUrl) {
@@ -654,29 +866,33 @@ export async function searchIndependentCorroboration(
           sourceFamily: srcRecord.sourceFamily || "COMMUNITY",
         });
       }
-      if (!adapter) continue;
+      if (!adapter) return null;
 
       let timer: any;
       const timeoutPromise = new Promise<any[]>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("CORROBORATION_CALL_TIMEOUT")), timeoutMs);
+        timer = setTimeout(() => reject(new Error("CORROBORATION_CALL_TIMEOUT")), Math.min(timeoutMs, 4000));
       });
 
-      let fetchedSignals: any[] = [];
       try {
-        fetchedSignals = await Promise.race([
+        const fetchedSignals = await Promise.race([
           adapter.fetchSignals({ limit: 3, query: targetQuery, page: 1 }),
           timeoutPromise,
         ]);
-      } catch (callErr: any) {
-        logger.warn("Corroboration search timeout or error", { source: srcKey, error: callErr?.message });
-        continue;
+        return { srcKey, srcRecord, fetchedSignals: Array.isArray(fetchedSignals) ? fetchedSignals : [] };
       } finally {
         clearTimeout(timer);
       }
+    }),
+  );
 
-      if (!Array.isArray(fetchedSignals) || fetchedSignals.length === 0) continue;
+  for (const settled of perSourceResults) {
+    if (corroboratingVerifiedSignals.length >= 3) break;
+    if (settled.status !== "fulfilled" || !settled.value) continue;
+    const { srcKey, srcRecord, fetchedSignals } = settled.value;
 
+    try {
       for (const raw of fetchedSignals) {
+        if (corroboratingVerifiedSignals.length >= 3) break;
         if (!raw.rawContent || raw.rawContent.trim().length < 10) continue;
 
         const passesProblemCheck = isConcreteProblemOrWorkaround({
@@ -689,6 +905,12 @@ export async function searchIndependentCorroboration(
         });
 
         if (!passesProblemCheck) continue;
+
+        const rawCombined = `${raw.title || ""} ${raw.rawContent || ""}`.toLowerCase();
+        const matchesTopic =
+          signalsSupportSameProblem(problemText, raw.title || "", problemText, raw.rawContent || "") ||
+          (queryTerms.length > 0 && queryTerms.some((term) => rawCombined.includes(term)));
+        if (!matchesTopic) continue;
 
         const maxExcerpt = Math.min(280, srcRecord.permittedExcerptLength || 280);
         const sanitizedExcerpt = sanitizeRawContent(raw.rawContent, maxExcerpt);
@@ -749,6 +971,7 @@ export async function searchIndependentCorroboration(
               frequencyScore: 3,
               intentToPayScore: 2,
               confidenceScore: 80,
+              isProcessed: true,
               verificationStatus: "VERIFIED",
               verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
               verifiedAt: new Date(),
@@ -802,8 +1025,8 @@ export async function buildAndPersistOpportunityBrief(
     generatedSlug = generateCollisionSafeSlug(formattedTitle, crypto.randomBytes(3).toString("hex"));
   }
 
-  // Active corroboration search for promising pain signals
-  if (verifiedSignals.length < 5 && Date.now() < deadline - 5000) {
+  // Active corroboration search for promising pain signals when time budget allows
+  if (verifiedSignals.length < 5 && Date.now() < deadline - 8000) {
     const primaryKey = verifiedSignals[0]?.source?.key || "unknown";
     const problemText = `${cl.title || ""} ${cl.summary || ""}`;
     const corroborating = await searchIndependentCorroboration(
@@ -811,7 +1034,7 @@ export async function buildAndPersistOpportunityBrief(
       problemText,
       primaryKey,
       processedHashes,
-      10000,
+      3500,
     );
     for (const cSig of corroborating) {
       if (!verifiedSignals.some((vs) => vs.normalizedSignal.id === cSig.normalizedSignal.id)) {
@@ -820,24 +1043,33 @@ export async function buildAndPersistOpportunityBrief(
     }
   }
 
-  const audience = deriveSpecificAudience(`${rawTitle} ${cl.summary}`);
+  const fullProblemContext = `${rawTitle} ${cl.summary || ""}`;
+  const primaryActorRole = verifiedSignals.find((s) => s.normalizedSignal?.actorRole)?.normalizedSignal?.actorRole;
+  const audience = deriveSpecificAudience(fullProblemContext, primaryActorRole);
   const productDirection = derivePlausibleProductDirection(cl.summary || rawTitle, audience);
   const validationExperiment = deriveSpecificValidationExperiment(cl.summary || rawTitle, audience);
+  const domainAlternatives = deriveDomainAlternatives(fullProblemContext);
+  const commercialIndicators = deriveSupportedCommercialIndicators(verifiedSignals);
+
   const evidenceGaps = deriveEvidenceGaps(
     cl.summary,
     audience,
-    verifiedSignals.length > 1,
-    verifiedSignals.some((s) => s.normalizedSignal.purchaseIntent),
+    commercialIndicators.distinctSourcesCount > 1,
+    commercialIndicators.hasExplicitWtp,
   );
 
   const blueprint = synthesizeOpportunity(cl, verifiedSignals.length);
   blueprint.title = formattedTitle;
   blueprint.slug = generatedSlug;
+  blueprint.oneSentenceSummary = productDirection;
   blueprint.economicBuyer = `[Assumption] ${audience} Leadership`;
   blueprint.endUser = `[Assumption] ${audience}`;
   blueprint.targetCustomerSegments = [`[Assumption] ${audience}`];
   blueprint.proposedProduct = `[Assumption] ${productDirection}`;
   blueprint.recommendedNextExperiment = validationExperiment;
+  blueprint.existingWorkflow = domainAlternatives.existingWorkflow;
+  blueprint.evidenceOfDemand = commercialIndicators.evidenceOfDemand;
+  blueprint.evidenceOfWillingnessToPay = commercialIndicators.evidenceOfWillingnessToPay;
   blueprint.majorAssumptions = [
     `[Assumption] Inferred target customer segment: ${audience}`,
     `[Assumption] Proposed solution direction: ${productDirection}`,
@@ -845,19 +1077,15 @@ export async function buildAndPersistOpportunityBrief(
     ...blueprint.majorAssumptions.filter((a) => !a.startsWith("[Assumption]")),
   ];
   blueprint.majorRisks = evidenceGaps;
-  blueprint.existingCompetitors = [
-    "Manual custom scripts and workarounds",
-    "Internal ad-hoc firefighting",
-    "Incumbent platform tools lacking automated root-cause resolution",
-  ];
-  blueprint.competitorWeaknesses = [
-    "High ongoing manual maintenance overhead",
-    "Fragile custom scripts with no automated alerting",
-    "No proactive root-cause analysis or recovery",
-  ];
+  blueprint.existingCompetitors = domainAlternatives.competitors;
+  blueprint.competitorWeaknesses = domainAlternatives.weaknesses;
+  if (blueprint.scorecard) {
+    blueprint.scorecard.opportunityScore = commercialIndicators.opportunityScore;
+    blueprint.scorecard.evidenceConfidenceScore = commercialIndicators.evidenceConfidenceScore;
+  }
 
   const claimLinks = buildEmpiricalClaimLinks(verifiedSignals);
-  const qualityResult = evaluatePublicationQuality(claimLinks, blueprint.scorecard?.evidenceConfidenceScore || 80);
+  const qualityResult = evaluatePublicationQuality(claimLinks, commercialIndicators.evidenceConfidenceScore);
   const isVerified = qualityResult.status === "VERIFIED" && qualityResult.isEligibleForVerified;
   const finalStatus = "PUBLISHED";
   const pubQualityStatus = qualityResult.status || "HYPOTHESIS";
@@ -936,7 +1164,10 @@ export async function executeManualStagingIngestion(
   } = options;
 
 
-  const deadline = Date.now() + executionTimeoutMs;
+  const startTime = Date.now();
+  const deadline = startTime + executionTimeoutMs;
+  const collectionDeadline = startTime + Math.min(15000, Math.floor(executionTimeoutMs * 0.35));
+  const aiDeadline = startTime + Math.min(32000, Math.floor(executionTimeoutMs * 0.65));
   const claimToken = crypto.randomUUID();
   const now = new Date();
   const lockedUntil = new Date(now.getTime() + leaseDurationMs);
@@ -1493,7 +1724,7 @@ export async function executeManualStagingIngestion(
 
     for (let srcIndex = 0; srcIndex < activeSources.length; srcIndex++) {
       const src = activeSources[srcIndex];
-      if (Date.now() > deadline || totalFetched >= maxFetchItems) break;
+      if (Date.now() > collectionDeadline || totalFetched >= maxFetchItems) break;
 
       let adapter = sourceRegistry.getAdapter(src.key);
       if (!adapter && src.adapterType === "GENERIC_RSS" && src.baseUrl) {
@@ -1557,11 +1788,15 @@ export async function executeManualStagingIngestion(
             const rawDate = latestSignal.publishedAt || latestSignal.createdAt;
             const parsed = new Date(rawDate);
             const now = new Date();
-            const latestDate = !isNaN(parsed.getTime()) && parsed <= now ? parsed : new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+            const latestDate =
+              !isNaN(parsed.getTime()) && parsed <= fourteenDaysAgo
+                ? parsed
+                : fourteenDaysAgo;
             if (src.key === "hackernews") {
               latestCheckpoint = String(Math.floor(latestDate.getTime() / 1000));
             } else if (src.key === "github") {
-              latestCheckpoint = latestDate.toISOString();
+              latestCheckpoint = latestDate.toISOString().split("T")[0];
             } else {
               latestCheckpoint = latestSignal.externalId;
             }
@@ -1590,6 +1825,7 @@ export async function executeManualStagingIngestion(
             const remaining = srcSlots - rawSignals.length;
             const generalSignals = await adapter.fetchSignals({
               limit: Math.min(5, remaining),
+              query: src.key === "hackernews" ? "workaround" : undefined,
               checkpoint: latestCheckpoint,
               page: 1,
             });
@@ -1598,6 +1834,7 @@ export async function executeManualStagingIngestion(
         } else {
           const generalSignals = await adapter.fetchSignals({
             limit: Math.min(15, srcSlots),
+            query: src.key === "hackernews" ? "workaround" : undefined,
             checkpoint: latestCheckpoint,
             page: 1,
           });
@@ -1768,7 +2005,9 @@ export async function executeManualStagingIngestion(
     // 3b. Backlog Recovery: Process persisted but unfinished signals
     // Ingestion must not depend exclusively on newly fetched records
     let historicalSignalsCount = 0;
+    let remainingBacklogCount = 0;
     const alreadyPresentRawIds = new Set(sanitizedSignalsToProcess.map((s) => s.rawSignalId));
+    const preProcessedClusterCandidates: ClusterCandidate[] = [];
 
     // A) Process persisted but unnormalized RawSignals
     try {
@@ -1824,6 +2063,7 @@ export async function executeManualStagingIngestion(
             verifiedAt: new Date(),
             independenceKey,
             independenceMethod,
+            isProcessed: false,
           },
         }).catch(() => null);
 
@@ -1861,61 +2101,234 @@ export async function executeManualStagingIngestion(
           },
         },
         include: { rawSignal: { include: { source: true } } },
-        take: maxHistoricalSignals,
+        take: Math.max(maxHistoricalSignals * 3, 60),
         orderBy: { createdAt: "desc" },
       }).catch(() => []);
 
+      // Sort unlinked signals so problem-rich sources (HN, GitHub, StackExchange, Lobsters, TED) come first
+      const problemSourcePriority: Record<string, number> = {
+        hackernews: 1,
+        github: 2,
+        stackexchange: 3,
+        lobsters: 4,
+        ted: 5,
+        reddit: 6,
+      };
+      existingUnlinked.sort((a: any, b: any) => {
+        const keyA = a.rawSignal?.source?.key || "";
+        const keyB = b.rawSignal?.source?.key || "";
+        const prioA = problemSourcePriority[keyA] || 50;
+        const prioB = problemSourcePriority[keyB] || 50;
+        if (prioA !== prioB) return prioA - prioB;
+        return 0;
+      });
+
+      let addedHistoricalUnfinished = 0;
       for (const sig of existingUnlinked) {
-        if (sig.rawSignal && sig.rawSignal.source && !alreadyPresentRawIds.has(sig.rawSignal.id)) {
+        if (!sig.rawSignal || !sig.rawSignal.source || alreadyPresentRawIds.has(sig.rawSignal.id)) {
+          continue;
+        }
+        const srcKey = sig.rawSignal.source.key || "";
+        const sigTitle = sig.sourceTitle || sig.problemSummary || "";
+        const sigExcerpt = sig.sanitizedExcerpt || "";
+        const sigSummary = sig.problemSummary || "";
+        const sigMeta = (sig.metadata && typeof sig.metadata === "object") ? (sig.metadata as Record<string, any>) : {};
+        const attempts = Number(sigMeta.processingAttempts || 0);
+
+        // Immediately reject vague meta-critiques or repo-internal agent chores in backlog
+        if (
+          /vague question about|without industry context/i.test(sigSummary) ||
+          (!isConcreteProblemOrWorkaround({ title: sigTitle, sanitizedExcerpt: sigExcerpt, problemSummary: sigSummary }) &&
+            /\b(ready-for-agent|ai text below|create a branch and open a pr|parent:\s*#\d+|epic\s*#\d+|are harnesses worth the cost)\b/i.test(`${sigTitle} ${sigExcerpt}`))
+        ) {
+          await prisma.normalizedSignal.update({
+            where: { id: sig.id },
+            data: {
+              signalType: "NOISE" as any,
+              verificationStatus: "REJECTED" as any,
+              isProcessed: true,
+              metadata: { ...sigMeta, processingStatus: "REJECTED_NOISE", processedAt: new Date().toISOString() },
+            },
+          }).catch(() => {});
+          continue;
+        }
+
+        // Mark pure news/preprint items without concrete problem friction as processed so they stay in Market Signals feed without clogging AI synthesis
+        if (
+          ["arxiv", "cisakev", "krasia", "siliconcanals"].includes(srcKey) &&
+          !isConcreteProblemOrWorkaround({ title: sigTitle, sanitizedExcerpt: sigExcerpt, problemSummary: sigSummary })
+        ) {
+          if (!sig.isProcessed) {
+            await prisma.normalizedSignal.update({
+              where: { id: sig.id },
+              data: {
+                isProcessed: true,
+                metadata: { ...sigMeta, processingStatus: "SKIPPED_NON_PROBLEM_FEED_ITEM", processedAt: new Date().toISOString() },
+              },
+            }).catch(() => {});
+          }
+          continue;
+        }
+
+        // Bounded retry check
+        if (!sig.isProcessed && attempts >= 3) {
+          await prisma.normalizedSignal.update({
+            where: { id: sig.id },
+            data: {
+              isProcessed: true,
+              metadata: { ...sigMeta, processingStatus: "MAX_RETRIES_EXCEEDED", processedAt: new Date().toISOString() },
+            },
+          }).catch(() => {});
+          continue;
+        }
+
+        // If already processed in a prior run and valid, reuse its extracted problemSummary directly without burning LLM budget
+        if (sig.isProcessed === true && sigSummary.length >= 15 && sig.signalType !== "NOISE") {
+          if (preProcessedClusterCandidates.length < maxHistoricalSignals) {
+            try {
+              const emb = await aiProvider.generateEmbedding(sigSummary);
+              preProcessedClusterCandidates.push({
+                id: sig.id,
+                problemSummary: sigSummary,
+                vertical: String(sigMeta.vertical || "Software Engineering & DevOps"),
+                embedding: emb.embedding,
+              });
+              alreadyPresentRawIds.add(sig.rawSignal.id);
+              historicalSignalsCount++;
+            } catch {}
+          }
+          continue;
+        }
+
+        if (addedHistoricalUnfinished < maxHistoricalSignals) {
           sanitizedSignalsToProcess.push({
             rawSignalId: sig.rawSignal.id,
             normalizedSignalId: sig.id,
             externalId: sig.rawSignal.externalId,
-            title: sig.sourceTitle || sig.problemSummary,
-            excerpt: sig.sanitizedExcerpt,
-            sourceKey: sig.rawSignal.source.key,
+            title: sigTitle,
+            excerpt: sigExcerpt,
+            sourceKey: srcKey,
             sourceId: sig.rawSignal.source.id,
             sourceName: sig.rawSignal.source.name,
           });
           alreadyPresentRawIds.add(sig.rawSignal.id);
           historicalSignalsCount++;
+          addedHistoricalUnfinished++;
+        } else {
+          remainingBacklogCount++;
         }
       }
     }
 
     const currentSignalsCount = sanitizedSignalsToProcess.length;
 
-
+    // Sort signals to process so concrete customer complaints & workarounds from high-signal sources are classified first
+    if (sanitizedSignalsToProcess.length > 6) {
+      const prioMap: Record<string, number> = {
+        hackernews: 1,
+        github: 2,
+        stackexchange: 3,
+        lobsters: 4,
+        ted: 5,
+        reddit: 6,
+      };
+      sanitizedSignalsToProcess.sort((a, b) => {
+        const aConcrete = isConcreteProblemOrWorkaround({ title: a.title, sanitizedExcerpt: a.excerpt }) ? 0 : 1;
+        const bConcrete = isConcreteProblemOrWorkaround({ title: b.title, sanitizedExcerpt: b.excerpt }) ? 0 : 1;
+        if (aConcrete !== bConcrete) return aConcrete - bConcrete;
+        return (prioMap[a.sourceKey] || 20) - (prioMap[b.sourceKey] || 20);
+      });
+    }
 
     // 4. AI Classification & Extraction
     const clusterCandidates: ClusterCandidate[] = [];
 
-    for (const item of sanitizedSignalsToProcess) {
-      if (Date.now() > deadline - 4000) break;
-      if (typeof maxClassifiedSignals === "number" && clusterCandidates.length >= maxClassifiedSignals) break;
+    for (let idx = 0; idx < sanitizedSignalsToProcess.length; idx++) {
+      const item = sanitizedSignalsToProcess[idx];
+      if (!item) continue;
+      if (Date.now() > Math.min(aiDeadline, deadline - 4000)) {
+        remainingBacklogCount += (sanitizedSignalsToProcess.length - idx);
+        break;
+      }
+      if (typeof maxClassifiedSignals === "number" && clusterCandidates.length >= maxClassifiedSignals) {
+        remainingBacklogCount += (sanitizedSignalsToProcess.length - idx);
+        break;
+      }
 
-      try {
-        const classification = await classifySignal(aiProvider, item.excerpt, item.title);
-        if (classification.signalType === "NOISE") continue;
-
-        const extracted = await extractSignalIntelligence(aiProvider, item.excerpt, item.title);
-        const emb = await aiProvider.generateEmbedding(extracted.problemSummary);
-
+      // Immediately reject repo-internal AI coding agent chores or vague meta-critiques without wasting LLM budget
+      if (
+        /vague question about|without industry context/i.test(`${item.title} ${item.excerpt}`) ||
+        /\b(ready-for-agent|ai text below|create a branch and open a pr|parent:\s*#\d+|epic\s*#\d+|are harnesses worth the cost)\b/i.test(`${item.title} ${item.excerpt}`)
+      ) {
         await prisma.normalizedSignal.update({
           where: { id: item.normalizedSignalId },
           data: {
-            signalType: classification.signalType as any,
-            purchaseIntent: classification.signalType === "PURCHASE_INTENT" || classification.signalType === "WILLINGNESS_TO_PAY" || (extracted.intentToPayScore && extracted.intentToPayScore > 50),
-            problemSummary: extracted.problemSummary,
-            actorRole: extracted.actorRole,
-            workflowContext: extracted.workflowContext,
-            severityScore: extracted.severityScore,
-            frequencyScore: extracted.frequencyScore,
-            intentToPayScore: extracted.intentToPayScore,
-            extractedEntities: extracted.extractedEntities,
-            confidenceScore: extracted.confidenceScore,
+            signalType: "NOISE" as any,
+            verificationStatus: "REJECTED" as any,
+            isProcessed: true,
+            metadata: { processingStatus: "REJECTED_NOISE", processedAt: new Date().toISOString() },
           },
-        });
+        }).catch(() => {});
+        continue;
+      }
+
+      // Skip LLM calls for obvious non-problem news/research items when batch has > 6 signals
+      if (
+        sanitizedSignalsToProcess.length > 6 &&
+        ["arxiv", "cisakev", "krasia", "siliconcanals"].includes(item.sourceKey) &&
+        !isConcreteProblemOrWorkaround({ title: item.title, sanitizedExcerpt: item.excerpt })
+      ) {
+        await prisma.normalizedSignal.update({
+          where: { id: item.normalizedSignalId },
+          data: {
+            isProcessed: true,
+            metadata: { processingStatus: "SKIPPED_NON_PROBLEM_FEED_ITEM", processedAt: new Date().toISOString() },
+          },
+        }).catch(() => {});
+        continue;
+      }
+
+      try {
+        const classification = await classifySignal(aiProvider, item.excerpt, item.title);
+        if (classification.signalType === "NOISE") {
+          await prisma.normalizedSignal.update({
+            where: { id: item.normalizedSignalId },
+            data: {
+              signalType: "NOISE" as any,
+              verificationStatus: "REJECTED" as any,
+              isProcessed: true,
+              metadata: {
+                processingAttempts: 1,
+                processingStatus: "REJECTED_NOISE",
+                processedAt: new Date().toISOString(),
+              },
+            },
+          }).catch(() => {});
+          continue;
+        }
+
+        const extracted = await extractSignalIntelligence(aiProvider, item.excerpt, item.title);
+        if (
+          extracted.signalType === "NOISE" ||
+          /vague question about|without industry context|not a real problem/i.test(extracted.problemSummary || "")
+        ) {
+          await prisma.normalizedSignal.update({
+            where: { id: item.normalizedSignalId },
+            data: {
+              signalType: "NOISE" as any,
+              verificationStatus: "REJECTED" as any,
+              isProcessed: true,
+              metadata: {
+                processingAttempts: 1,
+                processingStatus: "REJECTED_META_CRITIQUE",
+                processedAt: new Date().toISOString(),
+              },
+            },
+          }).catch(() => {});
+          continue;
+        }
+
+        const emb = await aiProvider.generateEmbedding(extracted.problemSummary);
 
         let detectedVertical = "Software Engineering & DevOps";
         const combinedText = `${extracted.workflowContext || ""} ${item.excerpt || ""} ${item.title || ""}`.toLowerCase();
@@ -1932,6 +2345,41 @@ export async function executeManualStagingIngestion(
         } else if (combinedText.includes("fintech") || combinedText.includes("payment") || combinedText.includes("settlement")) {
           detectedVertical = "FinTech & Payments";
         }
+
+        const preservedSignalType =
+          item.sourceKey === "ted" || item.sourceKey === "samgov"
+            ? "PROCUREMENT"
+            : item.sourceKey === "arxiv"
+            ? "EMERGING_TECH"
+            : item.sourceKey === "stackexchange" && classification.signalType === "PAIN_COMPLAINT"
+            ? "PAIN"
+            : classification.signalType;
+
+        await prisma.normalizedSignal.update({
+          where: { id: item.normalizedSignalId },
+          data: {
+            signalType: preservedSignalType as any,
+            purchaseIntent:
+              classification.signalType === "PURCHASE_INTENT" ||
+              classification.signalType === "WILLINGNESS_TO_PAY" ||
+              Boolean(extracted.intentToPayScore && extracted.intentToPayScore > 50),
+            problemSummary: extracted.problemSummary,
+            actorRole: extracted.actorRole,
+            workflowContext: extracted.workflowContext,
+            severityScore: extracted.severityScore,
+            frequencyScore: extracted.frequencyScore,
+            intentToPayScore: extracted.intentToPayScore,
+            extractedEntities: extracted.extractedEntities,
+            confidenceScore: extracted.confidenceScore,
+            isProcessed: true,
+            metadata: {
+              processingAttempts: 1,
+              processingStatus: "COMPLETED",
+              vertical: detectedVertical,
+              processedAt: new Date().toISOString(),
+            },
+          },
+        });
 
         clusterCandidates.push({
           id: item.normalizedSignalId,
@@ -1960,6 +2408,31 @@ export async function executeManualStagingIngestion(
           failCode = "AI_OUTPUT_EMPTY";
         } else if (msg.includes("AI_OUTPUT_INVALID") || msg.includes("invalid") || msg.includes("schema")) {
           failCode = "AI_OUTPUT_INVALID";
+        }
+
+        // If we already classified candidates and hit a transient timeout/rate-limit on a later item,
+        // checkpoint the attempt count on this item and proceed to cluster & persist the candidates we have!
+        const isFatalConfigError = [
+          "AI_PROVIDER_NOT_CONFIGURED",
+          "AI_PROVIDER_AUTHENTICATION_FAILED",
+          "AI_MODEL_NOT_FOUND",
+          "AI_PROVIDER_ENDPOINT_INVALID",
+        ].includes(failCode);
+
+        if (!isFatalConfigError && (clusterCandidates.length > 0 || preProcessedClusterCandidates.length > 0)) {
+          await prisma.normalizedSignal.update({
+            where: { id: item.normalizedSignalId },
+            data: {
+              metadata: {
+                processingAttempts: 1,
+                processingStatus: "RETRY_PENDING",
+                lastError: msg.slice(0, 200),
+                lastAttemptAt: new Date().toISOString(),
+              },
+            },
+          }).catch(() => {});
+          remainingBacklogCount += (sanitizedSignalsToProcess.length - idx);
+          break;
         }
 
         const failSummary = {
@@ -1999,6 +2472,13 @@ export async function executeManualStagingIngestion(
       }
     }
 
+    // Merge any pre-processed unlinked candidates from previous runs
+    for (const pre of preProcessedClusterCandidates) {
+      if (!clusterCandidates.some((c) => c.id === pre.id)) {
+        clusterCandidates.push(pre);
+      }
+    }
+
     candidatesCount = clusterCandidates.length;
 
     // 5. Semantic Clustering & Evidence Expansion Path
@@ -2007,11 +2487,23 @@ export async function executeManualStagingIngestion(
     let matchedToTargetCount = 0;
     let unmatchedPoolCount = 0;
 
-    // Query for an existing target persisted candidate to expand evidence for
+    // Clean up any stale invalid meta-critique opportunities before querying existing candidates
+    try {
+      const invalidExisting = await prisma.opportunity.findMany({
+        where: { isDemoFixture: false },
+        select: { id: true, slug: true, title: true },
+        take: 20,
+      }).catch(() => []);
+      if (invalidExisting.some((o: any) => /vague-question-about|^vague question about|without industry context/i.test(`${o.slug || ""} ${o.title || ""}`))) {
+        await cleanSyntheticStagingOpportunity(prisma);
+      }
+    } catch {}
+
+    // Query for existing persisted candidates to expand evidence for and avoid duplicating
     const existingCandidates = await prisma.opportunity.findMany({
       where: { isDemoFixture: false },
       orderBy: { createdAt: "desc" },
-      take: 1,
+      take: 10,
       include: {
         scorecards: { orderBy: { createdAt: "desc" }, take: 1 },
         evidenceLinks: {
@@ -2028,7 +2520,17 @@ export async function executeManualStagingIngestion(
       },
     }).catch(() => []);
 
-    const targetCandidate = existingCandidates[0] || null;
+    const validExistingCandidates = existingCandidates.filter(
+      (o: any) => !/vague-question-about|^vague question about|without industry context/i.test(`${o.slug || ""} ${o.title || ""}`),
+    );
+    const targetCandidate = validExistingCandidates[0] || null;
+    const allExistingLinkedSignalIds = new Set<string>();
+    for (const existingOpp of validExistingCandidates) {
+      for (const link of existingOpp.evidenceLinks || []) {
+        if (link.normalizedSignalId) allExistingLinkedSignalIds.add(link.normalizedSignalId);
+        if (link.normalizedSignal?.id) allExistingLinkedSignalIds.add(link.normalizedSignal.id);
+      }
+    }
 
     if (targetCandidate) {
       // 6a. Preserve existing candidate evidence and problem identity
@@ -2066,9 +2568,19 @@ export async function executeManualStagingIngestion(
       const unmatchedPool: ClusterCandidate[] = [];
 
       for (const item of clusterCandidates) {
-        if (targetOriginalSignalIds.has(item.id)) continue;
+        if (targetOriginalSignalIds.has(item.id) || allExistingLinkedSignalIds.has(item.id)) continue;
         const sim = targetCentroid ? cosineSimilarity(item.embedding, targetCentroid) : 0;
-        if (sim >= 0.70) {
+        const sameProblem =
+          sim >= 0.85 ||
+          (sim >= 0.70 &&
+            signalsSupportSameProblem(
+              targetCandidate.title || "",
+              targetCandidate.problemStatement || "",
+              item.problemSummary,
+              item.problemSummary,
+            ));
+
+        if (sameProblem) {
           // Verify that this candidate signal actually carries problem or demand evidence before attaching
           const normSig = await prisma.normalizedSignal.findUnique({
             where: { id: item.id },
@@ -2122,9 +2634,10 @@ export async function executeManualStagingIngestion(
 
       const allTargetSignals = [...targetOriginalSignals, ...newTargetVerifiedSignals];
       const targetClaimLinks = buildEmpiricalClaimLinks(allTargetSignals);
+      const targetCommercialIndicators = deriveSupportedCommercialIndicators(allTargetSignals);
       const targetQualityResult = evaluatePublicationQuality(
         targetClaimLinks,
-        targetCandidate.scorecards?.[0]?.evidenceConfidenceScore || 80,
+        targetCommercialIndicators.evidenceConfidenceScore,
       );
 
       const targetFinalStatus = "PUBLISHED";
@@ -2145,6 +2658,9 @@ export async function executeManualStagingIngestion(
         const audience = deriveSpecificAudience(`${targetCandidate.title} ${targetCandidate.problemStatement}`);
         const productDirection = derivePlausibleProductDirection(targetCandidate.problemStatement || targetCandidate.title, audience);
         const validationExperiment = deriveSpecificValidationExperiment(targetCandidate.problemStatement || targetCandidate.title, audience);
+        const domainAlternatives = deriveDomainAlternatives(
+          `${targetCandidate.title || ""} ${targetCandidate.problemStatement || ""}`,
+        );
         const evidenceGaps = deriveEvidenceGaps(
           targetCandidate.problemStatement,
           audience,
@@ -2156,6 +2672,9 @@ export async function executeManualStagingIngestion(
         updatedBlueprint.endUser = `[Assumption] ${audience}`;
         updatedBlueprint.targetCustomerSegments = [`[Assumption] ${audience}`];
         updatedBlueprint.proposedProduct = `[Assumption] ${productDirection}`;
+        updatedBlueprint.existingWorkflow = domainAlternatives.existingWorkflow;
+        updatedBlueprint.evidenceOfDemand = targetCommercialIndicators.evidenceOfDemand;
+        updatedBlueprint.evidenceOfWillingnessToPay = targetCommercialIndicators.evidenceOfWillingnessToPay;
         updatedBlueprint.recommendedNextExperiment = validationExperiment;
         updatedBlueprint.majorAssumptions = [
           `[Assumption] Inferred target customer segment: ${audience}`,
@@ -2164,16 +2683,8 @@ export async function executeManualStagingIngestion(
           ...updatedBlueprint.majorAssumptions.filter((a) => !a.startsWith("[Assumption]")),
         ];
         updatedBlueprint.majorRisks = evidenceGaps;
-        updatedBlueprint.existingCompetitors = [
-          "Manual custom scripts and workarounds",
-          "Internal ad-hoc firefighting",
-          "Incumbent platform tools lacking automated root-cause resolution",
-        ];
-        updatedBlueprint.competitorWeaknesses = [
-          "High ongoing manual maintenance overhead",
-          "Fragile custom scripts with no automated alerting",
-          "No proactive root-cause analysis or recovery",
-        ];
+        updatedBlueprint.existingCompetitors = domainAlternatives.competitors;
+        updatedBlueprint.competitorWeaknesses = domainAlternatives.weaknesses;
 
         const customerSegments: CustomerSegmentItem[] = updatedBlueprint.targetCustomerSegments.map((name) => ({
           id: "seg-" + crypto.randomUUID(),
@@ -2335,8 +2846,8 @@ export async function executeManualStagingIngestion(
           risks,
           assumptions,
           experiments,
-          opportunityScore: 85,
-          evidenceConfidence: 80,
+          opportunityScore: targetCommercialIndicators.opportunityScore,
+          evidenceConfidence: targetCommercialIndicators.evidenceConfidenceScore,
           criticalClaimsCovered: allTargetSignals.length,
           costSummary: {
             minBuildMinorCents: updatedBlueprint.economics.estimatedMvpCost.minMinor,
@@ -2388,44 +2899,48 @@ export async function executeManualStagingIngestion(
         new Set(newTargetVerifiedSignals.map((s) => s.rawSignal.sourceUrl || s.normalizedSignal.canonicalUrl).filter(Boolean)),
       );
 
-      candidateEvaluations.push({
-        id: targetCandidate.id,
-        title: targetCandidate.title,
-        slug: targetCandidate.slug,
-        status: targetFinalStatus,
-        publicationQualityStatus: targetPubQualityStatus,
-        originalUrls: Array.from(originalUrls),
-        addedUrls: targetAddedUrls,
-        supportingUrls: Array.from(new Set(allTargetSignals.map((vs) => vs.rawSignal.sourceUrl))),
-        independenceKeys: Array.from(
-          new Set(
-            allTargetSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`),
+      if (newTargetVerifiedSignals.length > 0 || unmatchedPool.length === 0) {
+        candidateEvaluations.push({
+          id: targetCandidate.id,
+          title: targetCandidate.title,
+          slug: targetCandidate.slug,
+          status: targetFinalStatus,
+          publicationQualityStatus: targetPubQualityStatus,
+          originalUrls: Array.from(originalUrls),
+          addedUrls: targetAddedUrls,
+          supportingUrls: Array.from(new Set(allTargetSignals.map((vs) => vs.rawSignal.sourceUrl))),
+          independenceKeys: Array.from(
+            new Set(
+              allTargetSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`),
+            ),
           ),
-        ),
-        sourceFamilies: Array.from(
-          new Set(
-            allTargetSignals
-              .map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY"))
-              .filter(Boolean),
+          sourceFamilies: Array.from(
+            new Set(
+              allTargetSignals
+                .map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY"))
+                .filter(Boolean),
+            ),
           ),
-        ),
-        blockers: targetQualityResult.blockers,
-        warnings: targetQualityResult.warnings,
-        metrics: targetQualityResult.metrics,
-      });
+          blockers: targetQualityResult.blockers,
+          warnings: targetQualityResult.warnings,
+          metrics: targetQualityResult.metrics,
+        });
 
-      if (publishedCount < maxPublishedOpportunities) {
-        publishedSlugs.push(targetCandidate.slug);
-        publishedCount++;
+        if (publishedCount < maxPublishedOpportunities) {
+          publishedSlugs.push(targetCandidate.slug);
+          publishedCount++;
+        }
       }
 
       // 6b. Cluster genuinely different problems into separate candidates
       if (unmatchedPool.length > 0 && candidateEvaluations.length < maxCandidates) {
-        const newClusters = clusterSignals(unmatchedPool, 0.75);
+        const newClusters = clusterSignals(unmatchedPool, 0.72);
+        newClusters.sort((a, b) => b.signalIds.length - a.signalIds.length);
         totalClustersDiscovered += newClusters.length;
         const availableCandidateSlots = Math.max(0, maxCandidates - candidateEvaluations.length);
-        for (const cl of newClusters.slice(0, availableCandidateSlots)) {
-          if (Date.now() > deadline) break;
+        for (const cl of newClusters) {
+          if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates || publishedCount >= maxPublishedOpportunities) break;
+          if (availableCandidateSlots <= 0) break;
           const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
           for (const sigId of cl.signalIds) {
             const normSig = await prisma.normalizedSignal.findUnique({
@@ -2439,12 +2954,19 @@ export async function executeManualStagingIngestion(
           if (verifiedSignals.length === 0) continue;
 
           // Gating: An opportunity hypothesis may only be created if the cluster contains genuine evidence
-          // of a problem, workaround, or willingness to pay / purchase intent.
+          // of a concrete problem, workaround, or willingness to pay / purchase intent.
           const hasCommercialProblemEvidence = verifiedSignals.some((vs) => {
             const sigType = (vs.normalizedSignal.signalType || "").toUpperCase();
-            const text = `${vs.normalizedSignal.sanitizedExcerpt || ""} ${vs.normalizedSignal.problemSummary || ""}`.toLowerCase();
+            const title = vs.rawSignal.title || vs.normalizedSignal.sourceTitle || "";
+            const excerpt = vs.normalizedSignal.sanitizedExcerpt || "";
+            const summary = vs.normalizedSignal.problemSummary || "";
+            const text = `${title} ${excerpt} ${summary}`.toLowerCase();
+            if (/vague question about|without industry context/i.test(text)) return false;
+            if (/\b(ready-for-agent|ai text below|create a branch and open a pr|parent:\s*#\d+|epic\s*#\d+|are harnesses worth the cost)\b/i.test(text)) {
+              return false;
+            }
             const isActionableType = ["PAIN_COMPLAINT", "PAIN", "PROBLEM_STATEMENT", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
-            const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay)\b/i.test(text);
+            const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay|timeout|outage|drift|reconcil)\b/i.test(text);
             const isPureNews = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
             return (isActionableType || vs.normalizedSignal.purchaseIntent || hasExplicitPain) && !isPureNews;
           });
@@ -2487,12 +3009,12 @@ export async function executeManualStagingIngestion(
 
     } else {
       // 6c. Cold initial clustering when no previous opportunity exists
-      const clusters = clusterCandidates.length > 0 ? clusterSignals(clusterCandidates, 0.75) : [];
+      const clusters = clusterCandidates.length > 0 ? clusterSignals(clusterCandidates, 0.72) : [];
+      clusters.sort((a, b) => b.signalIds.length - a.signalIds.length);
       totalClustersDiscovered = clusters.length;
-      const boundedClusters = clusters.slice(0, maxCandidates);
 
-      for (const cl of boundedClusters) {
-        if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates) break;
+      for (const cl of clusters) {
+        if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates || publishedCount >= maxPublishedOpportunities) break;
 
         const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
         for (const sigId of cl.signalIds) {
@@ -2507,12 +3029,19 @@ export async function executeManualStagingIngestion(
         if (verifiedSignals.length === 0) continue;
 
         // Gating: An opportunity hypothesis may only be created if the cluster contains genuine evidence
-        // of a problem, workaround, or willingness to pay / purchase intent.
+        // of a concrete problem, workaround, or willingness to pay / purchase intent.
         const hasCommercialProblemEvidence = verifiedSignals.some((vs) => {
           const sigType = (vs.normalizedSignal.signalType || "").toUpperCase();
-          const text = `${vs.normalizedSignal.sanitizedExcerpt || ""} ${vs.normalizedSignal.problemSummary || ""}`.toLowerCase();
+          const title = vs.rawSignal.title || vs.normalizedSignal.sourceTitle || "";
+          const excerpt = vs.normalizedSignal.sanitizedExcerpt || "";
+          const summary = vs.normalizedSignal.problemSummary || "";
+          const text = `${title} ${excerpt} ${summary}`.toLowerCase();
+          if (/vague question about|without industry context/i.test(text)) return false;
+          if (/\b(ready-for-agent|ai text below|create a branch and open a pr|parent:\s*#\d+|epic\s*#\d+|are harnesses worth the cost)\b/i.test(text)) {
+            return false;
+          }
           const isActionableType = ["PAIN_COMPLAINT", "PAIN", "PROBLEM_STATEMENT", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
-          const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay)\b/i.test(text);
+          const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay|timeout|outage|drift|reconcil)\b/i.test(text);
           const isPureNews = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
           return (isActionableType || vs.normalizedSignal.purchaseIntent || hasExplicitPain) && !isPureNews;
         });
@@ -2563,6 +3092,8 @@ export async function executeManualStagingIngestion(
       candidatesClassifiedCount: clusterCandidates.length,
       matchedToTargetCount,
       unmatchedPoolCount,
+      remainingBacklogCount,
+      hasMorePending: remainingBacklogCount > 0,
       perSourceStats,
       candidateEvaluations,
     };

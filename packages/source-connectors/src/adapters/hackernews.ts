@@ -29,7 +29,20 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
     try {
       let url = "";
       if (query && query.trim().length > 0) {
-        url = `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent(query.trim())}&tags=story&hitsPerPage=${limit}&page=${page}`;
+        // Algolia treats multi-word queries as AND; strip boolean OR/quotes and cap at 3 significant words
+        const hasBooleanOrQuotes = /\bOR\b|["()]/i.test(query);
+        const cleanedQuery = hasBooleanOrQuotes
+          ? query
+              .trim()
+              .replace(/\bOR\b/gi, " ")
+              .replace(/["()]/g, " ")
+              .split(/\s+/)
+              .filter((w) => w.length >= 3)
+              .slice(0, 3)
+              .join(" ")
+          : query.trim();
+        const qParam = encodeURIComponent(cleanedQuery || query.trim());
+        url = `https://hn.algolia.com/api/v1/search_by_date?query=${qParam}&tags=story&hitsPerPage=${limit}&page=${page}`;
       } else {
         url = `https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${limit}&page=${page}`;
       }
@@ -46,22 +59,38 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
         }
       }
 
+      const collectedHits: any[] = [];
       const res = await fetch(url, {
         headers: { "User-Agent": "BuildWorth-Staging/1.0" },
       });
       if (res.ok) {
         const json = await res.json();
         const hits = json.hits || [];
-        if (hits.length > 0) {
-          return hits
-            .filter((h: any) => (h.title || h.story_text) && h.objectID)
-            .map((h: any) => ({
+        for (const h of hits) {
+          if (h && h.objectID) {
+            collectedHits.push(h);
+          }
+        }
+      }
+
+      if (collectedHits.length > 0) {
+        return collectedHits
+          .filter((h: any) => (h.title || h.story_text) && h.objectID)
+          .slice(0, limit)
+          .map((h: any) => {
+            const titleStr = h.title ? String(h.title).trim() : "";
+            const storyStr = h.story_text ? String(h.story_text).trim() : "";
+            let rawContent = String(storyStr || titleStr || "");
+            if (storyStr.length >= 10 && titleStr.length >= 10 && !storyStr.toLowerCase().startsWith(titleStr.toLowerCase().slice(0, 20))) {
+              rawContent = `${titleStr} — ${storyStr}`;
+            }
+            return {
               externalId: `hn-${h.objectID}`,
               sourceKey: this.sourceKey,
               sourceUrl: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
               authorFingerprint: h.author || "hn_user",
-              title: h.title ? String(h.title).slice(0, 150) : undefined,
-              rawContent: String(h.story_text || h.title || "").slice(0, 280),
+              title: titleStr ? titleStr.slice(0, 150) : undefined,
+              rawContent: rawContent.slice(0, 280),
               publishedAt: h.created_at ? new Date(h.created_at) : new Date(),
               metadata: {
                 points: h.points || 0,
@@ -69,8 +98,8 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
                 createdAtI: h.created_at_i,
                 page,
               },
-            }));
-        }
+            };
+          });
       }
     } catch (err: any) {
       logger.warn("Live HN fetch failed or unconfigured", { error: err?.message });
