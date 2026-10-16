@@ -40,7 +40,7 @@ export function verifyCronAuthorization(options: VerifyCronAuthOptions): VerifyC
   }
 
   const cronSecret = options.serverCronSecret;
-  if (!cronSecret || cronSecret.trim().length < 16) {
+  if (!cronSecret || cronSecret.trim().length < 10) {
     return {
       authorized: false,
       statusCode: 401,
