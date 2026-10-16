@@ -4,13 +4,18 @@ import {
   StoredOpportunity,
 } from "@/lib/opportunity-store";
 import { prisma } from "@buildworth/database";
+import { evaluateSolutionFeasibility, isSingleRepoTicket } from "@buildworth/opportunity-engine";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const dbOpps = await prisma.opportunity.findMany({
-      where: { status: "PUBLISHED", isDemoFixture: false },
+      where: {
+        isDemoFixture: false,
+        status: "PUBLISHED",
+        publicationQualityStatus: { in: ["VERIFIED", "HYPOTHESIS"] },
+      },
       include: {
         scorecards: {
           orderBy: { createdAt: "desc" },
@@ -35,9 +40,21 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    const validOpps = (dbOpps || []).filter(
-      (o) => !/vague-question-about|^vague question about|without industry context/i.test(`${o.slug || ""} ${o.title || ""}`),
-    );
+    const validOpps = (dbOpps || []).filter((o) => {
+      const combined = `${o.slug || ""} ${o.title || ""} ${o.problemStatement || ""}`;
+      if (/vague-question-about|^vague question about|without industry context/i.test(combined)) {
+        return false;
+      }
+      const feasibility = evaluateSolutionFeasibility(o.problemStatement || o.title);
+      if (!feasibility.isFeasible) {
+        return false;
+      }
+      const primaryUrl = o.evidenceLinks?.[0]?.normalizedSignal?.canonicalUrl || o.evidenceLinks?.[0]?.normalizedSignal?.rawSignal?.sourceUrl;
+      if (isSingleRepoTicket(primaryUrl, combined) && (o.evidenceLinks?.length || 0) <= 1) {
+        return false;
+      }
+      return true;
+    });
 
     if (validOpps.length > 0) {
       const mapped: StoredOpportunity[] = validOpps.map((o) => {

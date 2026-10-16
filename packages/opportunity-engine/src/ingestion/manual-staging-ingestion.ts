@@ -31,6 +31,10 @@ import { createOpportunityRevisionTransaction } from "../revision/revision-servi
 import {
   isConcreteProblemOrWorkaround,
   deriveSpecificAudience,
+  deriveEconomicBuyerRole,
+  deriveEndUserRole,
+  evaluateSolutionFeasibility,
+  isSingleRepoTicket,
   derivePlausibleProductDirection,
   deriveSpecificValidationExperiment,
   deriveEvidenceGaps,
@@ -39,10 +43,13 @@ import {
 import { logger } from "@buildworth/observability";
 
 export function timingSafeEqualStr(a: string, b: string): boolean {
-  const strA = (a || "").replace(/^["']|["']$/g, "").trim();
-  const strB = (b || "").replace(/^["']|["']$/g, "").trim();
-  const bufA = Buffer.from(strA);
-  const bufB = Buffer.from(strB);
+  if (typeof a !== "string" || typeof b !== "string") {
+    return false;
+  }
+  const cleanA = a.trim();
+  const cleanB = b.trim();
+  const bufA = Buffer.from(cleanA);
+  const bufB = Buffer.from(cleanB);
   if (bufA.length !== bufB.length) {
     crypto.timingSafeEqual(bufA, bufA);
     return false;
@@ -237,6 +244,9 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
   const syntheticSlugs = [
     "manual-reconciliation-process-causing-recurring-quarterly-de",
     "vague-question-about-value-of-harnesses-without-industry-c",
+    "china-s-push-for-domestic-ai-chip-capability-amid-internatio",
+    "apple-id-locked-accounts-force-users-into-week-long-automate",
+    "workflow-gap-in-agents-pr-fixer-md-requires-manual-workaroun",
   ];
 
   let cleanedOpportunities = 0;
@@ -255,7 +265,7 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
     }
   }
 
-  // Also clean any non-demo opportunity whose title/slug/problem is a meta-critique ("vague question about...")
+  // Also clean any non-demo opportunity failing solution feasibility or single-repo checks
   try {
     const allOpps = await prisma.opportunity.findMany({
       where: { isDemoFixture: false },
@@ -264,7 +274,12 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
     }).catch(() => []);
     for (const o of allOpps) {
       const combined = `${o.slug || ""} ${o.title || ""} ${o.problemStatement || ""}`;
-      if (/vague-question-about|^vague question about|without industry context/i.test(combined)) {
+      const feasibility = evaluateSolutionFeasibility(o.problemStatement || o.title);
+      if (
+        /vague-question-about|^vague question about|without industry context/i.test(combined) ||
+        !feasibility.isFeasible ||
+        isSingleRepoTicket(undefined, combined)
+      ) {
         await deleteOpportunityAndDependents(prisma, o.id);
         cleanedOpportunities++;
       }
@@ -1048,10 +1063,16 @@ export async function buildAndPersistOpportunityBrief(
   const fullProblemContext = `${rawTitle} ${cl.summary || ""}`;
   const primaryActorRole = verifiedSignals.find((s) => s.normalizedSignal?.actorRole)?.normalizedSignal?.actorRole;
   const audience = deriveSpecificAudience(fullProblemContext, primaryActorRole);
+  const economicBuyer = deriveEconomicBuyerRole(audience, cl.vertical);
+  const endUser = deriveEndUserRole(audience, primaryActorRole);
   const productDirection = derivePlausibleProductDirection(cl.summary || rawTitle, audience);
   const validationExperiment = deriveSpecificValidationExperiment(cl.summary || rawTitle, audience);
   const domainAlternatives = deriveDomainAlternatives(fullProblemContext);
   const commercialIndicators = deriveSupportedCommercialIndicators(verifiedSignals);
+
+  const feasibility = evaluateSolutionFeasibility(cl.summary || rawTitle, fullProblemContext);
+  const primaryUrl = verifiedSignals[0]?.normalizedSignal?.canonicalUrl || verifiedSignals[0]?.rawSignal?.sourceUrl || "";
+  const isSingleRepo = isSingleRepoTicket(primaryUrl, fullProblemContext) && verifiedSignals.length <= 1;
 
   const evidenceGaps = deriveEvidenceGaps(
     cl.summary,
@@ -1060,13 +1081,22 @@ export async function buildAndPersistOpportunityBrief(
     commercialIndicators.hasExplicitWtp,
   );
 
+  if (!feasibility.isFeasible && feasibility.blockReason) {
+    evidenceGaps.unshift(`Feasibility limitation: ${feasibility.blockReason}`);
+  }
+  if (isSingleRepo) {
+    evidenceGaps.unshift("Repository-specific workflow ticket: requires independent multi-organization corroboration before broader business opportunity validation");
+  }
+
   const blueprint = synthesizeOpportunity(cl, verifiedSignals.length);
   blueprint.title = formattedTitle;
   blueprint.slug = generatedSlug;
   blueprint.oneSentenceSummary = productDirection;
-  blueprint.economicBuyer = `[Assumption] ${audience} Leadership`;
-  blueprint.endUser = `[Assumption] ${audience}`;
-  blueprint.targetCustomerSegments = [`[Assumption] ${audience}`];
+  const assumedBuyer = economicBuyer.startsWith("[Assumption]") ? economicBuyer : `[Assumption] ${economicBuyer}`;
+  const assumedAudience = audience.startsWith("[Assumption]") ? audience : `[Assumption] ${audience}`;
+  blueprint.economicBuyer = assumedBuyer;
+  blueprint.endUser = endUser;
+  blueprint.targetCustomerSegments = [assumedAudience];
   blueprint.proposedProduct = `[Assumption] ${productDirection}`;
   blueprint.recommendedNextExperiment = validationExperiment;
   blueprint.existingWorkflow = domainAlternatives.existingWorkflow;
@@ -1088,9 +1118,14 @@ export async function buildAndPersistOpportunityBrief(
 
   const claimLinks = buildEmpiricalClaimLinks(verifiedSignals);
   const qualityResult = evaluatePublicationQuality(claimLinks, commercialIndicators.evidenceConfidenceScore);
-  const isVerified = qualityResult.status === "VERIFIED" && qualityResult.isEligibleForVerified;
-  const finalStatus = "PUBLISHED";
-  const pubQualityStatus = qualityResult.status || "HYPOTHESIS";
+
+  // Strict publication quality & feasibility gating:
+  // Must be feasible for an independent product, must not be an uncorroborated single-repo ticket,
+  // and must possess verified commercial/pain evidence score >= 45.
+  const isEligibleForOpportunity = feasibility.isFeasible && !isSingleRepo && commercialIndicators.opportunityScore >= 45;
+  const isVerified = isEligibleForOpportunity && qualityResult.status === "VERIFIED" && qualityResult.isEligibleForVerified;
+  const finalStatus = isEligibleForOpportunity ? "PUBLISHED" : "RESEARCH_LEAD";
+  const pubQualityStatus = isEligibleForOpportunity ? (qualityResult.status || "HYPOTHESIS") : "RESEARCH_LEAD";
 
   const oppData = {
     slug: generatedSlug,
@@ -2642,8 +2677,13 @@ export async function executeManualStagingIngestion(
         targetCommercialIndicators.evidenceConfidenceScore,
       );
 
-      const targetFinalStatus = "PUBLISHED";
-      const targetPubQualityStatus = targetQualityResult.status || "HYPOTHESIS";
+      const targetFeasibility = evaluateSolutionFeasibility(targetCandidate.problemStatement || targetCandidate.title);
+      const primaryTargetUrl = targetCandidate.evidenceLinks?.[0]?.normalizedSignal?.canonicalUrl || targetCandidate.evidenceLinks?.[0]?.normalizedSignal?.rawSignal?.sourceUrl || "";
+      const isTargetSingleRepo = isSingleRepoTicket(primaryTargetUrl, targetCandidate.problemStatement) && allTargetSignals.length <= 1;
+
+      const isTargetEligible = targetFeasibility.isFeasible && !isTargetSingleRepo && targetCommercialIndicators.opportunityScore >= 45;
+      const targetFinalStatus = isTargetEligible ? "PUBLISHED" : "RESEARCH_LEAD";
+      const targetPubQualityStatus = isTargetEligible ? (targetQualityResult.status || "HYPOTHESIS") : "RESEARCH_LEAD";
 
       if (newTargetVerifiedSignals.length > 0) {
         // Synthesize updated blueprint with combined evidence
@@ -2658,6 +2698,8 @@ export async function executeManualStagingIngestion(
 
         const updatedBlueprint = synthesizeOpportunity(clusterProxy, allTargetSignals.length);
         const audience = deriveSpecificAudience(`${targetCandidate.title} ${targetCandidate.problemStatement}`);
+        const economicBuyer = deriveEconomicBuyerRole(audience, targetCandidate.industry);
+        const endUser = deriveEndUserRole(audience);
         const productDirection = derivePlausibleProductDirection(targetCandidate.problemStatement || targetCandidate.title, audience);
         const validationExperiment = deriveSpecificValidationExperiment(targetCandidate.problemStatement || targetCandidate.title, audience);
         const domainAlternatives = deriveDomainAlternatives(
@@ -2670,9 +2712,18 @@ export async function executeManualStagingIngestion(
           allTargetSignals.some((s) => s.normalizedSignal.purchaseIntent),
         );
 
-        updatedBlueprint.economicBuyer = `[Assumption] ${audience} Leadership`;
-        updatedBlueprint.endUser = `[Assumption] ${audience}`;
-        updatedBlueprint.targetCustomerSegments = [`[Assumption] ${audience}`];
+        if (!targetFeasibility.isFeasible && targetFeasibility.blockReason) {
+          evidenceGaps.unshift(`Feasibility limitation: ${targetFeasibility.blockReason}`);
+        }
+        if (isTargetSingleRepo) {
+          evidenceGaps.unshift("Repository-specific workflow ticket: requires independent multi-organization corroboration before broader business opportunity validation");
+        }
+
+        const assumedBuyer = economicBuyer.startsWith("[Assumption]") ? economicBuyer : `[Assumption] ${economicBuyer}`;
+        const assumedAudience = audience.startsWith("[Assumption]") ? audience : `[Assumption] ${audience}`;
+        updatedBlueprint.economicBuyer = assumedBuyer;
+        updatedBlueprint.endUser = endUser;
+        updatedBlueprint.targetCustomerSegments = [assumedAudience];
         updatedBlueprint.proposedProduct = `[Assumption] ${productDirection}`;
         updatedBlueprint.existingWorkflow = domainAlternatives.existingWorkflow;
         updatedBlueprint.evidenceOfDemand = targetCommercialIndicators.evidenceOfDemand;
@@ -2928,7 +2979,7 @@ export async function executeManualStagingIngestion(
           metrics: targetQualityResult.metrics,
         });
 
-        if (publishedCount < maxPublishedOpportunities) {
+        if (isTargetEligible && publishedCount < maxPublishedOpportunities) {
           publishedSlugs.push(targetCandidate.slug);
           publishedCount++;
         }
@@ -3002,7 +3053,7 @@ export async function executeManualStagingIngestion(
             metrics: briefRes.qualityResult.metrics,
           });
 
-          if (publishedCount < maxPublishedOpportunities) {
+          if (briefRes.finalStatus === "PUBLISHED" && publishedCount < maxPublishedOpportunities) {
             publishedSlugs.push(briefRes.generatedSlug);
             publishedCount++;
           }
@@ -3077,7 +3128,7 @@ export async function executeManualStagingIngestion(
           metrics: briefRes.qualityResult.metrics,
         });
 
-        if (publishedCount < maxPublishedOpportunities) {
+        if (briefRes.finalStatus === "PUBLISHED" && publishedCount < maxPublishedOpportunities) {
           publishedSlugs.push(briefRes.generatedSlug);
           publishedCount++;
         }
