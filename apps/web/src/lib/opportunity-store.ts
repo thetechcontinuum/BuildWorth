@@ -5,6 +5,8 @@ export interface StoredOpportunity {
   slug: string;
   title: string;
   summary: string;
+  problemStatement?: string;
+  proposedProduct?: string;
   industry: string;
   customerType: string;
   opportunityScore: number;
@@ -14,11 +16,19 @@ export interface StoredOpportunity {
   costRange: { minMinor: number; maxMinor: number; currency: "USD" };
   timeToMvpWeeks: { min: number; max: number };
   buyer: string;
+  endUser?: string;
+  targetCustomerSegments?: string[];
   signalsCount: number; // 0 for unverified hypotheses, computed for verified
   recommendedExperiment: string;
   jobsToBeDone?: string[];
   narrowMvpScope?: string[];
   existingWorkflow?: string;
+  existingCompetitors?: string[];
+  competitorWeaknesses?: string[];
+  majorAssumptions?: string[];
+  majorRisks?: string[];
+  evidenceOfDemand?: string[];
+  evidenceOfWillingnessToPay?: string[];
   buyingTrigger?: string;
   competitors?: { name: string; weakness: string }[];
   dimensionBreakdown: {

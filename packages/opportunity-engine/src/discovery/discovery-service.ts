@@ -95,20 +95,38 @@ export function isConcreteProblemOrWorkaround(signal: {
     return false;
   }
 
-  // 3. Strict Exclusions: Generic developer questions / Q&A / advice seeking
-  // e.g. "Why does adding local size improve performance in OpenCL?", "How to do X in Y", "Optimal way to..."
+  // 3. Strict Exclusions: Generic developer questions / Q&A / advice seeking / opinion essays / meta-critiques
+  // e.g. "Why does adding local size improve performance in OpenCL?", "How to do X in Y", "Are Harnesses Worth the Cost?"
+  const isGenuineAskHnProblem =
+    /^ask hn:/i.test(title) &&
+    /\b(manual reconciliation|workaround|hacky workaround|bottleneck|production outage|memory leak|cost spike|willing to pay|looking for a paid|looking for an alternative|recurring delays)\b/i.test(fullText);
+
   if (
-    /^(why does|why is|why did|why do|why would|how to|how do i|how can i|what is the best way to|optimal way to|is there a way to)\b/i.test(title) ||
-    title.endsWith("?") ||
-    /^\[advice\]/i.test(title) ||
-    /^\[question\]/i.test(title) ||
-    /^\[css,|^\[html,|^\[c#,|^\[java,|^\[python,/i.test(title)
+    !isGenuineAskHnProblem &&
+    (/^(why does|why is|why did|why do|why would|how to|how do i|how can i|what is the best way to|optimal way to|is there a way to|are .* worth the cost|is .* worth it)\b/i.test(title) ||
+      title.endsWith("?") ||
+      /^\[advice\]/i.test(title) ||
+      /^\[question\]/i.test(title) ||
+      /^\[css,|^\[html,|^\[c#,|^\[java,|^\[python,/i.test(title))
   ) {
     return false;
   }
 
-  // 4. Strict Exclusions: Generic feature requests or routine backlog tasks without clear user friction
-  // e.g. "EP-13: 18 eBay flag markets...", "Daily ingest: review needed..."
+  // 3b. Strict Exclusions: Meta-critiques or vague summaries emitted instead of concrete problems
+  if (
+    /\b(vague question about|unclear question|no specific problem|without industry context|opinion essay|thought piece)\b/i.test(fullText)
+  ) {
+    return false;
+  }
+
+  // 4. Strict Exclusions: Generic feature requests, AI coding agent tasks, or routine backlog tasks without clear user friction
+  // e.g. "EP-13: 18 eBay flag markets...", "Daily ingest: review needed...", "ready-for-agent", "Parent: #308"
+  if (
+    /\b(ready-for-agent|ai text below|create a branch and open a pr|parent:\s*#\d+|epic\s*#\d+|auto-research loop)\b/i.test(fullText)
+  ) {
+    return false;
+  }
+
   if (
     /^(ep-\d+|feat:|feature:|task:|chore:|refactor:|daily ingest:|sprint \d+)/i.test(title) &&
     !/\b(broken|breaks|fails|failing|error|leak|spike|latency|outage|unusable|crash|crashing)\b/i.test(fullText)
@@ -117,11 +135,11 @@ export function isConcreteProblemOrWorkaround(signal: {
   }
 
   // 5. Strict Exclusions: Repository documentation, translation, typo fixes, markdown changes
-  // e.g. "docs: write the project skills in English", "doc: update README", "translate documentation"
+  // e.g. "docs: write the project skills in English", "Update current state in readme", "translate documentation"
   if (
     /^(docs?|documentation|readme|translation|translate)\b/i.test(title) ||
-    /^(fix|update|add|write)\s+(the\s+)?(docs?|documentation|readme|skills?\s+in\s+english)\b/i.test(title) ||
-    /\b(project skills under \.agents|write .* in english|typo in docs|fix markdown|update readme\.md)\b/i.test(fullText)
+    /^(fix|update|add|write)\s+(the\s+|current\s+state\s+in\s+)?(docs?|documentation|readme|skills?\s+in\s+english)\b/i.test(title) ||
+    /\b(project skills under \.agents|write .* in english|typo in docs|fix markdown|update readme\.md|update current state in readme|in readme\b)\b/i.test(fullText)
   ) {
     return false;
   }
@@ -200,12 +218,13 @@ export function isConcreteProblemOrWorkaround(signal: {
   // 12. Explicit concrete friction / breakdown / workaround / cost pain indicators
   // The excerpt or title must describe actual failure, broken functionality, error, or manual hack
   const hasConcreteBreakdown =
-    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes)\b/i.test(fullText);
+    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|manual reconciliation|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes)\b/i.test(fullText);
 
   // High quality problem types from GitHub / StackOverflow / HN or unclassified signals with problem keywords
   const isProblemType = [
     "PAIN",
     "PAIN_COMPLAINT",
+    "PROBLEM_STATEMENT",
     "WORKAROUND",
     "WORKAROUND_REQUEST",
     "COMPETITOR_COMPLAINT",
@@ -709,6 +728,12 @@ export function scoreCandidateQuality(input: CandidateScoringInput): CandidateQu
     }
   }
   if (
+    /\b(ready-for-agent|ai text below|create a branch and open a pr|parent:\s*#\d+|epic\s*#\d+|update current state in readme|vague question about|without industry context)\b/i.test(fullText)
+  ) {
+    noisePenalty -= 80;
+    reasons.push("Demoted: repository-internal chore task or vague non-problem critique");
+  }
+  if (
     operationalFailureScore === 0 &&
     recurrenceScore === 0 &&
     costlyWorkaroundScore === 0 &&
@@ -777,7 +802,7 @@ export async function getDailyDiscoveryFeed(
       where: {
         isDemoFixture: false,
         publicationQualityStatus: { in: ["HYPOTHESIS", "PARTIALLY_VERIFIED", "EVIDENCE_PENDING"] },
-        status: { in: ["DRAFT", "IN_REVIEW"] },
+        status: { in: ["DRAFT", "IN_REVIEW", "PUBLISHED"] },
       },
       orderBy: { createdAt: "desc" },
       take: 25,
@@ -812,6 +837,9 @@ export async function getDailyDiscoveryFeed(
 
     for (const opp of candidates) {
       if (opportunityHypotheses.length >= limit) break;
+      if (/vague-question-about|^vague question about|without industry context/i.test(`${opp.slug || ""} ${opp.title || ""} ${opp.problemStatement || ""}`)) {
+        continue;
+      }
 
       // Extract genuine evidence observations
       const observations: Array<{

@@ -27,16 +27,20 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
 
     logger.info(`Fetching GitHub issues signals (limit ${limit}, page ${page}${query ? `, query: ${query}` : ""})...`);
     try {
+      const defaultProblemQuery =
+        '("workaround" OR "bottleneck" OR "manual process" OR "memory leak" OR "rate limit" OR "timeout" OR "cost spike" OR "migration")';
       let q =
         query && query.trim().length > 0
           ? `is:public is:issue state:open ${query.trim()}`
-          : `is:public is:issue state:open sort:updated`;
+          : `is:public is:issue state:open ${defaultProblemQuery} sort:updated`;
 
       if (options.since) {
         q += ` updated:>${options.since.toISOString()}`;
       } else if (options.checkpoint) {
-        // e.g. updated date checkpoint
-        q += ` updated:>${options.checkpoint}`;
+        const cpDate = new Date(options.checkpoint);
+        if (!isNaN(cpDate.getTime())) {
+          q += ` updated:>${cpDate.toISOString()}`;
+        }
       }
 
       const res = await fetch(
@@ -49,22 +53,51 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
         const json = await res.json();
         const items = json.items || [];
         if (items.length > 0) {
-          return items
-            .filter((item: any) => item.html_url && (item.title || item.body))
-            .map((item: any) => ({
+          const isBotOrChoreIssue = (item: any): boolean => {
+            const login = String(item.user?.login || "").toLowerCase();
+            if (login.endsWith("[bot]") || login === "dependabot" || login === "renovate" || login === "github-actions") {
+              return true;
+            }
+            const combined = `${item.title || ""} ${item.body || ""}`;
+            if (
+              /\bready-for-agent\b/i.test(combined) ||
+              /:robot:\s*_?ai text below/i.test(combined) ||
+              /\bParent:\s*#\d+/i.test(combined) ||
+              /\bEpic\s*#\d+/i.test(combined) ||
+              /\bCreate a branch and open a PR\b/i.test(combined)
+            ) {
+              return true;
+            }
+            return false;
+          };
+
+          const validItems = items.filter(
+            (item: any) => item.html_url && (item.title || item.body) && !isBotOrChoreIssue(item),
+          );
+
+          return validItems.map((item: any) => {
+            const titleStr = item.title ? String(item.title).trim() : "";
+            const bodyStr = item.body ? String(item.body).trim() : "";
+            const combinedContent =
+              titleStr && bodyStr && !bodyStr.toLowerCase().startsWith(titleStr.toLowerCase().slice(0, 20))
+                ? `${titleStr} — ${bodyStr}`
+                : String(bodyStr || titleStr || "");
+
+            return {
               externalId: `gh-${item.id}`,
               sourceKey: this.sourceKey,
               sourceUrl: item.html_url,
               authorFingerprint: item.user?.login || "gh_user",
-              title: item.title ? String(item.title).slice(0, 150) : undefined,
-              rawContent: String(item.body || item.title || "").slice(0, 280),
+              title: titleStr ? titleStr.slice(0, 150) : undefined,
+              rawContent: combinedContent.slice(0, 280),
               publishedAt: item.created_at ? new Date(item.created_at) : new Date(),
               metadata: {
                 comments: item.comments || 0,
                 updatedAt: item.updated_at,
                 page,
               },
-            }));
+            };
+          });
         }
       }
     } catch (err: any) {

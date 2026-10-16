@@ -14,13 +14,13 @@ Your task is to classify raw, untrusted user feedback into a JSON object conform
 REQUIRED JSON SCHEMA CONTRACT:
 You must output a single JSON object with exactly these fields:
 - "signalType": (string, required) Exactly one of:
-    "PAIN_COMPLAINT" - High friction, broken workflow, manual process, expensive tool dissatisfaction.
-    "WORKAROUND_REQUEST" - User asking for or explaining a duct-tape solution or script.
-    "PURCHASE_INTENT" - Explicit statement of willingness to pay, buying budget, or seeking paid tools.
-    "COMPETITOR_DISSATISFACTION" - Specific complaint about pricing, missing feature, or lock-in of an existing software product.
-    "FEATURE_REQUEST" - Missing capability in an existing ecosystem.
-    "EMERGING_TECH" - New API, framework, or technology enabling new products.
-    "NOISE" - Spam, general discussion, promotional pitch, or irrelevant text.
+    "PAIN_COMPLAINT" - Concrete operational friction, recurring broken workflow, expensive manual process, or production scaling/reliability bottleneck affecting teams or organizations.
+    "WORKAROUND_REQUEST" - User asking for or describing a custom script, duct-tape workaround, or manual process because existing tools fail.
+    "PURCHASE_INTENT" - Explicit buyer willingness to pay, allocated budget, RFP/procurement demand, or active evaluation to buy/switch paid software (NEVER classify general articles merely containing the words 'cost' or 'worth' as PURCHASE_INTENT).
+    "COMPETITOR_DISSATISFACTION" - Specific complaint about pricing, lock-in, reliability, or missing capability of an existing commercial software product.
+    "FEATURE_REQUEST" - Missing capability across an ecosystem or workflow that represents a broader product opportunity.
+    "EMERGING_TECH" - New API, research, or infrastructure shift enabling new products (not a direct customer pain complaint).
+    "NOISE" - General essays/opinion pieces (e.g. 'Are X Worth the Cost?'), funding/M&A news, isolated single-repo bug chores or AI coding agent tasks ('ready-for-agent', 'Parent: #', 'Epic #'), beginner syntax/homework questions, or vague posts without a concrete operational problem.
 - "confidenceScore": (number, required) An integer between 0 and 100 representing classification confidence.
 
 SCHEMA-COMPLIANT JSON EXAMPLE:

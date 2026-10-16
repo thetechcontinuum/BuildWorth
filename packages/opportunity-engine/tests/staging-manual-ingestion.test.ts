@@ -1221,5 +1221,154 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       expect(opp.majorRisks.length).toBeGreaterThan(0); // Evidence gaps
       expect(prisma._store.evidenceLinks.length).toBeGreaterThan(0); // Cited evidence
     });
+
+    it("rejects vague meta-critiques and repo-internal AI coding agent chores while synthesizing multiple distinct problem briefs", async () => {
+      const prisma = createMockPrisma();
+
+      // Seed a stale invalid meta-critique opportunity that must be cleaned up automatically
+      prisma._store.opportunities.push({
+        id: "opp-invalid-vague-1",
+        slug: "vague-question-about-value-of-harnesses-without-industry-c",
+        title: "Vague question about value of harnesses without industry context",
+        problemStatement: "Vague question about value of harnesses without industry context.",
+        isDemoFixture: false,
+        status: "PUBLISHED",
+        publicationQualityStatus: "HYPOTHESIS",
+        createdAt: new Date(Date.now() - 86400000),
+      });
+
+      // Seed backlog signals: 1 repo chore, 1 exhausted retry, and 3 distinct concrete customer problems
+      prisma._store.rawSignals.push(
+        {
+          id: "raw-chore-1",
+          sourceId: "src-gh",
+          source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
+          externalId: "gh-chore-1",
+          sourceUrl: "https://github.com/org/repo/issues/101",
+          title: "Parent: #88 ready-for-agent update current state in README",
+          rawContent: ":robot: _AI text below_ Create a branch and open a PR to update README status.",
+          contentHash: "hash-chore-1",
+          createdAt: new Date(),
+        },
+        {
+          id: "raw-prob-1",
+          sourceId: "src-hn",
+          source: { id: "src-hn", key: "hackernews", name: "Hacker News", permittedExcerptLength: 280 },
+          externalId: "hn-prob-1",
+          sourceUrl: "https://news.ycombinator.com/item?id=501",
+          title: "Ask HN: Snowflake warehouse runaway query costs spiking monthly cloud bill",
+          rawContent: "Data analysts trigger unindexed joins that spike our Snowflake credit spend by $8k before anyone notices.",
+          contentHash: "hash-prob-1",
+          createdAt: new Date(),
+        },
+        {
+          id: "raw-prob-2",
+          sourceId: "src-gh",
+          source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
+          externalId: "gh-prob-2",
+          sourceUrl: "https://github.com/org/repo/issues/502",
+          title: "Postgres connection pool exhaustion under serverless Lambda concurrency spikes",
+          rawContent: "Production API throws remaining connection slots reserved errors whenever Lambda scales above 200 concurrent executions.",
+          contentHash: "hash-prob-2",
+          createdAt: new Date(),
+        },
+        {
+          id: "raw-prob-3",
+          sourceId: "src-hn",
+          source: { id: "src-hn", key: "hackernews", name: "Hacker News", permittedExcerptLength: 280 },
+          externalId: "hn-prob-3",
+          sourceUrl: "https://news.ycombinator.com/item?id=503",
+          title: "SOC2 compliance audit evidence collection takes 40 hours of manual screenshots",
+          rawContent: "Every quarter our DevOps team wastes a full week taking manual screenshots of AWS IAM and GitHub branch protection rules.",
+          contentHash: "hash-prob-3",
+          createdAt: new Date(),
+        },
+      );
+
+      prisma._store.normalizedSignals.push({
+        id: "norm-chore-1",
+        rawSignalId: "raw-chore-1",
+        sourceId: "src-gh",
+        signalType: "PAIN",
+        sourceTitle: "Parent: #88 ready-for-agent update current state in README",
+        sanitizedExcerpt: ":robot: _AI text below_ Create a branch and open a PR to update README status.",
+        problemSummary: "Parent: #88 ready-for-agent update current state in README",
+        verificationStatus: "VERIFIED",
+        isProcessed: false,
+        evidenceLinks: [],
+      });
+
+      vi.stubGlobal("fetch", async () => {
+        return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
+      });
+
+      const multiClusterAi: any = {
+        name: "multi-cluster-ai",
+        generateStructured: async (messages: any) => {
+          const userMsg = messages.find((m: any) => m.role === "user")?.content || "";
+          if (userMsg.includes("Classify this")) {
+            return {
+              data: { signalType: "PAIN_COMPLAINT", confidenceScore: 88 },
+              rawResponse: JSON.stringify({ signalType: "PAIN_COMPLAINT", confidenceScore: 88 }),
+            };
+          }
+          const isSnowflake = userMsg.includes("Snowflake");
+          const isPostgres = userMsg.includes("Postgres") || userMsg.includes("Lambda");
+          const summary = isSnowflake
+            ? "Snowflake warehouse runaway query costs spiking monthly cloud bill"
+            : isPostgres
+            ? "Postgres connection pool exhaustion under serverless Lambda concurrency spikes"
+            : "SOC2 compliance audit evidence collection takes 40 hours of manual screenshots";
+          return {
+            data: {
+              signalType: "PAIN_COMPLAINT",
+              sanitizedExcerpt: userMsg.slice(0, 120),
+              problemSummary: summary,
+              actorRole: "Platform Engineer",
+              workflowContext: isSnowflake ? "Cloud Data Warehouse FinOps" : isPostgres ? "Serverless Database Operations" : "Security & Compliance Audits",
+              severityScore: 4,
+              frequencyScore: 4,
+              intentToPayScore: 65,
+              extractedEntities: isSnowflake ? ["Snowflake"] : isPostgres ? ["PostgreSQL", "AWS Lambda"] : ["SOC2", "AWS IAM"],
+              confidenceScore: 86,
+            },
+            rawResponse: "{}",
+          };
+        },
+        generateEmbedding: async (text: string) => {
+          const emb = new Array(64).fill(0);
+          if (text.includes("Snowflake")) emb[0] = 1.0;
+          else if (text.includes("Postgres") || text.includes("Lambda")) emb[20] = 1.0;
+          else emb[40] = 1.0;
+          return { embedding: emb, dimensions: 64, costMinorUnits: 0 };
+        },
+      };
+
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-multi-brief-quality-001",
+        aiProvider: multiClusterAi,
+        maxCandidates: 5,
+        maxPublishedOpportunities: 5,
+        targetSourceKeys: ["hackernews", "github"],
+      });
+
+      expect(run.status).toBe("COMPLETED");
+      // Repo chore must be marked NOISE / REJECTED and isProcessed: true
+      const choreNorm = prisma._store.normalizedSignals.find((n: any) => n.rawSignalId === "raw-chore-1" && n.isProcessed === true);
+      expect(choreNorm).toBeDefined();
+      expect(choreNorm.isProcessed).toBe(true);
+      expect(choreNorm.verificationStatus).toBe("REJECTED");
+
+      // Valid signals must be marked isProcessed: true
+      const validNorms = prisma._store.normalizedSignals.filter((n: any) => n.rawSignalId !== "raw-chore-1");
+      expect(validNorms.length).toBe(3);
+      for (const vn of validNorms) {
+        expect(vn.isProcessed).toBe(true);
+      }
+
+      // 3 distinct problem briefs should be published
+      expect(run.counters.published).toBe(3);
+      expect(run.publishedSlugs.length).toBe(3);
+    });
   });
 });

@@ -28,14 +28,11 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
 
     try {
       let url = "";
-      // Calculate 90 days ago epoch seconds to guard against questions from 2019/stale years being ingested on background activity
+      // Calculate 90 days ago epoch seconds to guard against stale questions while preserving broad problem coverage
       const ninetyDaysAgoSec = Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000);
+      const effectiveQuery = query || "workaround bottleneck timeout memory leak rate limit migration";
 
-      if (query) {
-        url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&fromdate=${ninetyDaysAgoSec}&q=${encodeURIComponent(query)}&site=stackoverflow&pagesize=${limit}&filter=default`;
-      } else {
-        url = `https://api.stackexchange.com/2.3/questions?order=desc&sort=creation&fromdate=${ninetyDaysAgoSec}&site=stackoverflow&pagesize=${limit}&filter=default`;
-      }
+      url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=votes&fromdate=${ninetyDaysAgoSec}&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&filter=default`;
 
       const res = await fetch(url, {
         headers: { "User-Agent": "BuildWorth-Market-Intelligence/1.0" },

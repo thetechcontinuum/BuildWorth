@@ -154,11 +154,12 @@ export class AgnesAIProvider implements LLMProvider {
               "Content-Type": "application/json",
               Authorization: `Bearer ${this.apiKey}`,
             },
+            signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(8500) : undefined,
             body: JSON.stringify({
               model,
               messages: reqMessages,
               temperature: options?.temperature ?? 0.1,
-              max_tokens: isRetry ? 2500 : (options?.maxTokens ?? 2000),
+              max_tokens: isRetry ? 1500 : (options?.maxTokens ?? 1000),
               response_format: { type: "json_object" },
             }),
           });
@@ -166,12 +167,12 @@ export class AgnesAIProvider implements LLMProvider {
             break;
           }
           if (attempt < 2) {
-            await new Promise((r) => setTimeout(r, 1200));
+            await new Promise((r) => setTimeout(r, 600));
           }
         } catch (netErr: any) {
           lastNetErr = netErr;
           if (attempt < 2) {
-            await new Promise((r) => setTimeout(r, 1200));
+            await new Promise((r) => setTimeout(r, 600));
           }
         }
       }
@@ -322,7 +323,7 @@ export class AgnesAIProvider implements LLMProvider {
     const model = this.defaultEmbeddingModel;
     const costCents = 1;
 
-    if (!this.apiKey || this.apiKey.trim() === "") {
+    if (!this.apiKey || this.apiKey.trim() === "" || model === "agnes-embed-default") {
       aiSpendLedger.recordSpend({
         model,
         promptTokens: 10,
@@ -345,6 +346,7 @@ export class AgnesAIProvider implements LLMProvider {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.apiKey}`,
         },
+        signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(3500) : undefined,
         body: JSON.stringify({
           model,
           input: text,
@@ -397,14 +399,33 @@ export class AgnesAIProvider implements LLMProvider {
 
   private deterministicEmbedding(text: string, dims = 64): number[] {
     const vector = new Array(dims).fill(0);
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      hash = (hash << 5) - hash + text.charCodeAt(i);
-      hash |= 0;
+    const stopWords = new Set([
+      "the", "and", "for", "with", "that", "this", "from", "have", "are", "was", "were",
+      "into", "about", "when", "where", "which", "while", "what", "how", "why", "who",
+    ]);
+    const tokens = text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((t) => t.length >= 3 && !stopWords.has(t));
+
+    if (tokens.length === 0) {
+      vector[0] = 1;
+      return vector;
     }
-    for (let i = 0; i < dims; i++) {
-      vector[i] = Math.sin(hash + i);
+
+    for (const token of tokens) {
+      let h = 2166136261;
+      for (let i = 0; i < token.length; i++) {
+        h ^= token.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      const idx1 = Math.abs(h) % dims;
+      const idx2 = Math.abs(h >> 8) % dims;
+      vector[idx1] += 1.0;
+      vector[idx2] += 0.5;
     }
+
     const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
     return vector.map((val) => val / (magnitude || 1));
   }

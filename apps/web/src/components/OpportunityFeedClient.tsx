@@ -96,13 +96,18 @@ export function OpportunityFeedClient() {
       });
   }, [opportunities, searchQuery, selectedIndustry, minScore, minConfidence, statusFilter, sortBy]);
 
-  const industries = [
-    "ALL",
-    "DevOps & Compliance",
-    "Data Engineering & FinOps",
-    "B2B SaaS RevOps",
-    "AI Engineering & Ops",
-  ];
+  const industries = useMemo(() => {
+    const base = new Set<string>([
+      "ALL",
+      "DevOps & Compliance",
+      "Data Engineering & FinOps",
+      "Software Engineering & DevOps",
+    ]);
+    for (const op of opportunities) {
+      if (op.industry) base.add(op.industry);
+    }
+    return Array.from(base);
+  }, [opportunities]);
 
   return (
     <div className="space-y-6">
@@ -389,31 +394,103 @@ export function OpportunityFeedClient() {
                       </h2>
                     </Link>
 
-                    <p className="text-sm text-zinc-400 leading-relaxed">{op.summary}</p>
+                    <p className="text-sm text-zinc-300 leading-relaxed">
+                      <strong className="text-zinc-100">Problem:</strong>{" "}
+                      {op.problemStatement || op.summary}
+                    </p>
 
-                    {/* Cited Empirical Evidence Links */}
+                    {/* Structured Opportunity Brief Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-lg bg-zinc-950/70 border border-zinc-800/80 text-xs">
+                      <div className="space-y-1">
+                        <div className="text-zinc-400">
+                          <span className="text-indigo-400 font-semibold">Proposed Product:</span>{" "}
+                          <span className="text-zinc-200">
+                            {op.proposedProduct || op.narrowMvpScope?.[0] || "Targeted workflow automation service"}
+                          </span>
+                        </div>
+                        <div className="text-zinc-400">
+                          <span className="text-zinc-300 font-semibold">Existing Alternatives:</span>{" "}
+                          <span>
+                            {op.existingCompetitors && op.existingCompetitors.length > 0
+                              ? op.existingCompetitors.slice(0, 2).join("; ")
+                              : op.competitors && op.competitors.length > 0
+                              ? op.competitors.map((c) => c.name).slice(0, 2).join("; ")
+                              : op.existingWorkflow || "Manual scripts and ad-hoc engineering workarounds"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="text-zinc-400">
+                          <span className="text-emerald-400 font-semibold">Commercial Indicator:</span>{" "}
+                          <span>
+                            {op.evidenceOfDemand?.[0] ||
+                              op.evidenceOfWillingnessToPay?.[0] ||
+                              `Backed by ${op.signalsCount} cited problem signal(s); direct budget commitment requires buyer validation.`}
+                          </span>
+                        </div>
+                        {op.recommendedExperiment && (
+                          <div className="text-zinc-400">
+                            <span className="text-amber-400 font-semibold">Next Validation Step:</span>{" "}
+                            <span>{op.recommendedExperiment}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Assumptions & Evidence Gaps */}
+                    {((op.majorAssumptions && op.majorAssumptions.length > 0) ||
+                      (op.majorRisks && op.majorRisks.length > 0)) && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-zinc-400 pt-1">
+                        {op.majorAssumptions && op.majorAssumptions.length > 0 && (
+                          <div className="p-2.5 rounded bg-amber-950/15 border border-amber-500/20">
+                            <span className="text-amber-400 font-semibold block mb-0.5">
+                              Explicit Assumptions:
+                            </span>
+                            <span className="text-zinc-300">{op.majorAssumptions[0]}</span>
+                          </div>
+                        )}
+                        {op.majorRisks && op.majorRisks.length > 0 && (
+                          <div className="p-2.5 rounded bg-zinc-950/60 border border-zinc-800">
+                            <span className="text-zinc-300 font-semibold block mb-0.5">
+                              Evidence Gaps:
+                            </span>
+                            <span className="text-zinc-400">{op.majorRisks[0]}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Cited Empirical Evidence Links & Dates */}
                     {op.evidenceLinks && op.evidenceLinks.length > 0 && (
                       <div className="space-y-1.5 pt-1">
                         <span className="text-[11px] font-mono text-zinc-500 uppercase tracking-wider block">
-                          Cited Evidence ({op.evidenceLinks.length} signal{op.evidenceLinks.length === 1 ? "" : "s"}):
+                          Cited Source Evidence ({op.evidenceLinks.length} signal{op.evidenceLinks.length === 1 ? "" : "s"}):
                         </span>
                         <div className="flex flex-wrap gap-2">
                           {op.evidenceLinks.slice(0, 4).map((link, lIdx) => {
-                            const sig = link.signal;
+                            const sig = link.signal as any;
                             const targetUrl = sig?.canonicalUrl;
                             const sourceLabel = sig?.sourceName || "Source";
-                            const excerptSnippet = sig?.sourceTitle || sig?.sanitizedExcerpt || "Evidence link";
+                            const pubDate = sig?.publishedAt
+                              ? new Date(sig.publishedAt).toISOString().split("T")[0]
+                              : (link as any).createdAt
+                              ? new Date((link as any).createdAt).toISOString().split("T")[0]
+                              : "";
+                            const excerptSnippet = sig?.sourceTitle || sig?.sanitizedExcerpt || link.claimSnippet || "Evidence link";
                             return targetUrl ? (
                               <a
                                 key={lIdx}
                                 href={targetUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-950/80 border border-zinc-850 hover:border-indigo-500/50 text-[11px] text-zinc-300 hover:text-indigo-300 transition-colors font-mono"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-950/80 border border-zinc-800 hover:border-indigo-500/50 text-[11px] text-zinc-300 hover:text-indigo-300 transition-colors font-mono"
                                 title={excerptSnippet}
                               >
-                                <span className="text-indigo-400 font-semibold">{sourceLabel}:</span>
-                                <span className="truncate max-w-[180px] sm:max-w-[240px]">{excerptSnippet}</span>
+                                <span className="text-indigo-400 font-semibold">
+                                  {sourceLabel}{pubDate ? ` (${pubDate})` : ""}:
+                                </span>
+                                <span className="truncate max-w-[180px] sm:max-w-[260px]">{excerptSnippet}</span>
                                 <ArrowRight className="w-3 h-3 text-zinc-500 shrink-0" />
                               </a>
                             ) : null;
@@ -422,75 +499,9 @@ export function OpportunityFeedClient() {
                       </div>
                     )}
 
-                    {/* Phase 3 Dynamic Personalized Founder Fit Ribbon */}
-                    {(() => {
-                      // Deterministic personalized rank calculation per opportunity
-                      const fitScore = 88;
-                      const baseRank =
-                        op.opportunityScore * 0.4 + op.confidenceScore * 0.25 + fitScore * 0.35;
-                      const isHypothesis = op.publicationQualityStatus === "HYPOTHESIS";
-                      const isSnowflake = op.slug.includes("snowflake");
-                      const penalty = isHypothesis ? 10 : 0;
-                      // 1 Non-removable Blocker (-25) + 1 Removable Blocker (-7) = 32
-                      const blockerPenalty = isSnowflake ? 32 : 0;
-                      const personalizedRankScore = parseFloat(
-                        Math.max(0, baseRank - penalty - blockerPenalty).toFixed(1),
-                      );
-                      const rankPosition = op.slug.includes("soc2")
-                        ? "#1"
-                        : op.slug.includes("llm")
-                          ? "#2"
-                          : "#3";
-                      const recCategory = isSnowflake
-                        ? "BLOCKED"
-                        : isHypothesis
-                          ? "CHALLENGING MATCH"
-                          : "EXCELLENT MATCH";
-                      const recColor = isSnowflake
-                        ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                        : isHypothesis
-                          ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                          : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-
-                      return (
-                        <div
-                          data-testid="founder-fit-card-ribbon"
-                          className="mt-3 pt-3 border-t border-zinc-800/80 flex items-center justify-between flex-wrap gap-2 text-xs"
-                        >
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-200 border border-zinc-700 font-semibold">
-                              Founder Fit: {fitScore}/100
-                            </span>
-                            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                              Personalized Rank: {rankPosition} ({personalizedRankScore})
-                            </span>
-                            <span
-                              className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${recColor}`}
-                            >
-                              {recCategory}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-zinc-400 flex items-center gap-1.5">
-                            {isSnowflake ? (
-                              <span className="text-rose-400 font-medium">
-                                ⚠️ 1 Non-Removable &amp; 1 Removable Blocker (-32 pts)
-                              </span>
-                            ) : (
-                              <>
-                                <span className="text-emerald-400 font-medium">
-                                  ✓ Top Strength:
-                                </span>{" "}
-                                TypeScript &amp; DevOps
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    <div className="flex flex-wrap gap-4 text-xs text-zinc-400 pt-2">
+                    <div className="flex flex-wrap gap-4 text-xs text-zinc-400 pt-2 border-t border-zinc-800/60">
                       <div>
-                        <span className="text-zinc-500">Economic Buyer:</span>{" "}
+                        <span className="text-zinc-500">Affected Customer / Buyer:</span>{" "}
                         <strong className="text-zinc-200">{op.buyer}</strong>
                       </div>
                       <div>

@@ -86,6 +86,11 @@ export function DiscoveryFeedSection() {
         throw new Error(json.error || "Failed to load discovery feed");
       }
       setData(json);
+      if (Array.isArray(json.opportunityHypotheses) && json.opportunityHypotheses.length > 0) {
+        setActiveTab("hypotheses");
+      } else if (Array.isArray(json.researchLeads) && json.researchLeads.length > 0) {
+        setActiveTab("leads");
+      }
     } catch (err: any) {
       setError(err?.message || "An unexpected error occurred while fetching discovery signals.");
       setData(null);
@@ -546,7 +551,13 @@ function HypothesisCard({
         {/* Title and Short Summary */}
         <div className="space-y-1.5">
           <h3 className="text-base font-semibold text-white leading-snug hover:text-indigo-400 transition-colors">
-            {item.title}
+            {item.slug ? (
+              <Link href={`/opportunities/${item.slug}`} className="hover:text-indigo-400 transition-colors">
+                {item.title}
+              </Link>
+            ) : (
+              item.title
+            )}
           </h3>
           <p className="text-sm text-zinc-300 leading-relaxed">{item.summary}</p>
         </div>
@@ -641,6 +652,14 @@ function HypothesisCard({
           <span>Source Date: <strong className="text-zinc-400 font-mono">{pubDateFormatted}</strong></span>
         </div>
         <div className="flex items-center gap-2">
+          {item.slug && (
+            <Link
+              href={`/opportunities/${item.slug}`}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition-colors"
+            >
+              <span>Full Brief</span>
+            </Link>
+          )}
           <button
             onClick={onToggleSave}
             title={isSaved ? "Saved in Watchlist" : "Save to Watchlist"}
