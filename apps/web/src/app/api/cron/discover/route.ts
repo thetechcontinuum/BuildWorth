@@ -140,10 +140,13 @@ async function handleScheduledIngestion(request: NextRequest) {
     return NextResponse.json({
       success: result.status === "COMPLETED",
       runId: result.runId,
+      idempotencyKey: result.idempotencyKey,
       status: result.status,
+      isExisting: result.isExisting || false,
       failureCode: result.failureCode || null,
       counters: result.counters,
       perSourceStats: result.summary?.perSourceStats || null,
+      summary: result.summary || null,
       publishedSlugs: result.publishedSlugs,
       startedAt: result.startedAt,
       completedAt: result.completedAt || null,
