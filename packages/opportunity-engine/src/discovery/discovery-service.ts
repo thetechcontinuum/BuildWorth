@@ -97,12 +97,11 @@ export function isConcreteProblemOrWorkaround(signal: {
 
   // 3. Strict Exclusions: Generic developer questions / Q&A / advice seeking / opinion essays / meta-critiques
   // e.g. "Why does adding local size improve performance in OpenCL?", "How to do X in Y", "Are Harnesses Worth the Cost?"
-  const isGenuineAskHnProblem =
-    /^ask hn:/i.test(title) &&
-    /\b(manual reconciliation|workaround|hacky workaround|bottleneck|production outage|memory leak|cost spike|willing to pay|looking for a paid|looking for an alternative|recurring delays)\b/i.test(fullText);
+  const isGenuineProblemInquiry =
+    /\b(manual reconciliation|workaround|hacky workaround|bottleneck|production outage|memory leak|cost spike|bill spike|spiked|oom|oomkilled|crashloopbackoff|state lock|prompt regression|evaluation framework|benchmark|willing to pay|looking for a paid|looking for an alternative|recurring delays)\b/i.test(fullText);
 
   if (
-    !isGenuineAskHnProblem &&
+    !isGenuineProblemInquiry &&
     (/^(why does|why is|why did|why do|why would|how to|how do i|how can i|what is the best way to|optimal way to|is there a way to|are .* worth the cost|is .* worth it)\b/i.test(title) ||
       title.endsWith("?") ||
       /^\[advice\]/i.test(title) ||
@@ -218,7 +217,7 @@ export function isConcreteProblemOrWorkaround(signal: {
   // 12. Explicit concrete friction / breakdown / workaround / cost pain indicators
   // The excerpt or title must describe actual failure, broken functionality, error, or manual hack
   const hasConcreteBreakdown =
-    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|manual reconciliation|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes|billing surprises?|delays?|drift|lags?)\b/i.test(fullText);
+    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|crashloopbackoff|oom|oomkilled|oom-killed|out of memory|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|manual reconciliation|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes|spiked|billing surprises?|delays?|drift|lags?|state lock|locking failure|prompt regression|regression|degradation|hallucinat|building a proxy|manual proxy|spent (days|hours|weeks))\b/i.test(fullText);
 
   // High quality problem types from GitHub / StackOverflow / HN or unclassified signals with problem keywords
   const isProblemType = [
@@ -233,7 +232,7 @@ export function isConcreteProblemOrWorkaround(signal: {
     "UNCLASSIFIED",
   ].includes(sigType);
 
-  return hasConcreteBreakdown || (isProblemType && /\b(error|bug|issue|failure|broken|problem|bottleneck|friction|pain|cost|spend|waste|latency|spikes?|deadlock|deadlocks|downtime|delay|delays|drift)\b/i.test(fullText));
+  return hasConcreteBreakdown || (isProblemType && /\b(error|bug|issue|failure|broken|problem|bottleneck|friction|pain|cost|spend|waste|latency|spikes?|spiked|deadlock|deadlocks|downtime|delay|delays|drift|oom|oomkilled|lock|locking|regression|evaluat|benchmark)\b/i.test(fullText));
 }
 
 /**
