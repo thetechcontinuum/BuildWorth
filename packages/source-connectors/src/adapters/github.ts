@@ -52,7 +52,7 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
         headers["Authorization"] = `Bearer ${token.trim()}`;
       }
 
-      const res = await fetch(
+      let res = await fetch(
         `https://api.github.com/search/issues?q=${encodeURIComponent(q)}&per_page=${limit}&page=${page}`,
         { headers },
       );
@@ -61,8 +61,19 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
         return [];
       }
       if (res.ok) {
-        const json = await res.json();
-        const items = json.items || [];
+        let json = await res.json();
+        let items = json.items || [];
+        if (items.length === 0 && q.includes("updated:>")) {
+          const fbQ = q.replace(/\s+updated:>[^\s]+/g, "");
+          const fbRes = await fetch(
+            `https://api.github.com/search/issues?q=${encodeURIComponent(fbQ)}&per_page=${limit}&page=${page}`,
+            { headers },
+          );
+          if (fbRes.ok) {
+            const fbJson = await fbRes.json();
+            items = fbJson.items || [];
+          }
+        }
         if (items.length > 0) {
           const isBotOrChoreIssue = (item: any): boolean => {
             const login = String(item.user?.login || "").toLowerCase();

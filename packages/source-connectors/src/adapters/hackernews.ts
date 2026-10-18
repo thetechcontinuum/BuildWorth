@@ -41,25 +41,24 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
 
     const limit = Math.min(options.limit || 20, 20);
     const query = options.query || explicitQuery;
-    const page = options.page || 0;
+    const rawPage = options.page ?? 0;
+    // Algolia search API is 0-indexed (page 0 = hits 0-19). If caller provides 1-indexed page (e.g. 1), map to 0.
+    const page = rawPage > 0 ? rawPage - 1 : 0;
 
     logger.info(`Fetching HN market signals (limit ${limit}, page ${page}${query ? `, query: ${query}` : ""})...`);
     try {
       let url = "";
       const tagsParam = query && query.trim().length > 0 ? "tags=(story,comment)" : "tags=story";
       if (query && query.trim().length > 0) {
-        // Algolia treats multi-word queries as AND; strip boolean OR/quotes and cap at 3 significant words
-        const hasBooleanOrQuotes = /\bOR\b|["()]/i.test(query);
-        const cleanedQuery = hasBooleanOrQuotes
-          ? query
-              .trim()
-              .replace(/\bOR\b/gi, " ")
-              .replace(/["()]/g, " ")
-              .split(/\s+/)
-              .filter((w) => w.length >= 3)
-              .slice(0, 3)
-              .join(" ")
-          : query.trim();
+        // Algolia treats multi-word queries as strict boolean AND; clean boolean noise and cap at 2-3 significant words
+        const cleanedQuery = query
+          .trim()
+          .replace(/\b(OR|AND|NOT)\b/gi, " ")
+          .replace(/["()]/g, " ")
+          .split(/\s+/)
+          .filter((w) => w.length >= 3 && !["alternative", "alternatives"].includes(w.toLowerCase()))
+          .slice(0, 3)
+          .join(" ");
         const qParam = encodeURIComponent(cleanedQuery || query.trim());
         url = `https://hn.algolia.com/api/v1/search_by_date?query=${qParam}&${tagsParam}&hitsPerPage=${limit}&page=${page}`;
       } else {
@@ -88,6 +87,22 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
         for (const h of hits) {
           if (h && h.objectID) {
             collectedHits.push(h);
+          }
+        }
+      }
+
+      // If strict date filter yielded 0 hits for a targeted practitioner query, fall back to recent search
+      if (collectedHits.length === 0 && url.includes("numericFilters=") && query) {
+        const fbUrl = url.replace(/&numericFilters=[^&]+/, "");
+        const fbRes = await fetch(fbUrl, {
+          headers: { "User-Agent": "BuildWorth-Staging/1.0" },
+        });
+        if (fbRes.ok) {
+          const fbJson = await fbRes.json();
+          for (const h of fbJson.hits || []) {
+            if (h && h.objectID) {
+              collectedHits.push(h);
+            }
           }
         }
       }
