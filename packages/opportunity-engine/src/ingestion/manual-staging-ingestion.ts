@@ -188,12 +188,12 @@ export function extractTargetQueries(problemTexts: string[]): string[] {
 
 export const DEFAULT_FOCUSED_DOMAIN_QUERIES = [
   // DevOps & Cloud Operations
-  "datadog expensive alternative",
+  "datadog expensive",
   "terraform state lock",
-  "kubernetes crashloopbackoff oomkilled",
+  "kubernetes oomkilled",
   // AI Developer Tooling
-  "evaluating llm prompts",
-  "prompt regression evaluation",
+  "prompt regression",
+  "evaluating prompts",
   "vllm out of memory",
 ];
 
@@ -2068,7 +2068,6 @@ export async function executeManualStagingIngestion(
 
     activeSources = await prisma.source.findMany({
       where: sourceFilter,
-      take: maxSources,
     });
 
     if (targetSourceKeys && targetSourceKeys.length > 0) {
@@ -2077,6 +2076,10 @@ export async function executeManualStagingIngestion(
         const idxB = targetSourceKeys.indexOf(b.key);
         return (idxA >= 0 ? idxA : 999) - (idxB >= 0 ? idxB : 999);
       });
+    }
+
+    if (typeof maxSources === "number" && maxSources > 0) {
+      activeSources = activeSources.slice(0, maxSources);
     }
 
     if (!activeSources || activeSources.length === 0) {
@@ -2295,19 +2298,19 @@ export async function executeManualStagingIngestion(
         const pickQueriesForSource = (srcKey: string, queries: string[]): string[] => {
           if (srcKey === "hackernews") {
             const hnQueries = queries.filter((q) =>
-              q.includes("datadog") || q.includes("evaluating") || q.includes("llm") || q.includes("kubernetes") || q.includes("cost")
+              q.includes("datadog") || q.includes("prompt") || q.includes("evaluating") || q.includes("kubernetes") || q.includes("vllm") || q.includes("cost")
             );
             return hnQueries.length > 0 ? hnQueries.slice(0, 3) : queries.slice(0, 3);
           }
           if (srcKey === "stackexchange") {
             const seQueries = queries.filter((q) =>
-              q.includes("terraform") || q.includes("evaluating") || q.includes("llm") || q.includes("kubernetes") || q.includes("lock")
+              q.includes("terraform") || q.includes("kubernetes") || q.includes("evaluating") || q.includes("prompt") || q.includes("lock") || q.includes("memory")
             );
             return seQueries.length > 0 ? seQueries.slice(0, 3) : queries.slice(0, 3);
           }
           if (srcKey === "github") {
             const ghQueries = queries.filter((q) =>
-              q.includes("terraform") || q.includes("prompt") || q.includes("vllm") || q.includes("memory") || q.includes("datadog")
+              q.includes("datadog") || q.includes("terraform") || q.includes("prompt") || q.includes("kubernetes") || q.includes("vllm") || q.includes("memory")
             );
             return ghQueries.length > 0 ? ghQueries.slice(0, 3) : queries.slice(0, 3);
           }

@@ -70,13 +70,23 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
 
       const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=${sortParam}&fromdate=${fromDateSec}&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&filter=withbody`;
 
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         headers: { "User-Agent": "BuildWorth-Market-Intelligence/1.0" },
       });
 
       if (res.ok) {
-        const json = await res.json();
-        const items = json.items || [];
+        let json = await res.json();
+        let items = json.items || [];
+        if (items.length === 0 && fromDateSec > 0 && query) {
+          const fbUrl = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&filter=withbody`;
+          const fbRes = await fetch(fbUrl, {
+            headers: { "User-Agent": "BuildWorth-Market-Intelligence/1.0" },
+          });
+          if (fbRes.ok) {
+            const fbJson = await fbRes.json();
+            items = fbJson.items || [];
+          }
+        }
         return items
           .filter((q: any) => q.question_id && q.title)
           .map((q: any) => {
