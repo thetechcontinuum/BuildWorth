@@ -12,6 +12,7 @@ export interface StoredOpportunity {
   opportunityScore: number;
   confidenceScore: number;
   publicationQualityStatus: PublicationQualityStatus;
+  status?: "PUBLISHED" | "DRAFT" | "REJECTED";
   isDemoFixture: boolean;
   costRange: { minMinor: number; maxMinor: number; currency: "USD" };
   timeToMvpWeeks: { min: number; max: number };
@@ -46,6 +47,7 @@ export const INITIAL_OPPORTUNITIES: StoredOpportunity[] = [
   {
     slug: "automated-soc2-evidence-collector",
     title: "Automated SOC2 Git Evidence Collector for Vercel Monorepos",
+    status: "PUBLISHED",
     summary:
       "Eliminates quarterly 40-hour screenshot capture sprints for DevOps teams by binding commit signatures to audit controls.",
     industry: "DevOps & Compliance",

@@ -263,6 +263,7 @@ export default async function OpportunityDetailPage({
       opp = {
         slug: dbOpp.slug,
         title: dbOpp.title,
+        status: dbOpp.status as any,
         summary: dbOpp.oneSentenceSummary,
         problemStatement: dbOpp.problemStatement,
         proposedProduct: dbOpp.proposedProduct,
@@ -331,7 +332,7 @@ export default async function OpportunityDetailPage({
   // Security & Boundary Guard: Ineligible or unpublished opportunities are strictly inaccessible to non-administrators
   const isNonAdmin = !sessionUser || sessionUser.role !== "ADMIN";
   const oppStatus = (opp as any).status || dbOppRecord?.status;
-  if (isNonAdmin && oppStatus !== "PUBLISHED") {
+  if (isNonAdmin && oppStatus && oppStatus !== "PUBLISHED") {
     return (
       <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
         Opportunity blueprint not found.
