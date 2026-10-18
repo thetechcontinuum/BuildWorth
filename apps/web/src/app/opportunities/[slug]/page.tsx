@@ -331,7 +331,7 @@ export default async function OpportunityDetailPage({
   // Security & Boundary Guard: Ineligible or unpublished opportunities are strictly inaccessible to non-administrators
   const isNonAdmin = !sessionUser || sessionUser.role !== "ADMIN";
   const oppStatus = (opp as any).status || dbOppRecord?.status;
-  if (isNonAdmin && (oppStatus === "DRAFT" || oppStatus === "RESEARCH_LEAD" || oppStatus === "REJECTED")) {
+  if (isNonAdmin && oppStatus !== "PUBLISHED") {
     return (
       <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
         Opportunity blueprint not found.

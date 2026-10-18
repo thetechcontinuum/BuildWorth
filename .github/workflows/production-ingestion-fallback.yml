@@ -90,6 +90,8 @@ jobs:
               runId: .runId,
               idempotencyKey: .idempotencyKey,
               status: .status,
+              failureCode: .failureCode,
+              error: .error,
               isExisting: .isExisting,
               counters: .counters,
               hasMorePending: .summary.hasMorePending,
