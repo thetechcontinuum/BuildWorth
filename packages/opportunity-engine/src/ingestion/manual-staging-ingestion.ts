@@ -35,6 +35,10 @@ import {
   deriveEndUserRole,
   evaluateSolutionFeasibility,
   isSingleRepoTicket,
+  isProductAnnouncement,
+  isAuthorSelfClaim,
+  evaluateCorroboratingEvidence,
+  extractAuthorOrRepoIdentifier,
   derivePlausibleProductDirection,
   deriveSpecificValidationExperiment,
   deriveEvidenceGaps,
@@ -635,36 +639,82 @@ function deriveSupportedCommercialIndicators(
   };
 }
 
-async function createCandidateWithRevisionAndLinks(
+export async function saveOrUpdateOpportunityCandidateWithRevisionAndLinks(
   prisma: any,
+  existingOppId: string | null,
   oppData: any,
   blueprint: any,
   verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }>,
-  isVerified: boolean,
+  contradictingSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any; explanation?: string }> = [],
+  qualificationReason: string = "Initial synthesis from market signals",
+  isVerified: boolean = false,
 ) {
-  const opp = await prisma.opportunity.create({
-    data: oppData,
-  });
+  let opp: any;
+  if (existingOppId) {
+    const existing = await prisma.opportunity.findUnique({ where: { id: existingOppId } }).catch(() => null);
+    if (existing) {
+      opp = await prisma.opportunity.update({
+        where: { id: existingOppId },
+        data: oppData,
+      });
+    } else {
+      opp = await prisma.opportunity.create({ data: oppData });
+    }
+  } else {
+    // Check if an opportunity with this slug already exists to update in place
+    const existing = await prisma.opportunity.findUnique({ where: { slug: oppData.slug } }).catch(() => null);
+    if (existing) {
+      opp = await prisma.opportunity.update({
+        where: { id: existing.id },
+        data: oppData,
+      });
+    } else {
+      opp = await prisma.opportunity.create({ data: oppData });
+    }
+  }
 
   const oppScore = blueprint.scorecard?.opportunityScore || 68;
   const confScore = blueprint.scorecard?.evidenceConfidenceScore || 62;
 
-  await prisma.scorecard.create({
-    data: {
-      opportunityId: opp.id,
-      opportunityScore: oppScore,
-      evidenceConfidenceScore: confScore,
-      demandScore: Math.min(90, Math.max(45, oppScore - 4)),
-      feasibilityScore: 84,
-      economicsScore: 78,
-      competitionScore: 75,
-      goMarketScore: 76,
-      rubricVersion: "2.0.0",
-      isHypothesisOnly: !isVerified,
-    },
-  });
+  const existingScorecard = prisma.scorecard?.findFirst
+    ? await prisma.scorecard.findFirst({
+        where: { opportunityId: opp.id },
+        orderBy: { createdAt: "desc" },
+      }).catch(() => null)
+    : null;
 
-  const customerSegments: CustomerSegmentItem[] = blueprint.targetCustomerSegments.map((name: string) => ({
+  if (existingScorecard && prisma.scorecard?.update) {
+    await prisma.scorecard.update({
+      where: { id: existingScorecard.id },
+      data: {
+        opportunityScore: oppScore,
+        evidenceConfidenceScore: confScore,
+        demandScore: Math.min(90, Math.max(45, oppScore - 4)),
+        feasibilityScore: 84,
+        economicsScore: 78,
+        competitionScore: 75,
+        goMarketScore: 76,
+        isHypothesisOnly: !isVerified,
+      },
+    }).catch(() => {});
+  } else if (prisma.scorecard?.create) {
+    await prisma.scorecard.create({
+      data: {
+        opportunityId: opp.id,
+        opportunityScore: oppScore,
+        evidenceConfidenceScore: confScore,
+        demandScore: Math.min(90, Math.max(45, oppScore - 4)),
+        feasibilityScore: 84,
+        economicsScore: 78,
+        competitionScore: 75,
+        goMarketScore: 76,
+        rubricVersion: "2.0.0",
+        isHypothesisOnly: !isVerified,
+      },
+    }).catch(() => {});
+  }
+
+  const customerSegments: CustomerSegmentItem[] = (blueprint.targetCustomerSegments || []).map((name: string) => ({
     id: "seg-" + crypto.randomUUID(),
     segmentName: name,
     industry: oppData.industry,
@@ -687,7 +737,7 @@ async function createCandidateWithRevisionAndLinks(
     evidenceLinkIds: [],
   }));
 
-  const mvpFeatures: MvpFeatureItem[] = blueprint.narrowMvpScope.map((name: string, idx: number) => ({
+  const mvpFeatures: MvpFeatureItem[] = (blueprint.narrowMvpScope || []).map((name: string, idx: number) => ({
     id: "feat-" + crypto.randomUUID(),
     featureName: name,
     description: name,
@@ -719,7 +769,7 @@ async function createCandidateWithRevisionAndLinks(
       category: "BACKEND_DEV",
       title: "MVP Engineering Build",
       scenarioType: "BASE",
-      amountMinorCents: blueprint.economics.estimatedMvpCost.minMinor,
+      amountMinorCents: blueprint.economics?.estimatedMvpCost?.minMinor || 500000,
       currency: "USD",
       estimateMethod: "Engineering hours benchmark",
       provenanceType: "MODEL_ESTIMATE",
@@ -799,7 +849,7 @@ async function createCandidateWithRevisionAndLinks(
 
   const rev = await createOpportunityRevisionTransaction(prisma, {
     opportunityId: opp.id,
-    reasonForChange: "Initial synthesis from market signals",
+    reasonForChange: qualificationReason,
     architectureSummary: blueprint.proposedProduct,
     customerSegments,
     mvpFeatures,
@@ -828,16 +878,17 @@ async function createCandidateWithRevisionAndLinks(
     evidenceConfidence: confScore,
     criticalClaimsCovered: verifiedSignals.length,
     costSummary: {
-      minBuildMinorCents: blueprint.economics.estimatedMvpCost.minMinor,
-      maxBuildMinorCents: blueprint.economics.estimatedMvpCost.maxMinor,
-      minWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
-      maxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
-      minMonthlyOpMinorCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
-      maxMonthlyOpMinorCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
+      minBuildMinorCents: blueprint.economics?.estimatedMvpCost?.minMinor || 500000,
+      maxBuildMinorCents: blueprint.economics?.estimatedMvpCost?.maxMinor || 1500000,
+      minWeeks: blueprint.economics?.estimatedTimeToMvpWeeks?.min || 4,
+      maxWeeks: blueprint.economics?.estimatedTimeToMvpWeeks?.max || 8,
+      minMonthlyOpMinorCents: blueprint.economics?.estimatedMonthlyOperatingCost?.minMinor || 50000,
+      maxMonthlyOpMinorCents: blueprint.economics?.estimatedMonthlyOperatingCost?.maxMinor || 200000,
     },
     snapshotData: blueprint,
   });
 
+  // Attach supporting evidence links
   for (const item of verifiedSignals) {
     const claimType = determineEmpiricalClaimType(
       item.normalizedSignal.signalType,
@@ -845,50 +896,148 @@ async function createCandidateWithRevisionAndLinks(
       item.normalizedSignal.actorRole,
     );
     try {
-      await prisma.evidenceLink.create({
-        data: {
-          opportunityId: opp.id,
-          opportunityRevisionId: rev.revisionId,
-          normalizedSignalId: item.normalizedSignal.id,
-          claimType: claimType as any,
-          claimIdentifier: "claim-pain-" + opp.id,
-          claimSnippet: item.normalizedSignal.sanitizedExcerpt || item.normalizedSignal.problemSummary || "Empirical signal evidence",
-          relationshipType: "SUPPORTS",
-          supportStrength: "STRONG",
-          explanation: `Empirically verified from ${item.source.name} (${item.rawSignal.sourceUrl})`,
-          relevanceScore: 0.9,
-        },
-      });
+      const existingLink = prisma.evidenceLink?.findFirst
+        ? await prisma.evidenceLink.findFirst({
+            where: {
+              opportunityId: opp.id,
+              normalizedSignalId: item.normalizedSignal.id,
+            },
+          }).catch(() => null)
+        : null;
+
+      if (!existingLink) {
+        await prisma.evidenceLink.create({
+          data: {
+            opportunityId: opp.id,
+            opportunityRevisionId: rev.revisionId,
+            normalizedSignalId: item.normalizedSignal.id,
+            claimType: claimType as any,
+            claimIdentifier: "claim-pain-" + opp.id,
+            claimSnippet: item.normalizedSignal.sanitizedExcerpt || item.normalizedSignal.problemSummary || "Empirical signal evidence",
+            relationshipType: "SUPPORTS",
+            supportStrength: "STRONG",
+            explanation: `Empirically verified from ${item.source.name} (${item.rawSignal.sourceUrl})`,
+            relevanceScore: 0.9,
+          },
+        });
+      }
     } catch (linkErr: any) {
       logger.warn("Failed creating EvidenceLink", { message: linkErr?.message });
+    }
+  }
+
+  // Attach contradicting evidence links
+  for (const item of contradictingSignals) {
+    try {
+      const existingLink = prisma.evidenceLink?.findFirst
+        ? await prisma.evidenceLink.findFirst({
+            where: {
+              opportunityId: opp.id,
+              normalizedSignalId: item.normalizedSignal.id,
+            },
+          }).catch(() => null)
+        : null;
+
+      if (!existingLink) {
+        await prisma.evidenceLink.create({
+          data: {
+            opportunityId: opp.id,
+            opportunityRevisionId: rev.revisionId,
+            normalizedSignalId: item.normalizedSignal.id,
+            claimType: "PAIN_EXISTENCE",
+            claimIdentifier: "claim-contradiction-" + opp.id,
+            claimSnippet: item.normalizedSignal.sanitizedExcerpt || item.normalizedSignal.problemSummary || "Contradicting signal evidence",
+            relationshipType: "CONTRADICTS",
+            supportStrength: "STRONG",
+            explanation: item.explanation || `Independent evidence contradicts or disconfirms problem severity from ${item.source.name}`,
+            relevanceScore: 0.9,
+          },
+        });
+      }
+    } catch (cLinkErr: any) {
+      logger.warn("Failed creating contradicting EvidenceLink", { message: cLinkErr?.message });
     }
   }
 
   return opp;
 }
 
+export async function createCandidateWithRevisionAndLinks(
+  prisma: any,
+  oppData: any,
+  blueprint: any,
+  verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }>,
+  isVerified: boolean,
+) {
+  return saveOrUpdateOpportunityCandidateWithRevisionAndLinks(
+    prisma,
+    null,
+    oppData,
+    blueprint,
+    verifiedSignals,
+    [],
+    "Initial synthesis from market signals",
+    isVerified,
+  );
+}
+
 /**
  * Actively searches permitted sources for independent corroboration of promising pain signals
  * with strict per-call timeouts and relevance matching against actual problem mechanics and affected users.
+ * Rejects author self-claims, syndicated copies, and superficial keyword overlap.
  */
+export interface CorroboratingSignalItem {
+  normalizedSignal: any;
+  rawSignal: any;
+  source: any;
+  explanation: string;
+}
+
+export interface CorroborationRejectedItem {
+  candidateSignal: any;
+  reason: string;
+  explanation: string;
+}
+
+export interface CorroborationSearchResult extends Array<CorroboratingSignalItem> {
+  supportingSignals: CorroboratingSignalItem[];
+  contradictingSignals: CorroboratingSignalItem[];
+  rejectedItems: CorroborationRejectedItem[];
+}
+
 export async function searchIndependentCorroboration(
   prisma: any,
   problemText: string,
-  primarySourceKey: string,
+  primarySignalOrKey:
+    | string
+    | { url?: string; authorFingerprint?: string; title?: string; text?: string; sourceKey?: string },
   processedHashes: Set<string>,
   timeoutMs = 3500,
-): Promise<Array<{ normalizedSignal: any; rawSignal: any; source: any }>> {
-  const corroboratingVerifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
-  const candidateSourceKeys = ["github", "hackernews", "stackexchange", "lobsters"].filter(
+): Promise<CorroborationSearchResult> {
+  const supportingSignals: CorroboratingSignalItem[] = [];
+  const contradictingSignals: CorroboratingSignalItem[] = [];
+  const rejectedItems: CorroborationRejectedItem[] = [];
+
+  const primarySignal =
+    typeof primarySignalOrKey === "string"
+      ? { sourceKey: primarySignalOrKey }
+      : (primarySignalOrKey || {});
+
+  const primarySourceKey = (primarySignal.sourceKey || "").toLowerCase();
+  const candidateSourceKeys = ["github", "hackernews", "stackexchange", "lobsters", "reddit"].filter(
     (k) => k !== primarySourceKey,
   );
 
   const searchQueries = extractTargetQueries([problemText]);
-  if (searchQueries.length === 0) return corroboratingVerifiedSignals;
+  if (searchQueries.length === 0) {
+    return Object.assign([], { supportingSignals, contradictingSignals, rejectedItems });
+  }
 
   const targetQuery = searchQueries[0] || "";
-  if (!targetQuery) return corroboratingVerifiedSignals;
-  const queryTerms = targetQuery.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
+  if (!targetQuery) {
+    return Object.assign([], { supportingSignals, contradictingSignals, rejectedItems });
+  }
+
   logger.info("Executing active corroboration search", { targetQuery, candidateSourceKeys });
 
   const perSourceResults = await Promise.allSettled(
@@ -920,7 +1069,7 @@ export async function searchIndependentCorroboration(
 
       try {
         const fetchedSignals = await Promise.race([
-          adapter.fetchSignals({ limit: 3, query: targetQuery, page: 1 }),
+          adapter.fetchSignals({ limit: 5, query: targetQuery, page: 1 }),
           timeoutPromise,
         ]);
         return { srcKey, srcRecord, fetchedSignals: Array.isArray(fetchedSignals) ? fetchedSignals : [] };
@@ -931,31 +1080,33 @@ export async function searchIndependentCorroboration(
   );
 
   for (const settled of perSourceResults) {
-    if (corroboratingVerifiedSignals.length >= 3) break;
+    if (supportingSignals.length >= 3) break;
     if (settled.status !== "fulfilled" || !settled.value) continue;
     const { srcKey, srcRecord, fetchedSignals } = settled.value;
 
     try {
       for (const raw of fetchedSignals) {
-        if (corroboratingVerifiedSignals.length >= 3) break;
+        if (supportingSignals.length >= 3) break;
         if (!raw.rawContent || raw.rawContent.trim().length < 10) continue;
 
-        const passesProblemCheck = isConcreteProblemOrWorkaround({
+        const candidateItem = {
+          url: raw.sourceUrl,
           title: raw.title,
-          sanitizedExcerpt: raw.rawContent,
-          problemSummary: raw.title,
+          text: raw.rawContent,
+          authorFingerprint: raw.authorFingerprint,
           sourceKey: srcKey,
-          sourceFamily: srcRecord.sourceFamily,
-          canonicalUrl: raw.sourceUrl,
-        });
+        };
 
-        if (!passesProblemCheck) continue;
+        const evalResult = evaluateCorroboratingEvidence(primarySignal, candidateItem);
 
-        const rawCombined = `${raw.title || ""} ${raw.rawContent || ""}`.toLowerCase();
-        const matchesTopic =
-          signalsSupportSameProblem(problemText, raw.title || "", problemText, raw.rawContent || "") ||
-          (queryTerms.length > 0 && queryTerms.some((term) => rawCombined.includes(term)));
-        if (!matchesTopic) continue;
+        if (!evalResult.isIndependent || evalResult.relationshipType === "IRRELEVANT") {
+          rejectedItems.push({
+            candidateSignal: raw,
+            reason: evalResult.rejectReason || "IRRELEVANT",
+            explanation: evalResult.explanation,
+          });
+          continue;
+        }
 
         const maxExcerpt = Math.min(280, srcRecord.permittedExcerptLength || 280);
         const sanitizedExcerpt = sanitizeRawContent(raw.rawContent, maxExcerpt);
@@ -1026,18 +1177,159 @@ export async function searchIndependentCorroboration(
           });
         }
 
-        corroboratingVerifiedSignals.push({
+        const signalEntry: CorroboratingSignalItem = {
           normalizedSignal: normRecord,
           rawSignal: rawRecord,
           source: srcRecord,
-        });
+          explanation: evalResult.explanation,
+        };
+
+        if (evalResult.relationshipType === "CONTRADICTS") {
+          contradictingSignals.push(signalEntry);
+        } else {
+          supportingSignals.push(signalEntry);
+        }
       }
     } catch (srcCorroborateErr: any) {
       logger.warn("Error during corroboration search", { source: srcKey, error: srcCorroborateErr?.message });
     }
   }
 
-  return corroboratingVerifiedSignals;
+  return Object.assign([...supportingSignals], {
+    supportingSignals,
+    contradictingSignals,
+    rejectedItems,
+  });
+}
+
+export function evaluateCandidateQualification(
+  candidate: { title?: string; problemStatement?: string; primaryUrl?: string; primarySourceKey?: string },
+  supportingSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }>,
+  contradictingSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any; explanation?: string }>,
+  qualityResult: any,
+  commercialScore: number,
+): {
+  isEligibleForOpportunity: boolean;
+  isVerified: boolean;
+  finalStatus: "PUBLISHED" | "DRAFT" | "REJECTED";
+  pubQualityStatus: "VERIFIED" | "HYPOTHESIS" | "EVIDENCE_PENDING";
+  qualificationReason: string;
+  isSingleRepo: boolean;
+  isAnnouncement: boolean;
+  isContradicted: boolean;
+} {
+  const fullContext = `${candidate.title || ""} ${candidate.problemStatement || ""}`;
+  const feasibility = evaluateSolutionFeasibility(candidate.problemStatement || candidate.title || "", fullContext);
+  const primaryUrl = candidate.primaryUrl || supportingSignals[0]?.normalizedSignal?.canonicalUrl || supportingSignals[0]?.rawSignal?.sourceUrl || "";
+  const primaryKey = candidate.primarySourceKey || supportingSignals[0]?.source?.key || "";
+
+  // 1. Feasibility check
+  if (!feasibility.isFeasible) {
+    return {
+      isEligibleForOpportunity: false,
+      isVerified: false,
+      finalStatus: "REJECTED",
+      pubQualityStatus: "EVIDENCE_PENDING",
+      qualificationReason: `Rejected: Infeasible for an independent product (${feasibility.blockReason || "beyond independent software control"})`,
+      isSingleRepo: false,
+      isAnnouncement: false,
+      isContradicted: false,
+    };
+  }
+
+  // 2. Contradiction / disconfirmation check
+  if (contradictingSignals.length > 0 && contradictingSignals.length >= supportingSignals.length) {
+    return {
+      isEligibleForOpportunity: false,
+      isVerified: false,
+      finalStatus: "REJECTED",
+      pubQualityStatus: "EVIDENCE_PENDING",
+      qualificationReason: `Rejected: Independent practitioner evidence disconfirms problem (${contradictingSignals[0]?.explanation || "issue resolved natively or expected behavior"})`,
+      isSingleRepo: false,
+      isAnnouncement: false,
+      isContradicted: true,
+    };
+  }
+
+  // 3. Single-repository check
+  const isSingleRepo = isSingleRepoTicket(primaryUrl, fullContext);
+  const distinctOrgs = new Set<string>();
+  for (const s of supportingSignals) {
+    const org = extractAuthorOrRepoIdentifier(s.normalizedSignal?.canonicalUrl || s.rawSignal?.sourceUrl, s.rawSignal?.authorFingerprint);
+    if (org && org !== "unknown-author") {
+      distinctOrgs.add(org);
+    }
+  }
+
+  if (isSingleRepo && distinctOrgs.size < 2 && supportingSignals.length <= 1) {
+    return {
+      isEligibleForOpportunity: false,
+      isVerified: false,
+      finalStatus: "DRAFT",
+      pubQualityStatus: "EVIDENCE_PENDING",
+      qualificationReason: "Research lead pending corroboration: Single-repository request requires independent multi-organization corroboration before broader business opportunity validation",
+      isSingleRepo: true,
+      isAnnouncement: false,
+      isContradicted: false,
+    };
+  }
+
+  // 4. Product announcement check
+  const isAnnouncement = isProductAnnouncement(candidate.title, candidate.problemStatement, primaryUrl, primaryKey);
+  const independentCustomerSignals = supportingSignals.filter((s) => {
+    const sTitle = s.rawSignal?.title || s.normalizedSignal?.sourceTitle || "";
+    const sText = s.normalizedSignal?.sanitizedExcerpt || s.rawSignal?.rawContent || "";
+    const sUrl = s.normalizedSignal?.canonicalUrl || s.rawSignal?.sourceUrl || "";
+    const sKey = s.source?.key || "";
+    if (isProductAnnouncement(sTitle, sText, sUrl, sKey)) return false;
+    if (isAuthorSelfClaim(
+      { url: sUrl, authorFingerprint: s.rawSignal?.authorFingerprint, title: sTitle },
+      { url: primaryUrl, title: candidate.title }
+    )) return false;
+    return true;
+  });
+
+  if (isAnnouncement && independentCustomerSignals.length === 0) {
+    return {
+      isEligibleForOpportunity: false,
+      isVerified: false,
+      finalStatus: "DRAFT",
+      pubQualityStatus: "EVIDENCE_PENDING",
+      qualificationReason: "Research lead pending customer evidence: Product announcement establishes existing alternative, but independent customer pain and demand require separate practitioner evidence",
+      isSingleRepo: false,
+      isAnnouncement: true,
+      isContradicted: false,
+    };
+  }
+
+  // 5. Commercial evidence score check
+  if (commercialScore < 45) {
+    return {
+      isEligibleForOpportunity: false,
+      isVerified: false,
+      finalStatus: "DRAFT",
+      pubQualityStatus: "EVIDENCE_PENDING",
+      qualificationReason: `Research lead pending commercial validation: Commercial evidence score (${commercialScore}) below threshold (45)`,
+      isSingleRepo: false,
+      isAnnouncement: false,
+      isContradicted: false,
+    };
+  }
+
+  // 6. Qualified opportunity
+  const isVerified = qualityResult?.status === "VERIFIED" && qualityResult?.isEligibleForVerified;
+  return {
+    isEligibleForOpportunity: true,
+    isVerified: !!isVerified,
+    finalStatus: "PUBLISHED",
+    pubQualityStatus: isVerified ? "VERIFIED" : "HYPOTHESIS",
+    qualificationReason: isVerified
+      ? "Qualified verified opportunity: Demonstrated customer demand across multiple independent sources with verified buyer willingness to pay"
+      : "Qualified opportunity hypothesis: Feasible workflow friction corroborated across independent evidence",
+    isSingleRepo: false,
+    isAnnouncement: false,
+    isContradicted: false,
+  };
 }
 
 /**
@@ -1045,6 +1337,7 @@ export async function searchIndependentCorroboration(
  * proposed product, existing alternatives, evidence gaps, and a practical validation experiment.
  * Inferred buyers and proposed solutions are explicitly labeled with [Assumption].
  * Grounded early opportunities appear with publicationQualityStatus = "HYPOTHESIS" and status = "PUBLISHED".
+ * Updates existing candidates in place without generating collision-safe hex duplicates.
  */
 export async function buildAndPersistOpportunityBrief(
   prisma: any,
@@ -1064,27 +1357,66 @@ export async function buildAndPersistOpportunityBrief(
 }> {
   const rawTitle = cl.title || cl.summary;
   const formattedTitle = formatMeaningfulTitle(rawTitle);
-  let generatedSlug = generateCollisionSafeSlug(formattedTitle);
-  const existingSlug = await prisma.opportunity.findUnique({ where: { slug: generatedSlug } });
-  if (existingSlug) {
-    generatedSlug = generateCollisionSafeSlug(formattedTitle, crypto.randomBytes(3).toString("hex"));
+  const baseSlug = generateCollisionSafeSlug(formattedTitle);
+
+  // Look up existing candidate by slug or matching linked normalizedSignal IDs to update in place
+  let existingOpp = await prisma.opportunity.findUnique({
+    where: { slug: baseSlug },
+  }).catch(() => null);
+
+  if (!existingOpp && verifiedSignals.length > 0) {
+    const sigIds = verifiedSignals.map((s) => s.normalizedSignal.id).filter(Boolean);
+    const link = await prisma.evidenceLink.findFirst({
+      where: { normalizedSignalId: { in: sigIds } },
+      include: { opportunity: true },
+    }).catch(() => null);
+    if (link?.opportunity) {
+      existingOpp = link.opportunity;
+    }
   }
+
+  if (!existingOpp) {
+    const prefixMatches = await prisma.opportunity.findMany({
+      where: { slug: { startsWith: baseSlug.slice(0, 40) } },
+      take: 1,
+    }).catch(() => []);
+    if (prefixMatches.length > 0 && prefixMatches[0]?.slug?.startsWith(baseSlug.slice(0, 30))) {
+      existingOpp = prefixMatches[0];
+    }
+  }
+
+  const generatedSlug = existingOpp ? existingOpp.slug : baseSlug;
+
+  let contradictingSignals: any[] = [];
+  let rejectedCorroborationItems: any[] = [];
 
   // Active corroboration search for promising pain signals when time budget allows
   if (verifiedSignals.length < 5 && Date.now() < deadline - 8000) {
     const primaryKey = verifiedSignals[0]?.source?.key || "unknown";
     const problemText = `${cl.title || ""} ${cl.summary || ""}`;
-    const corroborating = await searchIndependentCorroboration(
+    const primarySignal = {
+      url: verifiedSignals[0]?.normalizedSignal?.canonicalUrl || verifiedSignals[0]?.rawSignal?.sourceUrl,
+      title: verifiedSignals[0]?.rawSignal?.title || verifiedSignals[0]?.normalizedSignal?.sourceTitle,
+      text: verifiedSignals[0]?.normalizedSignal?.sanitizedExcerpt || verifiedSignals[0]?.rawSignal?.rawContent,
+      authorFingerprint: verifiedSignals[0]?.rawSignal?.authorFingerprint,
+      sourceKey: primaryKey,
+    };
+    const corroboratingResult = await searchIndependentCorroboration(
       prisma,
       problemText,
-      primaryKey,
+      primarySignal,
       processedHashes,
       3500,
     );
-    for (const cSig of corroborating) {
+    for (const cSig of corroboratingResult.supportingSignals || corroboratingResult) {
       if (!verifiedSignals.some((vs) => vs.normalizedSignal.id === cSig.normalizedSignal.id)) {
         verifiedSignals.push(cSig);
       }
+    }
+    contradictingSignals = corroboratingResult.contradictingSignals || [];
+    rejectedCorroborationItems = corroboratingResult.rejectedItems || [];
+    if (rejectedCorroborationItems.length > 0) {
+      logger.info("Corroboration items rejected as uncorroborated/syndicated", { count: rejectedCorroborationItems.length });
     }
   }
 
@@ -1098,9 +1430,28 @@ export async function buildAndPersistOpportunityBrief(
   const domainAlternatives = deriveDomainAlternatives(fullProblemContext);
   const commercialIndicators = deriveSupportedCommercialIndicators(verifiedSignals);
 
-  const feasibility = evaluateSolutionFeasibility(cl.summary || rawTitle, fullProblemContext);
   const primaryUrl = verifiedSignals[0]?.normalizedSignal?.canonicalUrl || verifiedSignals[0]?.rawSignal?.sourceUrl || "";
-  const isSingleRepo = isSingleRepoTicket(primaryUrl, fullProblemContext) && verifiedSignals.length <= 1;
+  const primaryKey = verifiedSignals[0]?.source?.key || "unknown";
+
+  const claimLinks = buildEmpiricalClaimLinks(verifiedSignals);
+  const qualityResult = evaluatePublicationQuality(claimLinks, commercialIndicators.evidenceConfidenceScore);
+
+  const qual = evaluateCandidateQualification(
+    {
+      title: formattedTitle,
+      problemStatement: cl.summary || rawTitle,
+      primaryUrl,
+      primarySourceKey: primaryKey,
+    },
+    verifiedSignals,
+    contradictingSignals,
+    qualityResult,
+    commercialIndicators.opportunityScore,
+  );
+
+  const isVerified = qual.isVerified;
+  const finalStatus = qual.finalStatus;
+  const pubQualityStatus = qual.pubQualityStatus;
 
   const evidenceGaps = deriveEvidenceGaps(
     cl.summary,
@@ -1109,11 +1460,19 @@ export async function buildAndPersistOpportunityBrief(
     commercialIndicators.hasExplicitWtp,
   );
 
-  if (!feasibility.isFeasible && feasibility.blockReason) {
-    evidenceGaps.unshift(`Feasibility limitation: ${feasibility.blockReason}`);
-  }
-  if (isSingleRepo) {
+  if (qual.isSingleRepo) {
     evidenceGaps.unshift("Repository-specific workflow ticket: requires independent multi-organization corroboration before broader business opportunity validation");
+  }
+  if (qual.isAnnouncement) {
+    evidenceGaps.unshift("Product announcement: maker announcement establishes alternative; customer pain and demand require separate practitioner evidence");
+  }
+  if (qual.isContradicted) {
+    evidenceGaps.unshift("Disconfirming evidence: independent practitioners report standard native solution or expected behavior");
+  }
+
+  // If candidate is a product announcement, register it in existingCompetitors
+  if (qual.isAnnouncement && !domainAlternatives.competitors.includes(formattedTitle)) {
+    domainAlternatives.competitors.unshift(formattedTitle);
   }
 
   const blueprint = synthesizeOpportunity(cl, verifiedSignals.length);
@@ -1144,17 +1503,6 @@ export async function buildAndPersistOpportunityBrief(
     blueprint.scorecard.evidenceConfidenceScore = commercialIndicators.evidenceConfidenceScore;
   }
 
-  const claimLinks = buildEmpiricalClaimLinks(verifiedSignals);
-  const qualityResult = evaluatePublicationQuality(claimLinks, commercialIndicators.evidenceConfidenceScore);
-
-  // Strict publication quality & feasibility gating:
-  // Must be feasible for an independent product, must not be an uncorroborated single-repo ticket,
-  // and must possess verified commercial/pain evidence score >= 45.
-  const isEligibleForOpportunity = feasibility.isFeasible && !isSingleRepo && commercialIndicators.opportunityScore >= 45;
-  const isVerified = isEligibleForOpportunity && qualityResult.status === "VERIFIED" && qualityResult.isEligibleForVerified;
-  const finalStatus = isEligibleForOpportunity ? "PUBLISHED" : (feasibility.isFeasible ? "DRAFT" : "REJECTED");
-  const pubQualityStatus = isEligibleForOpportunity ? (qualityResult.status || "HYPOTHESIS") : "EVIDENCE_PENDING";
-
   const oppData = {
     slug: generatedSlug,
     title: formattedTitle,
@@ -1175,22 +1523,25 @@ export async function buildAndPersistOpportunityBrief(
     isDemoFixture: false,
     industry: cl.vertical || "DevOps & Compliance",
     customerType: "B2B",
-    estimatedMvpCostMinCents: blueprint.economics.estimatedMvpCost.minMinor,
-    estimatedMvpCostMaxCents: blueprint.economics.estimatedMvpCost.maxMinor,
-    estimatedTimeToMvpMinWeeks: blueprint.economics.estimatedTimeToMvpWeeks.min,
-    estimatedTimeToMvpMaxWeeks: blueprint.economics.estimatedTimeToMvpWeeks.max,
-    estimatedMonthlyOpCostMinCents: blueprint.economics.estimatedMonthlyOperatingCost.minMinor,
-    estimatedMonthlyOpCostMaxCents: blueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
+    estimatedMvpCostMinCents: blueprint.economics?.estimatedMvpCost?.minMinor || 500000,
+    estimatedMvpCostMaxCents: blueprint.economics?.estimatedMvpCost?.maxMinor || 1500000,
+    estimatedTimeToMvpMinWeeks: blueprint.economics?.estimatedTimeToMvpWeeks?.min || 4,
+    estimatedTimeToMvpMaxWeeks: blueprint.economics?.estimatedTimeToMvpWeeks?.max || 8,
+    estimatedMonthlyOpCostMinCents: blueprint.economics?.estimatedMonthlyOperatingCost?.minMinor || 50000,
+    estimatedMonthlyOpCostMaxCents: blueprint.economics?.estimatedMonthlyOperatingCost?.maxMinor || 200000,
     recommendedNextExperiment: blueprint.recommendedNextExperiment,
     majorAssumptions: blueprint.majorAssumptions,
     majorRisks: blueprint.majorRisks,
   };
 
-  const opp = await createCandidateWithRevisionAndLinks(
+  const opp = await saveOrUpdateOpportunityCandidateWithRevisionAndLinks(
     prisma,
+    existingOpp ? existingOpp.id : null,
     oppData,
     blueprint,
     verifiedSignals,
+    contradictingSignals,
+    qual.qualificationReason,
     isVerified,
   );
 
@@ -2567,12 +2918,6 @@ export async function executeManualStagingIngestion(
 
     candidatesCount = clusterCandidates.length;
 
-    // 5. Semantic Clustering & Evidence Expansion Path
-    const candidateEvaluations: any[] = [];
-    let totalClustersDiscovered = 0;
-    let matchedToTargetCount = 0;
-    let unmatchedPoolCount = 0;
-
     // Clean up any stale invalid meta-critique opportunities before querying existing candidates
     try {
       const invalidExisting = await prisma.opportunity.findMany({
@@ -2606,20 +2951,46 @@ export async function executeManualStagingIngestion(
       },
     }).catch(() => []);
 
+    // Merge and clean any existing duplicate opportunities with random hex suffixes
+    try {
+      const allExisting = await prisma.opportunity.findMany({
+        where: { isDemoFixture: false },
+        select: { id: true, slug: true, title: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      }).catch(() => []);
+
+      const seenBaseSlugs = new Map<string, string>();
+      for (const opp of allExisting) {
+        const baseSlug = opp.slug.replace(/-[a-f0-9]{6}$/, "");
+        if (!seenBaseSlugs.has(baseSlug)) {
+          seenBaseSlugs.set(baseSlug, opp.id);
+        } else {
+          const primaryId = seenBaseSlugs.get(baseSlug)!;
+          await prisma.evidenceLink.updateMany({
+            where: { opportunityId: opp.id },
+            data: { opportunityId: primaryId },
+          }).catch(() => {});
+          await deleteOpportunityAndDependents(prisma, opp.id);
+        }
+      }
+    } catch (dedupErr: any) {
+      logger.warn("Opportunity deduplication notice", { error: dedupErr?.message });
+    }
+
     const validExistingCandidates = existingCandidates.filter(
       (o: any) => !/vague-question-about|^vague question about|without industry context/i.test(`${o.slug || ""} ${o.title || ""}`),
     );
-    const targetCandidate = validExistingCandidates[0] || null;
-    const allExistingLinkedSignalIds = new Set<string>();
-    for (const existingOpp of validExistingCandidates) {
-      for (const link of existingOpp.evidenceLinks || []) {
-        if (link.normalizedSignalId) allExistingLinkedSignalIds.add(link.normalizedSignalId);
-        if (link.normalizedSignal?.id) allExistingLinkedSignalIds.add(link.normalizedSignal.id);
-      }
-    }
 
-    if (targetCandidate) {
-      // 6a. Preserve existing candidate evidence and problem identity
+    let pool = [...clusterCandidates];
+    const candidateEvaluations: any[] = [];
+    let totalClustersDiscovered = 0;
+    let matchedToTargetCount = 0;
+    let unmatchedPoolCount = 0;
+
+    // 6a. Process existing persisted candidates: update each in place with independent corroboration & qualification
+    for (const candidate of validExistingCandidates) {
+      if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates) break;
+
       const targetOriginalSignals: Array<{
         normalizedSignal: any;
         rawSignal: any;
@@ -2628,7 +2999,7 @@ export async function executeManualStagingIngestion(
       const targetOriginalSignalIds = new Set<string>();
       const originalUrls = new Set<string>();
 
-      for (const link of targetCandidate.evidenceLinks || []) {
+      for (const link of candidate.evidenceLinks || []) {
         const ns = link.normalizedSignal;
         if (ns && ns.rawSignal && ns.rawSignal.source) {
           if (!targetOriginalSignalIds.has(ns.id)) {
@@ -2644,62 +3015,44 @@ export async function executeManualStagingIngestion(
         }
       }
 
-      let targetCentroid: number[] | null = null;
+      let candidateCentroid: number[] | null = null;
       try {
-        const emb = await aiProvider.generateEmbedding(targetCandidate.problemStatement || targetCandidate.title);
-        targetCentroid = emb.embedding;
+        const emb = await aiProvider.generateEmbedding(candidate.problemStatement || candidate.title);
+        candidateCentroid = emb.embedding;
       } catch {}
 
-      const matchedToTarget: ClusterCandidate[] = [];
-      const unmatchedPool: ClusterCandidate[] = [];
+      const matchedSignals: ClusterCandidate[] = [];
+      const remainingPool: ClusterCandidate[] = [];
 
-      for (const item of clusterCandidates) {
-        if (targetOriginalSignalIds.has(item.id) || allExistingLinkedSignalIds.has(item.id)) continue;
-        const sim = targetCentroid ? cosineSimilarity(item.embedding, targetCentroid) : 0;
+      for (const item of pool) {
+        if (targetOriginalSignalIds.has(item.id)) continue;
+        const sim = candidateCentroid ? cosineSimilarity(item.embedding, candidateCentroid) : 0;
         const sameProblem =
           sim >= 0.85 ||
           (sim >= 0.70 &&
             signalsSupportSameProblem(
-              targetCandidate.title || "",
-              targetCandidate.problemStatement || "",
+              candidate.title || "",
+              candidate.problemStatement || "",
               item.problemSummary,
               item.problemSummary,
             ));
 
         if (sameProblem) {
-          // Verify that this candidate signal actually carries problem or demand evidence before attaching
-          const normSig = await prisma.normalizedSignal.findUnique({
-            where: { id: item.id },
-            select: { signalType: true, purchaseIntent: true, sanitizedExcerpt: true, problemSummary: true },
-          });
-          const sigType = (normSig?.signalType || "").toUpperCase();
-          const text = `${normSig?.sanitizedExcerpt || ""} ${normSig?.problemSummary || ""}`.toLowerCase();
-          const hasCommercialEvidence =
-            ["PAIN_COMPLAINT", "PAIN", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType) ||
-            normSig?.purchaseIntent ||
-            /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay)\b/i.test(text);
-
-          const isPureNewsOrEmerging = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
-
-          if (hasCommercialEvidence && !isPureNewsOrEmerging) {
-            matchedToTarget.push(item);
-          } else {
-            unmatchedPool.push(item);
-          }
+          matchedSignals.push(item);
         } else {
-          unmatchedPool.push(item);
+          remainingPool.push(item);
         }
       }
-      matchedToTargetCount = matchedToTarget.length;
-      unmatchedPoolCount = unmatchedPool.length;
+      pool = remainingPool;
+      matchedToTargetCount += matchedSignals.length;
 
-      const newTargetVerifiedSignals: Array<{
+      const newVerifiedSignals: Array<{
         normalizedSignal: any;
         rawSignal: any;
         source: any;
       }> = [];
 
-      for (const item of matchedToTarget) {
+      for (const item of matchedSignals) {
         const normSig = await prisma.normalizedSignal.findUnique({
           where: { id: item.id },
           include: {
@@ -2710,7 +3063,7 @@ export async function executeManualStagingIngestion(
         });
 
         if (normSig && normSig.rawSignal && normSig.rawSignal.source) {
-          newTargetVerifiedSignals.push({
+          newVerifiedSignals.push({
             normalizedSignal: normSig,
             rawSignal: normSig.rawSignal,
             source: normSig.rawSignal.source,
@@ -2718,406 +3071,194 @@ export async function executeManualStagingIngestion(
         }
       }
 
-      const allTargetSignals = [...targetOriginalSignals, ...newTargetVerifiedSignals];
-      const targetClaimLinks = buildEmpiricalClaimLinks(allTargetSignals);
-      const targetCommercialIndicators = deriveSupportedCommercialIndicators(allTargetSignals);
-      const targetQualityResult = evaluatePublicationQuality(
-        targetClaimLinks,
-        targetCommercialIndicators.evidenceConfidenceScore,
-      );
+      let allCandidateSignals = [...targetOriginalSignals, ...newVerifiedSignals];
 
-      const targetFeasibility = evaluateSolutionFeasibility(targetCandidate.problemStatement || targetCandidate.title);
-      const primaryTargetUrl = targetCandidate.evidenceLinks?.[0]?.normalizedSignal?.canonicalUrl || targetCandidate.evidenceLinks?.[0]?.normalizedSignal?.rawSignal?.sourceUrl || "";
-      const isTargetSingleRepo = isSingleRepoTicket(primaryTargetUrl, targetCandidate.problemStatement) && allTargetSignals.length <= 1;
-
-      const isTargetEligible = targetFeasibility.isFeasible && !isTargetSingleRepo && targetCommercialIndicators.opportunityScore >= 45;
-      const targetFinalStatus = isTargetEligible ? "PUBLISHED" : (targetFeasibility.isFeasible ? "DRAFT" : "REJECTED");
-      const targetPubQualityStatus = isTargetEligible ? (targetQualityResult.status || "HYPOTHESIS") : "EVIDENCE_PENDING";
-
-      if (newTargetVerifiedSignals.length > 0) {
-        // Synthesize updated blueprint with combined evidence
-        const clusterProxy: ProblemClusterResult = {
-          clusterId: `cluster-target-${targetCandidate.id}`,
-          title: targetCandidate.title,
-          summary: targetCandidate.problemStatement,
-          vertical: targetCandidate.industry || "DevOps & Compliance",
-          signalIds: allTargetSignals.map((s) => s.normalizedSignal.id),
-          centroid: targetCentroid || new Array(64).fill(0),
+      // Active corroboration search for this candidate
+      let contradictingSignals: any[] = [];
+      let rejectedCorroborationItems: any[] = [];
+      if (allCandidateSignals.length < 5 && Date.now() < deadline - 8000) {
+        const primarySig = allCandidateSignals[0];
+        const primaryKey = primarySig?.source?.key || "unknown";
+        const problemText = `${candidate.title || ""} ${candidate.problemStatement || ""}`;
+        const searchInput = {
+          url: primarySig?.normalizedSignal?.canonicalUrl || primarySig?.rawSignal?.sourceUrl,
+          title: primarySig?.rawSignal?.title || primarySig?.normalizedSignal?.sourceTitle,
+          text: primarySig?.normalizedSignal?.sanitizedExcerpt || primarySig?.rawSignal?.rawContent,
+          authorFingerprint: primarySig?.rawSignal?.authorFingerprint,
+          sourceKey: primaryKey,
         };
-
-        const updatedBlueprint = synthesizeOpportunity(clusterProxy, allTargetSignals.length);
-        const audience = deriveSpecificAudience(`${targetCandidate.title} ${targetCandidate.problemStatement}`);
-        const economicBuyer = deriveEconomicBuyerRole(audience, targetCandidate.industry);
-        const endUser = deriveEndUserRole(audience);
-        const productDirection = derivePlausibleProductDirection(targetCandidate.problemStatement || targetCandidate.title, audience);
-        const validationExperiment = deriveSpecificValidationExperiment(targetCandidate.problemStatement || targetCandidate.title, audience);
-        const domainAlternatives = deriveDomainAlternatives(
-          `${targetCandidate.title || ""} ${targetCandidate.problemStatement || ""}`,
+        const corroboratingResult = await searchIndependentCorroboration(
+          prisma,
+          problemText,
+          searchInput,
+          processedHashes,
+          3500,
         );
-        const evidenceGaps = deriveEvidenceGaps(
-          targetCandidate.problemStatement,
-          audience,
-          allTargetSignals.length > 1,
-          allTargetSignals.some((s) => s.normalizedSignal.purchaseIntent),
-        );
-
-        if (!targetFeasibility.isFeasible && targetFeasibility.blockReason) {
-          evidenceGaps.unshift(`Feasibility limitation: ${targetFeasibility.blockReason}`);
-        }
-        if (isTargetSingleRepo) {
-          evidenceGaps.unshift("Repository-specific workflow ticket: requires independent multi-organization corroboration before broader business opportunity validation");
-        }
-
-        const assumedBuyer = economicBuyer.startsWith("[Assumption]") ? economicBuyer : `[Assumption] ${economicBuyer}`;
-        const assumedAudience = audience.startsWith("[Assumption]") ? audience : `[Assumption] ${audience}`;
-        updatedBlueprint.economicBuyer = assumedBuyer;
-        updatedBlueprint.endUser = endUser;
-        updatedBlueprint.targetCustomerSegments = [assumedAudience];
-        updatedBlueprint.proposedProduct = `[Assumption] ${productDirection}`;
-        updatedBlueprint.existingWorkflow = domainAlternatives.existingWorkflow;
-        updatedBlueprint.evidenceOfDemand = targetCommercialIndicators.evidenceOfDemand;
-        updatedBlueprint.evidenceOfWillingnessToPay = targetCommercialIndicators.evidenceOfWillingnessToPay;
-        updatedBlueprint.recommendedNextExperiment = validationExperiment;
-        updatedBlueprint.majorAssumptions = [
-          `[Assumption] Inferred target customer segment: ${audience}`,
-          `[Assumption] Proposed solution direction: ${productDirection}`,
-          `[Assumption] Commercial willingness to pay requires direct buyer validation`,
-          ...updatedBlueprint.majorAssumptions.filter((a) => !a.startsWith("[Assumption]")),
-        ];
-        updatedBlueprint.majorRisks = evidenceGaps;
-        updatedBlueprint.existingCompetitors = domainAlternatives.competitors;
-        updatedBlueprint.competitorWeaknesses = domainAlternatives.weaknesses;
-
-        const customerSegments: CustomerSegmentItem[] = updatedBlueprint.targetCustomerSegments.map((name) => ({
-          id: "seg-" + crypto.randomUUID(),
-          segmentName: name,
-          industry: targetCandidate.industry,
-          companySizeRange: "10-250 employees",
-          geography: "Global / Remote",
-          businessModel: "B2B SaaS",
-          economicBuyerRole: updatedBlueprint.economicBuyer,
-          endUserRole: updatedBlueprint.endUser,
-          procurementComplexity: "LOW",
-          budgetCategory: "ENGINEERING_TOOLS",
-          spendingBehavior: "CREDIT_CARD",
-          buyingTrigger: updatedBlueprint.buyingTrigger,
-          primaryObjection: "Budget and integration bandwidth",
-          acquisitionChannels: ["GITHUB", "COMMUNITY"],
-          salesCycleMinDays: 7,
-          salesCycleMaxDays: 30,
-          salesMotion: "FOUNDER_LED",
-          confidenceScore: 80,
-          provenanceType: "MODEL_ESTIMATE",
-          evidenceLinkIds: [],
-        }));
-
-        const mvpFeatures: MvpFeatureItem[] = updatedBlueprint.narrowMvpScope.map((name, idx) => ({
-          id: "feat-" + crypto.randomUUID(),
-          featureName: name,
-          description: name,
-          category: "MUST_HAVE",
-          userJourneyStep: "ONBOARDING",
-          requiredIntegrations: ["GITHUB_ACTIONS"],
-          requiredData: ["PULL_REQUEST_METADATA"],
-          dependencies: [],
-          acceptanceCriteria: ["Validates within 5 minutes"],
-          orderIndex: idx,
-        }));
-
-        const competitors: CompetitorItem[] = (updatedBlueprint.existingCompetitors || []).map((name) => ({
-          id: "comp-" + crypto.randomUUID(),
-          name,
-          competitorType: "DIRECT",
-          differentiationHypothesis: updatedBlueprint.competitorWeaknesses?.[0] || "Lightweight and automated",
-          switchingCosts: "MEDIUM",
-          strengths: ["Brand awareness"],
-          recurringComplaints: ["High enterprise cost"],
-          provenanceType: "MODEL_ESTIMATE",
-          evidenceLinkIds: [],
-        }));
-
-        const costs: CostLineItemData[] = [
-          {
-            id: "cost-" + crypto.randomUUID(),
-            costType: "ONE_TIME_BUILD",
-            category: "BACKEND_DEV",
-            title: "MVP Engineering Build",
-            scenarioType: "BASE",
-            amountMinorCents: updatedBlueprint.economics.estimatedMvpCost.minMinor,
-            currency: "USD",
-            estimateMethod: "Engineering hours benchmark",
-            provenanceType: "MODEL_ESTIMATE",
-            evidenceLinkIds: [],
-            assumptionIds: [],
-            confidenceScore: 80,
-          },
-        ];
-
-        const benefits: BenefitDriverData[] = [
-          {
-            id: "ben-" + crypto.randomUUID(),
-            category: "LABOR_TIME_SAVED",
-            title: "Engineering Hours Saved",
-            affectedRole: updatedBlueprint.endUser,
-            unitQuantity: 30,
-            unitValueCents: 7500,
-            annualValueCents: 2700000,
-            frequencyPeriod: "MONTHLY",
-            calculationDescription: "30 hours/mo saved at $75/hr",
-            provenanceType: "MODEL_ESTIMATE",
-            evidenceLinkIds: [],
-            assumptionIds: [],
-            confidenceScore: 80,
-          },
-        ];
-
-        const risks: RiskItem[] = (updatedBlueprint.majorRisks || []).map((desc) => ({
-          id: "risk-" + crypto.randomUUID(),
-          category: "TECHNICAL",
-          severity: "MEDIUM",
-          description: desc,
-          impactScore: 3,
-          probabilityScore: 3,
-          mitigationStrategy: "Build resilient multi-cloud adapters",
-          status: "IDENTIFIED",
-          provenanceType: "MODEL_ESTIMATE",
-          evidenceLinkIds: [],
-        }));
-
-        const assumptions: AssumptionItem[] = (updatedBlueprint.majorAssumptions || []).map((stmt) => ({
-          id: "asm-" + crypto.randomUUID(),
-          category: "PROBLEM",
-          statement: stmt,
-          importanceScore: 4,
-          uncertaintyScore: 3,
-          status: "UNTESTED",
-          testMethod: "Customer interview campaign",
-          successThreshold: ">= 60% validation",
-          failureThreshold: "< 30% validation",
-          provenanceType: "ASSUMPTION",
-          evidenceLinkIds: [],
-        }));
-
-        const experiments: ValidationExperimentItem[] = [
-          {
-            id: "exp-" + crypto.randomUUID(),
-            hypothesis: updatedBlueprint.recommendedNextExperiment,
-            experimentType: "PREORDER",
-            targetParticipant: updatedBlueprint.economicBuyer,
-            sampleSize: 5,
-            estimatedCostCents: 50000,
-            estimatedDurationDays: 14,
-            acquisitionChannel: "DIRECT_OUTREACH",
-            procedureSummary: "Reach out to 5 qualified engineering leaders",
-            successMetric: "Paid preorder commitments",
-            successThreshold: ">= 3 commitments",
-            failureThreshold: "< 1 commitment",
-            killCriterion: "Zero responses after 20 outreach attempts",
-            nextActionOnSuccess: "Build MVP",
-            nextActionOnFailure: "Pivot value proposition",
-            status: "PLANNED",
-            orderPriority: 1,
-            evidenceGeneratedIds: [],
-          },
-        ];
-
-        const revisionResult = await createOpportunityRevisionTransaction(prisma, {
-          opportunityId: targetCandidate.id,
-          reasonForChange: "Focused staging evidence expansion pass",
-          architectureSummary: updatedBlueprint.proposedProduct,
-          customerSegments,
-          mvpFeatures,
-          competitors,
-          scenarios: [
-            {
-              scenarioType: "BASE",
-              currency: "USD",
-              activeCustomers: 50,
-              monthlyPriceCents: 19900,
-              onboardingPriceCents: 0,
-              variableCostPerCustomerCents: 500,
-              monthlyFixedCostCents: 30000,
-              customerAcquisitionCostCents: 25000,
-              deliveryTimeWeeks: 6,
-              assumptions: ["Standard self-serve onboarding conversion"],
-              evidenceIds: [],
-            },
-          ],
-          costs,
-          benefits,
-          risks,
-          assumptions,
-          experiments,
-          opportunityScore: targetCommercialIndicators.opportunityScore,
-          evidenceConfidence: targetCommercialIndicators.evidenceConfidenceScore,
-          criticalClaimsCovered: allTargetSignals.length,
-          costSummary: {
-            minBuildMinorCents: updatedBlueprint.economics.estimatedMvpCost.minMinor,
-            maxBuildMinorCents: updatedBlueprint.economics.estimatedMvpCost.maxMinor,
-            minWeeks: updatedBlueprint.economics.estimatedTimeToMvpWeeks.min,
-            maxWeeks: updatedBlueprint.economics.estimatedTimeToMvpWeeks.max,
-            minMonthlyOpMinorCents: updatedBlueprint.economics.estimatedMonthlyOperatingCost.minMinor,
-            maxMonthlyOpMinorCents: updatedBlueprint.economics.estimatedMonthlyOperatingCost.maxMinor,
-          },
-          snapshotData: updatedBlueprint,
-        });
-
-        for (const item of newTargetVerifiedSignals) {
-          const claimType = determineEmpiricalClaimType(
-            item.normalizedSignal.signalType,
-            item.normalizedSignal.sanitizedExcerpt,
-            item.normalizedSignal.actorRole,
-          );
-          try {
-            await prisma.evidenceLink.create({
-              data: {
-                opportunityId: targetCandidate.id,
-                opportunityRevisionId: revisionResult.revisionId,
-                normalizedSignalId: item.normalizedSignal.id,
-                claimType: claimType as any,
-                claimIdentifier: "claim-pain-" + targetCandidate.id,
-                claimSnippet: item.normalizedSignal.sanitizedExcerpt || item.normalizedSignal.problemSummary || "Empirical signal evidence",
-                relationshipType: "SUPPORTS",
-                supportStrength: "STRONG",
-                explanation: `Empirically verified from ${item.source.name} (${item.rawSignal.sourceUrl})`,
-                relevanceScore: 0.9,
-              },
-            });
-          } catch (linkErr: any) {
-            logger.warn("Failed creating EvidenceLink", { message: linkErr?.message });
+        for (const cSig of corroboratingResult.supportingSignals || corroboratingResult) {
+          if (!allCandidateSignals.some((vs) => vs.normalizedSignal.id === cSig.normalizedSignal.id)) {
+            allCandidateSignals.push(cSig);
+            newVerifiedSignals.push(cSig);
           }
         }
+        contradictingSignals = corroboratingResult.contradictingSignals || [];
+        rejectedCorroborationItems = corroboratingResult.rejectedItems || [];
       }
 
-      await prisma.opportunity.update({
-        where: { id: targetCandidate.id },
-        data: {
-          status: targetFinalStatus,
-          publicationQualityStatus: targetPubQualityStatus,
+      const claimLinks = buildEmpiricalClaimLinks(allCandidateSignals);
+      const commercialIndicators = deriveSupportedCommercialIndicators(allCandidateSignals);
+      const qualityResult = evaluatePublicationQuality(
+        claimLinks,
+        commercialIndicators.evidenceConfidenceScore,
+      );
+
+      const qual = evaluateCandidateQualification(
+        {
+          title: candidate.title,
+          problemStatement: candidate.problemStatement,
+          primaryUrl: candidate.evidenceLinks?.[0]?.normalizedSignal?.canonicalUrl || candidate.evidenceLinks?.[0]?.normalizedSignal?.rawSignal?.sourceUrl,
+          primarySourceKey: candidate.evidenceLinks?.[0]?.normalizedSignal?.rawSignal?.source?.key,
         },
+        allCandidateSignals,
+        contradictingSignals,
+        qualityResult,
+        commercialIndicators.opportunityScore,
+      );
+
+      const clusterProxy: ProblemClusterResult = {
+        clusterId: `cluster-target-${candidate.id}`,
+        title: candidate.title,
+        summary: candidate.problemStatement,
+        vertical: candidate.industry || "DevOps & Compliance",
+        signalIds: allCandidateSignals.map((s) => s.normalizedSignal.id),
+        centroid: candidateCentroid || new Array(64).fill(0),
+      };
+
+      const updatedBlueprint = synthesizeOpportunity(clusterProxy, allCandidateSignals.length);
+      const audience = deriveSpecificAudience(`${candidate.title} ${candidate.problemStatement}`);
+      const economicBuyer = deriveEconomicBuyerRole(audience, candidate.industry);
+      const endUser = deriveEndUserRole(audience);
+      const productDirection = derivePlausibleProductDirection(candidate.problemStatement || candidate.title, audience);
+      const validationExperiment = deriveSpecificValidationExperiment(candidate.problemStatement || candidate.title, audience);
+      const domainAlternatives = deriveDomainAlternatives(
+        `${candidate.title || ""} ${candidate.problemStatement || ""}`,
+      );
+      const evidenceGaps = deriveEvidenceGaps(
+        candidate.problemStatement,
+        audience,
+        allCandidateSignals.length > 1,
+        allCandidateSignals.some((s) => s.normalizedSignal.purchaseIntent),
+      );
+
+      if (qual.isSingleRepo) {
+        evidenceGaps.unshift("Repository-specific workflow ticket: requires independent multi-organization corroboration before broader business opportunity validation");
+      }
+      if (qual.isAnnouncement) {
+        evidenceGaps.unshift("Product announcement: maker announcement establishes alternative; customer pain and demand require separate practitioner evidence");
+      }
+      if (qual.isContradicted) {
+        evidenceGaps.unshift("Disconfirming evidence: independent practitioners report standard native solution or expected behavior");
+      }
+
+      if (qual.isAnnouncement && !domainAlternatives.competitors.includes(candidate.title)) {
+        domainAlternatives.competitors.unshift(candidate.title);
+      }
+
+      const assumedBuyer = economicBuyer.startsWith("[Assumption]") ? economicBuyer : `[Assumption] ${economicBuyer}`;
+      const assumedAudience = audience.startsWith("[Assumption]") ? audience : `[Assumption] ${audience}`;
+      updatedBlueprint.economicBuyer = assumedBuyer;
+      updatedBlueprint.endUser = endUser;
+      updatedBlueprint.targetCustomerSegments = [assumedAudience];
+      updatedBlueprint.proposedProduct = `[Assumption] ${productDirection}`;
+      updatedBlueprint.existingWorkflow = domainAlternatives.existingWorkflow;
+      updatedBlueprint.evidenceOfDemand = commercialIndicators.evidenceOfDemand;
+      updatedBlueprint.evidenceOfWillingnessToPay = commercialIndicators.evidenceOfWillingnessToPay;
+      updatedBlueprint.recommendedNextExperiment = validationExperiment;
+      updatedBlueprint.majorAssumptions = [
+        `[Assumption] Inferred target customer segment: ${audience}`,
+        `[Assumption] Proposed solution direction: ${productDirection}`,
+        `[Assumption] Commercial willingness to pay requires direct buyer validation`,
+        ...updatedBlueprint.majorAssumptions.filter((a) => !a.startsWith("[Assumption]")),
+      ];
+      updatedBlueprint.majorRisks = evidenceGaps;
+      updatedBlueprint.existingCompetitors = domainAlternatives.competitors;
+      updatedBlueprint.competitorWeaknesses = domainAlternatives.weaknesses;
+
+      const oppData = {
+        title: candidate.title,
+        oneSentenceSummary: updatedBlueprint.oneSentenceSummary,
+        problemStatement: updatedBlueprint.problemStatement,
+        jobsToBeDone: updatedBlueprint.jobsToBeDone,
+        proposedProduct: updatedBlueprint.proposedProduct,
+        narrowMvpScope: updatedBlueprint.narrowMvpScope,
+        targetCustomerSegments: updatedBlueprint.targetCustomerSegments,
+        economicBuyer: updatedBlueprint.economicBuyer,
+        endUser: updatedBlueprint.endUser,
+        buyingTrigger: updatedBlueprint.buyingTrigger,
+        existingWorkflow: updatedBlueprint.existingWorkflow,
+        painSeverity: updatedBlueprint.painSeverity,
+        painFrequency: updatedBlueprint.painFrequency,
+        status: qual.finalStatus,
+        publicationQualityStatus: qual.pubQualityStatus,
+        industry: candidate.industry || "DevOps & Compliance",
+        customerType: "B2B",
+        estimatedMvpCostMinCents: updatedBlueprint.economics?.estimatedMvpCost?.minMinor || 500000,
+        estimatedMvpCostMaxCents: updatedBlueprint.economics?.estimatedMvpCost?.maxMinor || 1500000,
+        estimatedTimeToMvpMinWeeks: updatedBlueprint.economics?.estimatedTimeToMvpWeeks?.min || 4,
+        estimatedTimeToMvpMaxWeeks: updatedBlueprint.economics?.estimatedTimeToMvpWeeks?.max || 8,
+        estimatedMonthlyOpCostMinCents: updatedBlueprint.economics?.estimatedMonthlyOperatingCost?.minMinor || 50000,
+        estimatedMonthlyOpCostMaxCents: updatedBlueprint.economics?.estimatedMonthlyOperatingCost?.maxMinor || 200000,
+        recommendedNextExperiment: updatedBlueprint.recommendedNextExperiment,
+        majorAssumptions: updatedBlueprint.majorAssumptions,
+        majorRisks: updatedBlueprint.majorRisks,
+      };
+
+      await saveOrUpdateOpportunityCandidateWithRevisionAndLinks(
+        prisma,
+        candidate.id,
+        oppData,
+        updatedBlueprint,
+        allCandidateSignals,
+        contradictingSignals,
+        qual.qualificationReason,
+        qual.isVerified,
+      );
+
+      candidateEvaluations.push({
+        id: candidate.id,
+        title: candidate.title,
+        slug: candidate.slug,
+        status: qual.finalStatus,
+        publicationQualityStatus: qual.pubQualityStatus,
+        qualificationReason: qual.qualificationReason,
+        originalUrls: Array.from(originalUrls),
+        addedUrls: Array.from(new Set(newVerifiedSignals.map((s) => s.rawSignal.sourceUrl || s.normalizedSignal.canonicalUrl).filter(Boolean))),
+        supportingUrls: Array.from(new Set(allCandidateSignals.map((vs) => vs.rawSignal.sourceUrl))),
+        contradictingUrls: Array.from(new Set(contradictingSignals.map((vs) => vs.rawSignal.sourceUrl))),
+        rejectedCorroborationCount: rejectedCorroborationItems.length,
+        independenceKeys: Array.from(new Set(allCandidateSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`))),
+        sourceFamilies: Array.from(new Set(allCandidateSignals.map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY")).filter(Boolean))),
+        blockers: qualityResult.blockers,
+        warnings: qualityResult.warnings,
+        metrics: qualityResult.metrics,
       });
 
-      const targetAddedUrls = Array.from(
-        new Set(newTargetVerifiedSignals.map((s) => s.rawSignal.sourceUrl || s.normalizedSignal.canonicalUrl).filter(Boolean)),
-      );
-
-      if (newTargetVerifiedSignals.length > 0 || unmatchedPool.length === 0) {
-        candidateEvaluations.push({
-          id: targetCandidate.id,
-          title: targetCandidate.title,
-          slug: targetCandidate.slug,
-          status: targetFinalStatus,
-          publicationQualityStatus: targetPubQualityStatus,
-          originalUrls: Array.from(originalUrls),
-          addedUrls: targetAddedUrls,
-          supportingUrls: Array.from(new Set(allTargetSignals.map((vs) => vs.rawSignal.sourceUrl))),
-          independenceKeys: Array.from(
-            new Set(
-              allTargetSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`),
-            ),
-          ),
-          sourceFamilies: Array.from(
-            new Set(
-              allTargetSignals
-                .map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY"))
-                .filter(Boolean),
-            ),
-          ),
-          blockers: targetQualityResult.blockers,
-          warnings: targetQualityResult.warnings,
-          metrics: targetQualityResult.metrics,
-        });
-
-        if (isTargetEligible && publishedCount < maxPublishedOpportunities) {
-          publishedSlugs.push(targetCandidate.slug);
-          publishedCount++;
-        }
+      if (qual.finalStatus === "PUBLISHED" && publishedCount < maxPublishedOpportunities) {
+        publishedSlugs.push(candidate.slug);
+        publishedCount++;
       }
+    }
 
-      // 6b. Cluster genuinely different problems into separate candidates
-      if (unmatchedPool.length > 0 && candidateEvaluations.length < maxCandidates) {
-        const newClusters = clusterSignals(unmatchedPool, 0.72);
-        newClusters.sort((a, b) => b.signalIds.length - a.signalIds.length);
-        totalClustersDiscovered += newClusters.length;
-        const availableCandidateSlots = Math.max(0, maxCandidates - candidateEvaluations.length);
-        for (const cl of newClusters) {
-          if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates || publishedCount >= maxPublishedOpportunities) break;
-          if (availableCandidateSlots <= 0) break;
-          const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
-          for (const sigId of cl.signalIds) {
-            const normSig = await prisma.normalizedSignal.findUnique({
-              where: { id: sigId },
-              include: { rawSignal: { include: { source: true } } },
-            });
-            if (normSig && normSig.rawSignal && normSig.rawSignal.source) {
-              verifiedSignals.push({ normalizedSignal: normSig, rawSignal: normSig.rawSignal, source: normSig.rawSignal.source });
-            }
-          }
-          if (verifiedSignals.length === 0) continue;
+    // 6b. Cluster remaining pool of unmatched signals into new candidates
+    unmatchedPoolCount = pool.length;
+    if (pool.length > 0 && candidateEvaluations.length < maxCandidates) {
+      const newClusters = clusterSignals(pool, 0.72);
+      newClusters.sort((a, b) => b.signalIds.length - a.signalIds.length);
+      totalClustersDiscovered += newClusters.length;
+      const availableCandidateSlots = Math.max(0, maxCandidates - candidateEvaluations.length);
 
-          // Gating: An opportunity hypothesis may only be created if the cluster contains genuine evidence
-          // of a concrete problem, workaround, or willingness to pay / purchase intent.
-          const hasCommercialProblemEvidence = verifiedSignals.some((vs) => {
-            const sigType = (vs.normalizedSignal.signalType || "").toUpperCase();
-            const title = vs.rawSignal.title || vs.normalizedSignal.sourceTitle || "";
-            const excerpt = vs.normalizedSignal.sanitizedExcerpt || "";
-            const summary = vs.normalizedSignal.problemSummary || "";
-            const text = `${title} ${excerpt} ${summary}`.toLowerCase();
-            if (/vague question about|without industry context/i.test(text)) return false;
-            if (/\b(ready-for-agent|ai text below|create a branch and open a pr|parent:\s*#\d+|epic\s*#\d+|are harnesses worth the cost)\b/i.test(text)) {
-              return false;
-            }
-            const isActionableType = ["PAIN_COMPLAINT", "PAIN", "PROBLEM_STATEMENT", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
-            const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay|timeout|outage|drift|reconcil)\b/i.test(text);
-            const isPureNews = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
-            return (isActionableType || vs.normalizedSignal.purchaseIntent || hasExplicitPain) && !isPureNews;
-          });
-
-          if (!hasCommercialProblemEvidence) {
-            // Signal remains in database as authentic Market Signal feed item, but is NOT synthesized into a business hypothesis
-            continue;
-          }
-
-          const briefRes = await buildAndPersistOpportunityBrief(
-            prisma,
-            cl,
-            verifiedSignals,
-            deadline,
-            processedHashes,
-          );
-
-          candidateEvaluations.push({
-            id: briefRes.opp.id,
-            title: briefRes.formattedTitle,
-            slug: briefRes.generatedSlug,
-            status: briefRes.finalStatus,
-            publicationQualityStatus: briefRes.pubQualityStatus,
-            originalUrls: [],
-            addedUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
-            supportingUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
-            independenceKeys: Array.from(new Set(verifiedSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`))),
-            sourceFamilies: Array.from(new Set(verifiedSignals.map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY")).filter(Boolean))),
-            blockers: briefRes.qualityResult.blockers,
-            warnings: briefRes.qualityResult.warnings,
-            metrics: briefRes.qualityResult.metrics,
-          });
-
-          if (briefRes.finalStatus === "PUBLISHED" && publishedCount < maxPublishedOpportunities) {
-            publishedSlugs.push(briefRes.generatedSlug);
-            publishedCount++;
-          }
-        }
-      }
-
-    } else {
-      // 6c. Cold initial clustering when no previous opportunity exists
-      const clusters = clusterCandidates.length > 0 ? clusterSignals(clusterCandidates, 0.72) : [];
-      clusters.sort((a, b) => b.signalIds.length - a.signalIds.length);
-      totalClustersDiscovered = clusters.length;
-
-      for (const cl of clusters) {
+      for (const cl of newClusters) {
         if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates || publishedCount >= maxPublishedOpportunities) break;
-
+        if (availableCandidateSlots <= 0) break;
         const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
         for (const sigId of cl.signalIds) {
           const normSig = await prisma.normalizedSignal.findUnique({
@@ -3149,7 +3290,6 @@ export async function executeManualStagingIngestion(
         });
 
         if (!hasCommercialProblemEvidence) {
-          // Signal remains in database as authentic Market Signal feed item, but is NOT synthesized into a business hypothesis
           continue;
         }
 

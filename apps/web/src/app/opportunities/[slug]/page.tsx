@@ -11,6 +11,7 @@ import {
   filterFounderFitForContext,
   evaluateSolutionFeasibility,
   isSingleRepoTicket,
+  isProductAnnouncement,
 } from "@buildworth/opportunity-engine";
 import { resolveBlueprintForOpportunity } from "@/lib/blueprint-resolver";
 
@@ -346,7 +347,8 @@ export default async function OpportunityDetailPage({
     (opp.evidenceLinks as any)?.[0]?.signal?.canonicalUrl ||
     (dbOppRecord?.evidenceLinks as any)?.[0]?.normalizedSignal?.canonicalUrl;
   const isSingleRepo = isSingleRepoTicket(primaryUrl, combined);
-  if (isNonAdmin && (!feasibility.isFeasible || (isSingleRepo && (opp.evidenceLinks?.length || 0) <= 1))) {
+  const isAnnouncement = isProductAnnouncement(opp.title, opp.problemStatement, primaryUrl);
+  if (isNonAdmin && (!feasibility.isFeasible || ((isSingleRepo || isAnnouncement) && (opp.evidenceLinks?.length || 0) <= 1))) {
     return (
       <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
         Opportunity blueprint not found.

@@ -635,6 +635,9 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
             if (where?.isDemoFixture !== undefined) {
               list = list.filter((o) => (o.isDemoFixture || false) === where.isDemoFixture);
             }
+            if (where?.slug?.startsWith) {
+              list = list.filter((o) => o.slug && o.slug.startsWith(where.slug.startsWith));
+            }
             if (include?.evidenceLinks) {
               list = list.map((opp) => {
                 const evLinks = store.evidenceLinks.filter((el) => el.opportunityId === opp.id);
@@ -675,6 +678,11 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
             store.scorecards.push(rec);
             return rec;
           },
+          update: async ({ where, data }: any) => {
+            const item = store.scorecards.find((s) => s.id === where.id || s.opportunityId === where.opportunityId);
+            if (item) Object.assign(item, data);
+            return item;
+          },
         },
         opportunityRevision: {
           findFirst: async ({ where }: any) => {
@@ -712,6 +720,13 @@ describe("Scheduled Cron Discovery Strict Authentication & Concurrency Suite", (
           },
         },
         evidenceLink: {
+          findFirst: async ({ where }: any = {}) => {
+            return store.evidenceLinks.find((el) => {
+              if (where.opportunityId && el.opportunityId !== where.opportunityId) return false;
+              if (where.normalizedSignalId && el.normalizedSignalId !== where.normalizedSignalId) return false;
+              return true;
+            }) || null;
+          },
           create: async ({ data }: any) => {
             const rec = { id: "evlink-" + (store.evidenceLinks.length + 1), ...data };
             store.evidenceLinks.push(rec);
