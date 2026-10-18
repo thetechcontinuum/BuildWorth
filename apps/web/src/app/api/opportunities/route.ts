@@ -4,7 +4,7 @@ import {
   StoredOpportunity,
 } from "@/lib/opportunity-store";
 import { prisma } from "@buildworth/database";
-import { evaluateSolutionFeasibility, isSingleRepoTicket } from "@buildworth/opportunity-engine";
+import { evaluateSolutionFeasibility, isSingleRepoTicket, isProductAnnouncement } from "@buildworth/opportunity-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +50,9 @@ export async function GET() {
         return false;
       }
       const primaryUrl = o.evidenceLinks?.[0]?.normalizedSignal?.canonicalUrl || o.evidenceLinks?.[0]?.normalizedSignal?.rawSignal?.sourceUrl;
-      if (isSingleRepoTicket(primaryUrl, combined) && (o.evidenceLinks?.length || 0) <= 1) {
+      const isSingleRepo = isSingleRepoTicket(primaryUrl, combined);
+      const isAnnouncement = isProductAnnouncement(o.title, o.problemStatement, primaryUrl);
+      if ((isSingleRepo || isAnnouncement) && (o.evidenceLinks?.length || 0) <= 1) {
         return false;
       }
       return true;

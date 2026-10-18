@@ -218,7 +218,7 @@ export function isConcreteProblemOrWorkaround(signal: {
   // 12. Explicit concrete friction / breakdown / workaround / cost pain indicators
   // The excerpt or title must describe actual failure, broken functionality, error, or manual hack
   const hasConcreteBreakdown =
-    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|manual reconciliation|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes)\b/i.test(fullText);
+    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|manual reconciliation|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes|billing surprises?|delays?|drift|lags?)\b/i.test(fullText);
 
   // High quality problem types from GitHub / StackOverflow / HN or unclassified signals with problem keywords
   const isProblemType = [
@@ -233,7 +233,7 @@ export function isConcreteProblemOrWorkaround(signal: {
     "UNCLASSIFIED",
   ].includes(sigType);
 
-  return hasConcreteBreakdown || (isProblemType && /\b(error|bug|issue|failure|broken|problem|bottleneck|friction|pain|cost|spend|waste|latency|spikes?|deadlock|deadlocks|downtime)\b/i.test(fullText));
+  return hasConcreteBreakdown || (isProblemType && /\b(error|bug|issue|failure|broken|problem|bottleneck|friction|pain|cost|spend|waste|latency|spikes?|deadlock|deadlocks|downtime|delay|delays|drift)\b/i.test(fullText));
 }
 
 /**
@@ -544,19 +544,209 @@ export function evaluateSolutionFeasibility(
  * that requires multi-organization corroboration before presenting a broader business opportunity.
  */
 export function isSingleRepoTicket(url?: string, problemText?: string): boolean {
-  if (!url) return false;
-  if (url.includes("github.com") && /\/issues\/\d+/.test(url)) {
-    const lower = (problemText || "").toLowerCase();
-    if (
-      lower.includes("agents/") ||
-      lower.includes(".md") ||
-      lower.includes("workflow-gap in agents") ||
-      lower.includes("harness-feedback")
-    ) {
+  if (url && /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/i.test(url)) {
+    return true;
+  }
+  const lower = (problemText || "").toLowerCase();
+  return (
+    lower.includes("agents/") ||
+    lower.includes(".md") ||
+    lower.includes("workflow-gap in agents") ||
+    lower.includes("harness-feedback") ||
+    /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/i.test(lower)
+  );
+}
+
+/**
+ * Identifies whether a signal is a product announcement, launch notice, or tool demonstration
+ * by its maker/author.
+ * A product announcement can establish an existing alternative, but customer pain and demand require separate evidence.
+ */
+export function isProductAnnouncement(
+  title?: string,
+  text?: string,
+  url?: string,
+  sourceKey?: string,
+): boolean {
+  const t = (title || "").trim();
+  const lowerTitle = t.toLowerCase();
+  const lowerText = (text || "").toLowerCase();
+  const lowerUrl = (url || "").toLowerCase();
+  const sKey = (sourceKey || "").toLowerCase();
+
+  if (sKey === "producthunt" || lowerUrl.includes("producthunt.com") || lowerUrl.includes("/releases/tag/")) return true;
+
+  // Hacker News maker announcements
+  if (/^(show hn|launch hn)\b/i.test(t) || lowerTitle.startsWith("show hn:") || lowerTitle.startsWith("launch hn:")) {
+    return true;
+  }
+  if (lowerText.startsWith("show hn:") || lowerText.startsWith("launch hn:")) {
+    return true;
+  }
+
+  // Maker self-announcements across other tech communities
+  if (
+    /^(introducing|announcing|release:|v\d+\.\d+|launching)\b/i.test(t) ||
+    /\b(an independent execution recorder for|i built an open source|we built an open source|i built a tool|we are launching|show hn)\b/i.test(lowerTitle) ||
+    /\b(i gave access to my coding agent to do work on my repos|so i manually checked each transcript)\b/i.test(lowerText)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Extracts a normalized author or organization identifier from a signal.
+ */
+export function extractAuthorOrRepoIdentifier(url?: string, authorFingerprint?: string): string {
+  if (authorFingerprint && authorFingerprint.trim() && !["unknown", "public_user"].includes(authorFingerprint.trim().toLowerCase())) {
+    return authorFingerprint.trim().toLowerCase();
+  }
+  if (url) {
+    const gh = url.match(/github\.com\/([^/]+)/i);
+    if (gh && gh[1]) return `gh-org:${gh[1].toLowerCase()}`;
+    try {
+      const u = new URL(url);
+      return u.hostname.replace(/^www\./, "").toLowerCase();
+    } catch {}
+  }
+  return "unknown-author";
+}
+
+/**
+ * Checks whether a candidate signal is from the same product author or organization as the primary signal.
+ */
+export function isAuthorSelfClaim(
+  retrieved: { url?: string; authorFingerprint?: string; title?: string },
+  primary: { url?: string; authorFingerprint?: string; title?: string },
+): boolean {
+  const pAuthor = extractAuthorOrRepoIdentifier(primary.url, primary.authorFingerprint);
+  const rAuthor = extractAuthorOrRepoIdentifier(retrieved.url, retrieved.authorFingerprint);
+  if (pAuthor !== "unknown-author" && rAuthor !== "unknown-author" && pAuthor === rAuthor) {
+    return true;
+  }
+  if (primary.url && retrieved.url) {
+    const pGh = primary.url.match(/github\.com\/([^/]+\/[^/]+)/i);
+    const rGh = retrieved.url.match(/github\.com\/([^/]+\/[^/]+)/i);
+    if (pGh && rGh && pGh[1] && rGh[1] && pGh[1].toLowerCase() === rGh[1].toLowerCase()) {
       return true;
     }
   }
   return false;
+}
+
+/**
+ * Checks whether two signals represent syndicated re-publications of the same content.
+ */
+export function isSyndicatedCopy(
+  url1?: string,
+  url2?: string,
+  content1?: string,
+  content2?: string,
+): boolean {
+  if (url1 && url2) {
+    const u1 = url1.toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+    const u2 = url2.toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+    if (u1 === u2) return true;
+  }
+  if (content1 && content2) {
+    const clean1 = content1.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+    const clean2 = content2.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+    if (clean1.length > 50 && clean2.length > 50) {
+      if (clean1.includes(clean2.substring(0, 50)) || clean2.includes(clean1.substring(0, 50))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export interface CorroborationEvaluationResult {
+  isIndependent: boolean;
+  relationshipType: "SUPPORTS" | "CONTRADICTS" | "IRRELEVANT";
+  rejectReason?: "AUTHOR_CLAIM" | "SYNDICATED_COPY" | "KEYWORD_OVERLAP_ONLY" | "NOT_CONCRETE_PROBLEM" | "SAME_ORGANIZATION";
+  explanation: string;
+}
+
+/**
+ * Evaluates whether retrieved evidence provides genuine independent corroboration,
+ * rejecting author self-claims, syndicated copies, and superficial keyword overlap.
+ */
+export function evaluateCorroboratingEvidence(
+  primarySignal: { url?: string; title?: string; text?: string; authorFingerprint?: string; sourceKey?: string },
+  candidateSignal: { url?: string; title?: string; text?: string; authorFingerprint?: string; sourceKey?: string },
+): CorroborationEvaluationResult {
+  // 1. Syndicated copy exclusion
+  if (isSyndicatedCopy(primarySignal.url, candidateSignal.url, primarySignal.text, candidateSignal.text)) {
+    return {
+      isIndependent: false,
+      relationshipType: "IRRELEVANT",
+      rejectReason: "SYNDICATED_COPY",
+      explanation: "Syndicated copy: identical text or syndicated re-publication of the primary source.",
+    };
+  }
+
+  // 2. Author self-claim exclusion
+  if (isAuthorSelfClaim(candidateSignal, primarySignal)) {
+    return {
+      isIndependent: false,
+      relationshipType: "IRRELEVANT",
+      rejectReason: "AUTHOR_CLAIM",
+      explanation: "Author self-claim: signal originates from the same product author or repository owner.",
+    };
+  }
+
+  // 3. Must describe concrete user/practitioner problem or manual workaround
+  const isConcrete = isConcreteProblemOrWorkaround({
+    title: candidateSignal.title,
+    sanitizedExcerpt: candidateSignal.text || "",
+    problemSummary: candidateSignal.title || "",
+    sourceKey: candidateSignal.sourceKey || "",
+    canonicalUrl: candidateSignal.url || "",
+  });
+  if (!isConcrete) {
+    return {
+      isIndependent: false,
+      relationshipType: "IRRELEVANT",
+      rejectReason: "NOT_CONCRETE_PROBLEM",
+      explanation: "Does not describe a concrete technical breakdown, failure, or manual workaround.",
+    };
+  }
+
+  // 4. Must address the same underlying technical problem mechanics, not superficial keyword overlap
+  const sameProblem = signalsSupportSameProblem(
+    primarySignal.title || "",
+    candidateSignal.title || "",
+    primarySignal.text || "",
+    candidateSignal.text || "",
+  );
+  if (!sameProblem) {
+    return {
+      isIndependent: false,
+      relationshipType: "IRRELEVANT",
+      rejectReason: "KEYWORD_OVERLAP_ONLY",
+      explanation: "Superficial keyword overlap: discusses related technology terms without describing the same concrete breakdown.",
+    };
+  }
+
+  // 5. Check if independent signal contradicts or disconfirms the problem
+  const candidateLower = `${candidateSignal.title || ""} ${candidateSignal.text || ""}`.toLowerCase();
+  const isContradiction = /\b(not a bug|expected behavior|wontfix|won't fix|already solved|use the native|native feature exists|user error|misconfiguration|closed as duplicate|invalid issue|standard config handles this|intended behavior)\b/i.test(candidateLower);
+
+  if (isContradiction) {
+    return {
+      isIndependent: true,
+      relationshipType: "CONTRADICTS",
+      explanation: "Independent analysis indicates issue is expected behavior, standard misconfiguration, or resolved by native platform features.",
+    };
+  }
+
+  return {
+    isIndependent: true,
+    relationshipType: "SUPPORTS",
+    explanation: `Independent practitioner report from ${candidateSignal.sourceKey || "external source"}: confirms recurring workflow friction and manual recovery.`,
+  };
 }
 
 export interface ResearchLeadPromotionEvaluation {

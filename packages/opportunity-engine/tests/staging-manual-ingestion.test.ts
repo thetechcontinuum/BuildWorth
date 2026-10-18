@@ -195,6 +195,9 @@ function createMockPrisma() {
         if (where?.isDemoFixture !== undefined) {
           list = list.filter((o) => (o.isDemoFixture || false) === where.isDemoFixture);
         }
+        if (where?.slug?.startsWith) {
+          list = list.filter((o) => o.slug && o.slug.startsWith(where.slug.startsWith));
+        }
         if (include?.evidenceLinks) {
           list = list.map((opp) => {
             const evLinks = store.evidenceLinks.filter((el) => el.opportunityId === opp.id);
@@ -235,6 +238,11 @@ function createMockPrisma() {
         store.scorecards.push(rec);
         return rec;
       },
+      update: async ({ where, data }: any) => {
+        const item = store.scorecards.find((s) => s.id === where.id || s.opportunityId === where.opportunityId);
+        if (item) Object.assign(item, data);
+        return item;
+      },
     },
     opportunityRevision: {
       findFirst: async ({ where }: any) => {
@@ -272,6 +280,13 @@ function createMockPrisma() {
       },
     },
     evidenceLink: {
+      findFirst: async ({ where }: any = {}) => {
+        return store.evidenceLinks.find((el) => {
+          if (where.opportunityId && el.opportunityId !== where.opportunityId) return false;
+          if (where.normalizedSignalId && el.normalizedSignalId !== where.normalizedSignalId) return false;
+          return true;
+        }) || null;
+      },
       create: async ({ data }: any) => {
         const rec = { id: "evlink-" + (store.evidenceLinks.length + 1), ...data };
         store.evidenceLinks.push(rec);
@@ -1087,18 +1102,32 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       const prisma = createMockPrisma();
 
       // Seed an unnormalized raw signal with concrete problem friction
-      prisma._store.rawSignals.push({
-        id: "raw-backlog-1",
-        sourceId: "src-gh",
-        source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
-        externalId: "gh-backlog-12345",
-        sourceUrl: "https://github.com/org/repo/issues/12345",
-        title: "Docker container OOM memory leak in background worker",
-        rawContent: "Worker process leaks memory until container is OOM-killed, causing production pipeline failure",
-        contentHash: "hash-backlog-1",
-        normalizedSignal: null,
-        createdAt: new Date(Date.now() - 3600000),
-      });
+      prisma._store.rawSignals.push(
+        {
+          id: "raw-backlog-1",
+          sourceId: "src-gh",
+          source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
+          externalId: "gh-backlog-12345",
+          sourceUrl: "https://github.com/org/repo/issues/12345",
+          title: "Docker container OOM memory leak in background worker",
+          rawContent: "Worker process leaks memory until container is OOM-killed, causing production pipeline failure",
+          contentHash: "hash-backlog-1",
+          normalizedSignal: null,
+          createdAt: new Date(Date.now() - 3600000),
+        },
+        {
+          id: "raw-backlog-1b",
+          sourceId: "src-gh",
+          source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
+          externalId: "gh-backlog-67890",
+          sourceUrl: "https://github.com/another-org/worker-service/issues/67890",
+          title: "Docker container OOM memory leak in background worker",
+          rawContent: "We hit container OOM exits in our background worker queue during batch jobs",
+          contentHash: "hash-backlog-1b",
+          normalizedSignal: null,
+          createdAt: new Date(Date.now() - 3600000),
+        },
+      );
 
       // Global fetch returns empty so ingestion cannot depend on new network records
       vi.stubGlobal("fetch", async () => {
@@ -1161,18 +1190,32 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
     it("persists each supported brief with explicit [Assumption] labels, validation experiment, and evidence gaps", async () => {
       const prisma = createMockPrisma();
 
-      prisma._store.rawSignals.push({
-        id: "raw-backlog-2",
-        sourceId: "src-gh",
-        source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
-        externalId: "gh-backlog-9999",
-        sourceUrl: "https://github.com/org/repo/issues/9999",
-        title: "Dispatcher git push workaround failing silently in headless PR workflow",
-        rawContent: "Custom git push workaround fails silently when workflow dispatcher runs in headless mode",
-        contentHash: "hash-backlog-2",
-        normalizedSignal: null,
-        createdAt: new Date(),
-      });
+      prisma._store.rawSignals.push(
+        {
+          id: "raw-backlog-2",
+          sourceId: "src-gh",
+          source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
+          externalId: "gh-backlog-9999",
+          sourceUrl: "https://github.com/org/repo/issues/9999",
+          title: "Dispatcher git push workaround failing silently in headless PR workflow",
+          rawContent: "Custom git push workaround fails silently when workflow dispatcher runs in headless mode",
+          contentHash: "hash-backlog-2",
+          normalizedSignal: null,
+          createdAt: new Date(),
+        },
+        {
+          id: "raw-backlog-2b",
+          sourceId: "src-gh",
+          source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
+          externalId: "gh-backlog-8888",
+          sourceUrl: "https://github.com/enterprise-corp/git-runner/issues/8888",
+          title: "Dispatcher git push workaround failing silently in headless PR workflow",
+          rawContent: "Silent git push failure in our automated dispatch worker",
+          contentHash: "hash-backlog-2b",
+          normalizedSignal: null,
+          createdAt: new Date(),
+        },
+      );
 
       vi.stubGlobal("fetch", async () => {
         return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
@@ -1263,10 +1306,10 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
         },
         {
           id: "raw-prob-2",
-          sourceId: "src-gh",
-          source: { id: "src-gh", key: "github", name: "GitHub", permittedExcerptLength: 280 },
-          externalId: "gh-prob-2",
-          sourceUrl: "https://github.com/org/repo/issues/502",
+          sourceId: "src-hn",
+          source: { id: "src-hn", key: "hackernews", name: "Hacker News", permittedExcerptLength: 280 },
+          externalId: "hn-prob-2",
+          sourceUrl: "https://news.ycombinator.com/item?id=502",
           title: "Postgres connection pool exhaustion under serverless Lambda concurrency spikes",
           rawContent: "Production API throws remaining connection slots reserved errors whenever Lambda scales above 200 concurrent executions.",
           contentHash: "hash-prob-2",
