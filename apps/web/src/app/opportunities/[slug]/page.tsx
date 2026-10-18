@@ -346,9 +346,35 @@ export default async function OpportunityDetailPage({
   const primaryUrl =
     (opp.evidenceLinks as any)?.[0]?.signal?.canonicalUrl ||
     (dbOppRecord?.evidenceLinks as any)?.[0]?.normalizedSignal?.canonicalUrl;
-  const isSingleRepo = isSingleRepoTicket(primaryUrl, combined);
-  const isAnnouncement = isProductAnnouncement(opp.title, opp.problemStatement, primaryUrl);
-  if (isNonAdmin && (!feasibility.isFeasible || ((isSingleRepo || isAnnouncement) && (opp.evidenceLinks?.length || 0) <= 1))) {
+
+  const rawLinks = ((opp.evidenceLinks || dbOppRecord?.evidenceLinks) as any[] || []);
+  const hasSingleRepoSignal = rawLinks.some((el: any) => {
+    const su = el?.signal?.canonicalUrl || el?.normalizedSignal?.canonicalUrl || el?.normalizedSignal?.rawSignal?.sourceUrl || "";
+    const st = `${el?.signal?.sourceTitle || el?.normalizedSignal?.sourceTitle || el?.normalizedSignal?.rawSignal?.title || ""} ${el?.signal?.sanitizedExcerpt || el?.normalizedSignal?.sanitizedExcerpt || ""}`;
+    return isSingleRepoTicket(su, st);
+  });
+  const isSingleRepo = isSingleRepoTicket(primaryUrl, combined) || hasSingleRepoSignal;
+
+  const hasAnnouncementSignal = rawLinks.some((el: any) => {
+    const st = el?.signal?.sourceTitle || el?.normalizedSignal?.sourceTitle || el?.normalizedSignal?.rawSignal?.title || "";
+    const se = el?.signal?.sanitizedExcerpt || el?.normalizedSignal?.sanitizedExcerpt || el?.normalizedSignal?.rawSignal?.rawContent || "";
+    const su = el?.signal?.canonicalUrl || el?.normalizedSignal?.canonicalUrl || el?.normalizedSignal?.rawSignal?.sourceUrl || "";
+    const sk = el?.signal?.sourceName || el?.normalizedSignal?.rawSignal?.source?.key || "";
+    return isProductAnnouncement(st, se, su, sk);
+  });
+  const isAnnouncement = isProductAnnouncement(opp.title, opp.problemStatement, primaryUrl) || hasAnnouncementSignal;
+
+  const independentSignals = rawLinks.filter((el: any) => {
+    const st = el?.signal?.sourceTitle || el?.normalizedSignal?.sourceTitle || el?.normalizedSignal?.rawSignal?.title || "";
+    const se = el?.signal?.sanitizedExcerpt || el?.normalizedSignal?.sanitizedExcerpt || el?.normalizedSignal?.rawSignal?.rawContent || "";
+    const su = el?.signal?.canonicalUrl || el?.normalizedSignal?.canonicalUrl || el?.normalizedSignal?.rawSignal?.sourceUrl || "";
+    const sk = el?.signal?.sourceName || el?.normalizedSignal?.rawSignal?.source?.key || "";
+    if (isProductAnnouncement(st, se, su, sk)) return false;
+    if (isSingleRepoTicket(su, `${st} ${se}`)) return false;
+    return true;
+  });
+
+  if (isNonAdmin && (!feasibility.isFeasible || ((isSingleRepo || isAnnouncement) && independentSignals.length === 0))) {
     return (
       <div className="max-w-4xl mx-auto py-12 text-center text-zinc-400">
         Opportunity blueprint not found.

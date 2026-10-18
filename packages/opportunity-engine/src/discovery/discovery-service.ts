@@ -574,13 +574,13 @@ export function isProductAnnouncement(
   const lowerUrl = (url || "").toLowerCase();
   const sKey = (sourceKey || "").toLowerCase();
 
-  if (sKey === "producthunt" || lowerUrl.includes("producthunt.com") || lowerUrl.includes("/releases/tag/")) return true;
+  if (sKey === "producthunt" || lowerUrl.includes("producthunt.com") || lowerUrl.includes("/releases/tag/") || lowerUrl.includes("/releases")) return true;
 
   // Hacker News maker announcements
-  if (/^(show hn|launch hn)\b/i.test(t) || lowerTitle.startsWith("show hn:") || lowerTitle.startsWith("launch hn:")) {
+  if (/\b(show hn|launch hn)\b/i.test(t) || lowerTitle.startsWith("show hn:") || lowerTitle.startsWith("launch hn:")) {
     return true;
   }
-  if (lowerText.startsWith("show hn:") || lowerText.startsWith("launch hn:")) {
+  if (/\b(show hn|launch hn)\b/i.test(lowerText) || lowerText.startsWith("show hn:") || lowerText.startsWith("launch hn:")) {
     return true;
   }
 

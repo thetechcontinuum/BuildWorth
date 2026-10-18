@@ -431,6 +431,79 @@ describe("Corroboration Stage & Qualification Suite", () => {
       expect(qual.qualificationReason).toContain("Product announcement establishes existing alternative, but independent customer pain and demand require separate practitioner evidence");
     });
 
+    it("demotes an uncorroborated product announcement even if opportunity title is formatted without 'Show HN'", () => {
+      const announcementSignal = {
+        normalizedSignal: {
+          id: "ns-announcement-reformatted",
+          canonicalUrl: "https://news.ycombinator.com/item?id=41002000",
+          sourceTitle: "Show HN: An independent execution recorder for coding agents",
+          sanitizedExcerpt: "Show HN: An independent execution recorder for coding agents — A couple of months ago, I gave access to my coding agent to do work on my repos so I manually checked each transcript.",
+        },
+        rawSignal: {
+          sourceUrl: "https://news.ycombinator.com/item?id=41002000",
+          title: "Show HN: An independent execution recorder for coding agents",
+          rawContent: "Show HN: An independent execution recorder for coding agents — A couple of months ago, I gave access to my coding agent to do work on my repos...",
+          authorFingerprint: "altrace-maker",
+        },
+        source: { key: "hackernews", name: "Hacker News" },
+      };
+
+      const qual = evaluateCandidateQualification(
+        {
+          title: "Coding agents hallucinate actions, requiring manual verifica",
+          problemStatement: "Developers using autonomous coding agents experience unannounced or hallucinated actions requiring manual transcript review",
+          primaryUrl: "https://github.com/altrace-dev-role/rashomon",
+          primarySourceKey: "github",
+        },
+        [announcementSignal],
+        [],
+        { status: "HYPOTHESIS", isEligibleForVerified: false },
+        68,
+      );
+
+      expect(qual.isEligibleForOpportunity).toBe(false);
+      expect(qual.finalStatus).toBe("DRAFT");
+      expect(qual.pubQualityStatus).toBe("EVIDENCE_PENDING");
+      expect(qual.isAnnouncement).toBe(true);
+      expect(qual.qualificationReason).toContain("Product announcement establishes existing alternative");
+    });
+
+    it("demotes an uncorroborated single-repository ticket even if opportunity title is reformatted", () => {
+      const singleRepoSignal = {
+        normalizedSignal: {
+          id: "ns-eduvault-reformatted",
+          canonicalUrl: "https://github.com/eduvault/eduvault/issues/104",
+          sourceTitle: "EduVault backup feature request",
+          sanitizedExcerpt: "Please add webdav support to EduVault so we can self-host backups.",
+        },
+        rawSignal: {
+          sourceUrl: "https://github.com/eduvault/eduvault/issues/104",
+          title: "Feature request: webdav backup sync",
+          authorFingerprint: "eduvault-user",
+        },
+        source: { key: "github", name: "GitHub" },
+      };
+
+      const qual = evaluateCandidateQualification(
+        {
+          title: "Educational institution data sync friction",
+          problemStatement: "Self-hosted educational vaults struggle with webdav sync",
+          primaryUrl: "https://github.com/eduvault/eduvault/issues/104",
+          primarySourceKey: "github",
+        },
+        [singleRepoSignal],
+        [],
+        { status: "HYPOTHESIS", isEligibleForVerified: false },
+        60,
+      );
+
+      expect(qual.isEligibleForOpportunity).toBe(false);
+      expect(qual.finalStatus).toBe("DRAFT");
+      expect(qual.pubQualityStatus).toBe("EVIDENCE_PENDING");
+      expect(qual.isSingleRepo).toBe(true);
+      expect(qual.qualificationReason).toContain("Single-repository request requires independent multi-organization corroboration");
+    });
+
     it("rejects an infeasible candidate and records clear explanation", () => {
       const appleRecoverySignal = {
         normalizedSignal: {

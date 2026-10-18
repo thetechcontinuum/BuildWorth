@@ -50,9 +50,33 @@ export async function GET() {
         return false;
       }
       const primaryUrl = o.evidenceLinks?.[0]?.normalizedSignal?.canonicalUrl || o.evidenceLinks?.[0]?.normalizedSignal?.rawSignal?.sourceUrl;
-      const isSingleRepo = isSingleRepoTicket(primaryUrl, combined);
-      const isAnnouncement = isProductAnnouncement(o.title, o.problemStatement, primaryUrl);
-      if ((isSingleRepo || isAnnouncement) && (o.evidenceLinks?.length || 0) <= 1) {
+      const hasSingleRepoSignal = (o.evidenceLinks || []).some((el: any) => {
+        const su = el.normalizedSignal?.canonicalUrl || el.normalizedSignal?.rawSignal?.sourceUrl || "";
+        const st = `${el.normalizedSignal?.sourceTitle || el.normalizedSignal?.rawSignal?.title || ""} ${el.normalizedSignal?.sanitizedExcerpt || ""}`;
+        return isSingleRepoTicket(su, st);
+      });
+      const isSingleRepo = isSingleRepoTicket(primaryUrl, combined) || hasSingleRepoSignal;
+
+      const hasAnnouncementSignal = (o.evidenceLinks || []).some((el: any) => {
+        const st = el.normalizedSignal?.sourceTitle || el.normalizedSignal?.rawSignal?.title || "";
+        const se = el.normalizedSignal?.sanitizedExcerpt || el.normalizedSignal?.rawSignal?.rawContent || "";
+        const su = el.normalizedSignal?.canonicalUrl || el.normalizedSignal?.rawSignal?.sourceUrl || "";
+        const sk = el.normalizedSignal?.rawSignal?.source?.key || "";
+        return isProductAnnouncement(st, se, su, sk);
+      });
+      const isAnnouncement = isProductAnnouncement(o.title, o.problemStatement, primaryUrl) || hasAnnouncementSignal;
+
+      const independentSignals = (o.evidenceLinks || []).filter((el: any) => {
+        const st = el.normalizedSignal?.sourceTitle || el.normalizedSignal?.rawSignal?.title || "";
+        const se = el.normalizedSignal?.sanitizedExcerpt || el.normalizedSignal?.rawSignal?.rawContent || "";
+        const su = el.normalizedSignal?.canonicalUrl || el.normalizedSignal?.rawSignal?.sourceUrl || "";
+        const sk = el.normalizedSignal?.rawSignal?.source?.key || "";
+        if (isProductAnnouncement(st, se, su, sk)) return false;
+        if (isSingleRepoTicket(su, `${st} ${se}`)) return false;
+        return true;
+      });
+
+      if ((isSingleRepo || isAnnouncement) && independentSignals.length === 0) {
         return false;
       }
       return true;
