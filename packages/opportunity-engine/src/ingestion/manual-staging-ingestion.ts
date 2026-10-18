@@ -1842,16 +1842,31 @@ export async function executeManualStagingIngestion(
           logger.warn("Checkpoint lookup warning", { source: src.key, error: cpErr?.message });
         }
 
+        const withTimeout = async (promise: Promise<any[]>, ms = 4000): Promise<any[]> => {
+          let timer: any;
+          const timeout = new Promise<any[]>((resolve) => {
+            timer = setTimeout(() => resolve([]), ms);
+          });
+          try {
+            return await Promise.race([promise, timeout]);
+          } finally {
+            clearTimeout(timer);
+          }
+        };
+
         if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github" || src.key === "stackexchange")) {
           const queriesToRun = targetQueries.slice(0, 2);
           const perQuery = Math.max(2, Math.floor(srcSlots / queriesToRun.length));
           const fetchPromises = queriesToRun.map((q) =>
-            adapter.fetchSignals({
-              limit: perQuery,
-              query: q,
-              checkpoint: latestCheckpoint,
-              page: 1,
-            })
+            withTimeout(
+              adapter.fetchSignals({
+                limit: perQuery,
+                query: q,
+                checkpoint: latestCheckpoint,
+                page: 1,
+              }),
+              4000,
+            )
           );
           const results = await Promise.all(fetchPromises);
           for (const list of results) {
@@ -1860,21 +1875,27 @@ export async function executeManualStagingIngestion(
 
           if (rawSignals.length < srcSlots) {
             const remaining = srcSlots - rawSignals.length;
-            const generalSignals = await adapter.fetchSignals({
-              limit: Math.min(5, remaining),
-              query: src.key === "hackernews" ? "workaround" : undefined,
-              checkpoint: latestCheckpoint,
-              page: 1,
-            });
+            const generalSignals = await withTimeout(
+              adapter.fetchSignals({
+                limit: Math.min(5, remaining),
+                query: src.key === "hackernews" ? "workaround" : undefined,
+                checkpoint: latestCheckpoint,
+                page: 1,
+              }),
+              4000,
+            );
             rawSignals.push(...generalSignals);
           }
         } else {
-          const generalSignals = await adapter.fetchSignals({
-            limit: Math.min(15, srcSlots),
-            query: src.key === "hackernews" ? "workaround" : undefined,
-            checkpoint: latestCheckpoint,
-            page: 1,
-          });
+          const generalSignals = await withTimeout(
+            adapter.fetchSignals({
+              limit: Math.min(15, srcSlots),
+              query: src.key === "hackernews" ? "workaround" : undefined,
+              checkpoint: latestCheckpoint,
+              page: 1,
+            }),
+            4000,
+          );
           rawSignals.push(...generalSignals);
         }
 
