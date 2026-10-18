@@ -1252,7 +1252,12 @@ export function evaluateCandidateQualification(
   }
 
   // 3. Single-repository check
-  const isSingleRepo = isSingleRepoTicket(primaryUrl, fullContext);
+  const hasSingleRepoSignal = supportingSignals.some((s) => {
+    const sUrl = s.normalizedSignal?.canonicalUrl || s.rawSignal?.sourceUrl || "";
+    const sText = `${s.rawSignal?.title || s.normalizedSignal?.sourceTitle || ""} ${s.normalizedSignal?.sanitizedExcerpt || s.rawSignal?.rawContent || ""}`;
+    return isSingleRepoTicket(sUrl, sText);
+  });
+  const isSingleRepo = isSingleRepoTicket(primaryUrl, fullContext) || hasSingleRepoSignal;
   const distinctOrgs = new Set<string>();
   for (const s of supportingSignals) {
     const org = extractAuthorOrRepoIdentifier(s.normalizedSignal?.canonicalUrl || s.rawSignal?.sourceUrl, s.rawSignal?.authorFingerprint);
@@ -1261,7 +1266,7 @@ export function evaluateCandidateQualification(
     }
   }
 
-  if (isSingleRepo && distinctOrgs.size < 2 && supportingSignals.length <= 1) {
+  if (isSingleRepo && distinctOrgs.size < 2) {
     return {
       isEligibleForOpportunity: false,
       isVerified: false,
@@ -1275,7 +1280,14 @@ export function evaluateCandidateQualification(
   }
 
   // 4. Product announcement check
-  const isAnnouncement = isProductAnnouncement(candidate.title, candidate.problemStatement, primaryUrl, primaryKey);
+  const hasAnnouncementSignal = supportingSignals.some((s) => {
+    const sTitle = s.rawSignal?.title || s.normalizedSignal?.sourceTitle || "";
+    const sText = s.normalizedSignal?.sanitizedExcerpt || s.rawSignal?.rawContent || "";
+    const sUrl = s.normalizedSignal?.canonicalUrl || s.rawSignal?.sourceUrl || "";
+    const sKey = s.source?.key || "";
+    return isProductAnnouncement(sTitle, sText, sUrl, sKey);
+  });
+  const isAnnouncement = isProductAnnouncement(candidate.title, candidate.problemStatement, primaryUrl, primaryKey) || hasAnnouncementSignal;
   const independentCustomerSignals = supportingSignals.filter((s) => {
     const sTitle = s.rawSignal?.title || s.normalizedSignal?.sourceTitle || "";
     const sText = s.normalizedSignal?.sanitizedExcerpt || s.rawSignal?.rawContent || "";
@@ -3001,15 +3013,15 @@ export async function executeManualStagingIngestion(
 
       for (const link of candidate.evidenceLinks || []) {
         const ns = link.normalizedSignal;
-        if (ns && ns.rawSignal && ns.rawSignal.source) {
+        if (ns) {
           if (!targetOriginalSignalIds.has(ns.id)) {
             targetOriginalSignalIds.add(ns.id);
             targetOriginalSignals.push({
               normalizedSignal: ns,
-              rawSignal: ns.rawSignal,
-              source: ns.rawSignal.source,
+              rawSignal: ns.rawSignal || {},
+              source: ns.rawSignal?.source || { key: "unknown", name: "Market Source" },
             });
-            const u = ns.canonicalUrl || ns.rawSignal.sourceUrl;
+            const u = ns.canonicalUrl || ns.rawSignal?.sourceUrl;
             if (u) originalUrls.add(u);
           }
         }
