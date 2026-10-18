@@ -43,12 +43,23 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
         }
       }
 
+      const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      const headers: Record<string, string> = {
+        "User-Agent": "BuildWorth-Market-Intelligence/1.0",
+        "Accept": "application/vnd.github.v3+json",
+      };
+      if (token && token.trim().length > 0) {
+        headers["Authorization"] = `Bearer ${token.trim()}`;
+      }
+
       const res = await fetch(
         `https://api.github.com/search/issues?q=${encodeURIComponent(q)}&per_page=${limit}&page=${page}`,
-        {
-          headers: { "User-Agent": "BuildWorth-Staging/1.0" },
-        },
+        { headers },
       );
+      if (res.status === 403 || res.status === 429) {
+        logger.warn("GitHub search rate limited or requires authentication", { status: res.status });
+        return [];
+      }
       if (res.ok) {
         const json = await res.json();
         const items = json.items || [];

@@ -2,6 +2,24 @@ import { BaseSourceAdapter } from "./base.js";
 import { RawIngestSignal, FetchSignalsOptions } from "../types.js";
 import { logger } from "@buildworth/observability";
 
+function stripHnHtml(html?: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<a\s+[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, "$2 ($1)")
+    .replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/gi, " $1 ")
+    .replace(/<code>([\s\S]*?)<\/code>/gi, " $1 ")
+    .replace(/<p>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, "/")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export class HackerNewsAdapter extends BaseSourceAdapter {
   public readonly sourceKey = "hackernews";
   public readonly name = "Hacker News";
@@ -28,6 +46,7 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
     logger.info(`Fetching HN market signals (limit ${limit}, page ${page}${query ? `, query: ${query}` : ""})...`);
     try {
       let url = "";
+      const tagsParam = query && query.trim().length > 0 ? "tags=(story,comment)" : "tags=story";
       if (query && query.trim().length > 0) {
         // Algolia treats multi-word queries as AND; strip boolean OR/quotes and cap at 3 significant words
         const hasBooleanOrQuotes = /\bOR\b|["()]/i.test(query);
@@ -42,7 +61,7 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
               .join(" ")
           : query.trim();
         const qParam = encodeURIComponent(cleanedQuery || query.trim());
-        url = `https://hn.algolia.com/api/v1/search_by_date?query=${qParam}&tags=story&hitsPerPage=${limit}&page=${page}`;
+        url = `https://hn.algolia.com/api/v1/search_by_date?query=${qParam}&${tagsParam}&hitsPerPage=${limit}&page=${page}`;
       } else {
         url = `https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${limit}&page=${page}`;
       }
@@ -75,19 +94,44 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
 
       if (collectedHits.length > 0) {
         return collectedHits
-          .filter((h: any) => (h.title || h.story_text) && h.objectID)
+          .filter((h: any) => {
+            if (!h.objectID || !(h.title || h.story_title || h.story_text || h.comment_text)) return false;
+            const parentTitle = String(h.story_title || h.title || "").toLowerCase();
+            if (
+              parentTitle.includes("who is hiring") ||
+              parentTitle.includes("who wants to be hired") ||
+              parentTitle.includes("seeking freelancer") ||
+              parentTitle.includes("ask hn: who is hiring")
+            ) {
+              return false;
+            }
+            return true;
+          })
           .slice(0, limit)
           .map((h: any) => {
-            const titleStr = h.title ? String(h.title).trim() : "";
-            const storyStr = h.story_text ? String(h.story_text).trim() : "";
-            let rawContent = String(storyStr || titleStr || "");
-            if (storyStr.length >= 10 && titleStr.length >= 10 && !storyStr.toLowerCase().startsWith(titleStr.toLowerCase().slice(0, 20))) {
-              rawContent = `${titleStr} — ${storyStr}`;
+            const titleStr = stripHnHtml(h.title || h.story_title || "");
+            const storyStr = stripHnHtml(h.story_text || "");
+            const commentStr = stripHnHtml(h.comment_text || "");
+
+            let rawContent = "";
+            if (commentStr && commentStr.length >= 10) {
+              rawContent = titleStr ? `${titleStr} — ${commentStr}` : commentStr;
+            } else if (storyStr && storyStr.length >= 10) {
+              rawContent = titleStr && !storyStr.toLowerCase().startsWith(titleStr.toLowerCase().slice(0, 20))
+                ? `${titleStr} — ${storyStr}`
+                : storyStr;
+            } else {
+              rawContent = titleStr;
             }
+
+            const itemUrl = h.story_id
+              ? `https://news.ycombinator.com/item?id=${h.objectID}`
+              : (h.url || `https://news.ycombinator.com/item?id=${h.objectID}`);
+
             return {
               externalId: `hn-${h.objectID}`,
               sourceKey: this.sourceKey,
-              sourceUrl: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+              sourceUrl: itemUrl,
               authorFingerprint: h.author || "hn_user",
               title: titleStr ? titleStr.slice(0, 150) : undefined,
               rawContent: rawContent.slice(0, 280),
@@ -96,6 +140,7 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
                 points: h.points || 0,
                 commentsCount: h.num_comments || 0,
                 createdAtI: h.created_at_i,
+                storyId: h.story_id,
                 page,
               },
             };

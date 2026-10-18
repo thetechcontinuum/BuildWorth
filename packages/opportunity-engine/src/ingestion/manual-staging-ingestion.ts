@@ -186,6 +186,17 @@ export function extractTargetQueries(problemTexts: string[]): string[] {
   return queries.slice(0, 4);
 }
 
+export const DEFAULT_FOCUSED_DOMAIN_QUERIES = [
+  // DevOps & Cloud Operations
+  "datadog expensive alternative",
+  "terraform state lock",
+  "kubernetes crashloopbackoff oomkilled",
+  // AI Developer Tooling
+  "evaluating llm prompts",
+  "prompt regression evaluation",
+  "vllm out of memory",
+];
+
 export const KNOWN_SYNTHETIC_FIXTURE_EXTERNAL_IDS = [
   "gh-issue-98214",
   "hn-38491021",
@@ -2096,28 +2107,13 @@ export async function executeManualStagingIngestion(
       sourceName: string;
     }[] = [];
 
-    // Extract search keywords from existing unverified candidate problem statements
+    // Target live searches using explicit target queries or default focused domain queries for DevOps and AI tooling
     let targetQueries: string[] = options.targetQueries && options.targetQueries.length > 0
       ? [...options.targetQueries]
       : [];
     if (targetQueries.length === 0) {
-      try {
-        const priorCandidates = await prisma.opportunity.findMany({
-          where: {
-            isDemoFixture: false,
-          },
-          select: { title: true, problemStatement: true },
-          take: 5,
-          orderBy: { createdAt: "desc" },
-        });
-        const texts = priorCandidates.map((c: any) => `${c.title || ""} ${c.problemStatement || ""}`);
-        targetQueries = extractTargetQueries(texts);
-        if (targetQueries.length > 0) {
-          logger.info("Targeting live searches for candidate keywords", { targetQueries });
-        }
-      } catch (qErr: any) {
-        logger.warn("Could not extract candidate target queries", { error: qErr?.message });
-      }
+      targetQueries = [...DEFAULT_FOCUSED_DOMAIN_QUERIES];
+      logger.info("Targeting live searches for default focused domain queries (DevOps & AI Tooling)", { targetQueries });
     }
 
     perSourceStats = {};
@@ -2180,6 +2176,13 @@ export async function executeManualStagingIngestion(
         persistedUrls: [] as string[],
         status: "SUCCESS" as "SUCCESS" | "SKIPPED" | "ERROR",
         reason: "COMPLETED" as string | null,
+        executedQueries: [] as Array<{
+          query: string;
+          itemsFetched: number;
+          status: "SUCCESS" | "NO_SUPPORTING_EVIDENCE_FOUND" | "RATE_LIMITED" | "TIMEOUT" | "ERROR";
+          failureReason?: string;
+          durationMs: number;
+        }>,
       };
       perSourceStats[src.key] = currentStats;
 
@@ -2233,61 +2236,139 @@ export async function executeManualStagingIngestion(
           logger.warn("Checkpoint lookup warning", { source: src.key, error: cpErr?.message });
         }
 
-        const withTimeout = async (promise: Promise<any[]>, ms = 4000): Promise<any[]> => {
+        const executeSourceQuery = async (
+          queryStr?: string,
+          limitCount: number = 5,
+        ): Promise<{ signals: any[]; stat: { query: string; itemsFetched: number; status: "SUCCESS" | "NO_SUPPORTING_EVIDENCE_FOUND" | "RATE_LIMITED" | "TIMEOUT" | "ERROR"; failureReason?: string; durationMs: number } }> => {
+          const effectiveQuery = queryStr || "general";
+          const qStart = Date.now();
           let timer: any;
-          const timeout = new Promise<any[]>((resolve) => {
-            timer = setTimeout(() => resolve([]), ms);
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("QUERY_TIMEOUT")), 4000);
           });
           try {
-            return await Promise.race([promise, timeout]);
-          } finally {
-            clearTimeout(timer);
-          }
-        };
-
-        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github" || src.key === "stackexchange")) {
-          const queriesToRun = targetQueries.slice(0, 2);
-          const perQuery = Math.max(2, Math.floor(srcSlots / queriesToRun.length));
-          const fetchPromises = queriesToRun.map((q) =>
-            withTimeout(
+            const list = await Promise.race([
               adapter.fetchSignals({
-                limit: perQuery,
-                query: q,
+                limit: limitCount,
+                query: queryStr,
                 checkpoint: latestCheckpoint,
                 page: 1,
               }),
-              4000,
-            )
-          );
-          const results = await Promise.all(fetchPromises);
-          for (const list of results) {
-            rawSignals.push(...list);
+              timeoutPromise,
+            ]);
+            clearTimeout(timer);
+            const durationMs = Date.now() - qStart;
+            const validList = Array.isArray(list) ? list : [];
+            if (validList.length > 0) {
+              return {
+                signals: validList,
+                stat: { query: effectiveQuery, itemsFetched: validList.length, status: "SUCCESS", durationMs },
+              };
+            }
+            return {
+              signals: [],
+              stat: { query: effectiveQuery, itemsFetched: 0, status: "NO_SUPPORTING_EVIDENCE_FOUND", durationMs },
+            };
+          } catch (fetchErr: any) {
+            clearTimeout(timer);
+            const durationMs = Date.now() - qStart;
+            const msg = String(fetchErr?.message || "");
+            if (msg.includes("QUERY_TIMEOUT") || msg.includes("timeout") || msg.includes("ETIMEDOUT")) {
+              return {
+                signals: [],
+                stat: { query: effectiveQuery, itemsFetched: 0, status: "TIMEOUT", failureReason: "Request timed out after 4000ms", durationMs },
+              };
+            }
+            if (msg.includes("429") || msg.includes("rate limit") || msg.includes("403")) {
+              return {
+                signals: [],
+                stat: { query: effectiveQuery, itemsFetched: 0, status: "RATE_LIMITED", failureReason: msg.slice(0, 100), durationMs },
+              };
+            }
+            return {
+              signals: [],
+              stat: { query: effectiveQuery, itemsFetched: 0, status: "ERROR", failureReason: msg.slice(0, 100), durationMs },
+            };
+          }
+        };
+
+        const pickQueriesForSource = (srcKey: string, queries: string[]): string[] => {
+          if (srcKey === "hackernews") {
+            const hnQueries = queries.filter((q) =>
+              q.includes("datadog") || q.includes("evaluating") || q.includes("llm") || q.includes("kubernetes") || q.includes("cost")
+            );
+            return hnQueries.length > 0 ? hnQueries.slice(0, 3) : queries.slice(0, 3);
+          }
+          if (srcKey === "stackexchange") {
+            const seQueries = queries.filter((q) =>
+              q.includes("terraform") || q.includes("evaluating") || q.includes("llm") || q.includes("kubernetes") || q.includes("lock")
+            );
+            return seQueries.length > 0 ? seQueries.slice(0, 3) : queries.slice(0, 3);
+          }
+          if (srcKey === "github") {
+            const ghQueries = queries.filter((q) =>
+              q.includes("terraform") || q.includes("prompt") || q.includes("vllm") || q.includes("memory") || q.includes("datadog")
+            );
+            return ghQueries.length > 0 ? ghQueries.slice(0, 3) : queries.slice(0, 3);
+          }
+          return queries.slice(0, 2);
+        };
+
+        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github" || src.key === "stackexchange" || src.key === "lobsters")) {
+          const queriesToRun = pickQueriesForSource(src.key, targetQueries);
+          for (const q of queriesToRun) {
+            if (rawSignals.length >= srcSlots) break;
+            const remainingForSource = srcSlots - rawSignals.length;
+            const perQuery = Math.min(15, remainingForSource);
+            const res = await executeSourceQuery(q, perQuery);
+            currentStats.executedQueries.push(res.stat);
+            for (const sig of res.signals) {
+              if (!rawSignals.some((r) => (r.externalId && sig.externalId && r.externalId === sig.externalId) || (r.sourceUrl && sig.sourceUrl && r.sourceUrl === sig.sourceUrl))) {
+                rawSignals.push(sig);
+              }
+            }
+            logger.info("Source adapter query finished", {
+              source: src.key,
+              query: res.stat.query,
+              status: res.stat.status,
+              items: res.stat.itemsFetched,
+              durationMs: res.stat.durationMs,
+            });
           }
 
           if (rawSignals.length < srcSlots) {
             const remaining = srcSlots - rawSignals.length;
-            const generalSignals = await withTimeout(
-              adapter.fetchSignals({
-                limit: Math.min(5, remaining),
-                query: src.key === "hackernews" ? "workaround" : undefined,
-                checkpoint: latestCheckpoint,
-                page: 1,
-              }),
-              4000,
-            );
-            rawSignals.push(...generalSignals);
+            const fallbackQuery = src.key === "hackernews" ? "workaround" : undefined;
+            const res = await executeSourceQuery(fallbackQuery, Math.min(10, remaining));
+            currentStats.executedQueries.push(res.stat);
+            for (const sig of res.signals) {
+              if (!rawSignals.some((r) => (r.externalId && sig.externalId && r.externalId === sig.externalId) || (r.sourceUrl && sig.sourceUrl && r.sourceUrl === sig.sourceUrl))) {
+                rawSignals.push(sig);
+              }
+            }
           }
         } else {
-          const generalSignals = await withTimeout(
-            adapter.fetchSignals({
-              limit: Math.min(15, srcSlots),
-              query: src.key === "hackernews" ? "workaround" : undefined,
-              checkpoint: latestCheckpoint,
-              page: 1,
-            }),
-            4000,
-          );
-          rawSignals.push(...generalSignals);
+          const fallbackQuery = src.key === "hackernews" ? "workaround" : undefined;
+          const res = await executeSourceQuery(fallbackQuery, Math.min(15, srcSlots));
+          currentStats.executedQueries.push(res.stat);
+          for (const sig of res.signals) {
+            if (!rawSignals.some((r) => (r.externalId && sig.externalId && r.externalId === sig.externalId) || (r.sourceUrl && sig.sourceUrl && r.sourceUrl === sig.sourceUrl))) {
+              rawSignals.push(sig);
+            }
+          }
+        }
+
+        if (rawSignals.length === 0 && currentStats.executedQueries.length > 0) {
+          const anyRateLimited = currentStats.executedQueries.some((eq) => eq.status === "RATE_LIMITED");
+          const anyTimedOut = currentStats.executedQueries.some((eq) => eq.status === "TIMEOUT");
+          const allEmpty = currentStats.executedQueries.every((eq) => eq.status === "NO_SUPPORTING_EVIDENCE_FOUND");
+          if (anyRateLimited) {
+            currentStats.reason = "RATE_LIMITED";
+          } else if (anyTimedOut) {
+            currentStats.reason = "TIMEOUT";
+          } else if (allEmpty) {
+            currentStats.reason = "NO_SUPPORTING_EVIDENCE_FOUND";
+          }
         }
 
         const boundedRawSignals = rawSignals.slice(0, Math.max(0, Math.min(slotsAvailable, srcSlots)));
@@ -3000,8 +3081,11 @@ export async function executeManualStagingIngestion(
     let unmatchedPoolCount = 0;
 
     // 6a. Process existing persisted candidates: update each in place with independent corroboration & qualification
-    for (const candidate of validExistingCandidates) {
-      if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates) break;
+    // Cap existing candidate updates so that newly discovered clusters always have evaluation and publication slots
+    const maxExistingUpdates = Math.max(1, Math.min(validExistingCandidates.length, Math.floor(maxCandidates / 2)));
+    const existingCandidatesToUpdate = validExistingCandidates.slice(0, maxExistingUpdates);
+    for (const candidate of existingCandidatesToUpdate) {
+      if (Date.now() > deadline || candidateEvaluations.length >= maxExistingUpdates) break;
 
       const targetOriginalSignals: Array<{
         normalizedSignal: any;
@@ -3296,7 +3380,7 @@ export async function executeManualStagingIngestion(
             return false;
           }
           const isActionableType = ["PAIN_COMPLAINT", "PAIN", "PROBLEM_STATEMENT", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
-          const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay|timeout|outage|drift|reconcil)\b/i.test(text);
+          const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay|timeout|outage|drift|reconcil|oom|out of memory|lock)\b/i.test(text);
           const isPureNews = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
           return (isActionableType || vs.normalizedSignal.purchaseIntent || hasExplicitPain) && !isPureNews;
         });
