@@ -34,9 +34,14 @@ export function clusterSignals(
     let bestSim = 0;
 
     for (const c of clusters) {
-      if (c.vertical !== item.vertical) continue;
+      const isCompatibleVertical =
+        c.vertical === item.vertical ||
+        (c.vertical.includes("DevOps") && item.vertical.includes("Software")) ||
+        (c.vertical.includes("Software") && item.vertical.includes("DevOps")) ||
+        (c.vertical.includes("Data") && item.vertical.includes("DevOps"));
+      const requiredSim = isCompatibleVertical ? similarityThreshold : Math.max(0.80, similarityThreshold);
       const sim = cosineSimilarity(item.embedding, c.centroid);
-      if (sim >= similarityThreshold && sim > bestSim) {
+      if (sim >= requiredSim && sim > bestSim) {
         bestSim = sim;
         bestCluster = c;
       }

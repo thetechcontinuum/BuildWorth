@@ -3087,12 +3087,86 @@ export async function executeManualStagingIngestion(
     let matchedToTargetCount = 0;
     let unmatchedPoolCount = 0;
 
-    // 6a. Process existing persisted candidates: update each in place with independent corroboration & qualification
+    // 6a. Cluster newly discovered signals into fresh candidate opportunities first
+    unmatchedPoolCount = pool.length;
+    if (pool.length > 0 && candidateEvaluations.length < maxCandidates) {
+      const newClusters = clusterSignals(pool, 0.72);
+      newClusters.sort((a, b) => b.signalIds.length - a.signalIds.length);
+      totalClustersDiscovered += newClusters.length;
+
+      for (const cl of newClusters) {
+        if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates || publishedCount >= maxPublishedOpportunities) break;
+        const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
+        for (const sigId of cl.signalIds) {
+          const normSig = await prisma.normalizedSignal.findUnique({
+            where: { id: sigId },
+            include: { rawSignal: { include: { source: true } } },
+          });
+          if (normSig && normSig.rawSignal && normSig.rawSignal.source) {
+            verifiedSignals.push({ normalizedSignal: normSig, rawSignal: normSig.rawSignal, source: normSig.rawSignal.source });
+          }
+        }
+        if (verifiedSignals.length === 0) continue;
+
+        // Gating: An opportunity hypothesis may only be created if the cluster contains genuine evidence
+        // of a concrete problem, workaround, or willingness to pay / purchase intent.
+        const hasCommercialProblemEvidence = verifiedSignals.some((vs) => {
+          const sigType = (vs.normalizedSignal.signalType || "").toUpperCase();
+          const title = vs.rawSignal.title || vs.normalizedSignal.sourceTitle || "";
+          const excerpt = vs.normalizedSignal.sanitizedExcerpt || "";
+          const summary = vs.normalizedSignal.problemSummary || "";
+          const text = `${title} ${excerpt} ${summary}`.toLowerCase();
+          if (/vague question about|without industry context/i.test(text)) return false;
+          if (/\b(ready-for-agent|ai text below|create a branch and open a pr|parent:\s*#\d+|epic\s*#\d+|are harnesses worth the cost)\b/i.test(text)) {
+            return false;
+          }
+          const isActionableType = ["PAIN_COMPLAINT", "PAIN", "PROBLEM_STATEMENT", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
+          const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay|timeout|outage|drift|reconcil|oom|out of memory|lock)\b/i.test(text);
+          const isPureNews = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
+          return (isActionableType || vs.normalizedSignal.purchaseIntent || hasExplicitPain) && !isPureNews;
+        });
+
+        if (!hasCommercialProblemEvidence) {
+          continue;
+        }
+
+        const briefRes = await buildAndPersistOpportunityBrief(
+          prisma,
+          cl,
+          verifiedSignals,
+          deadline,
+          processedHashes,
+        );
+
+        candidateEvaluations.push({
+          id: briefRes.opp.id,
+          title: briefRes.formattedTitle,
+          slug: briefRes.generatedSlug,
+          status: briefRes.finalStatus,
+          publicationQualityStatus: briefRes.pubQualityStatus,
+          originalUrls: [],
+          addedUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
+          supportingUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
+          independenceKeys: Array.from(new Set(verifiedSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`))),
+          sourceFamilies: Array.from(new Set(verifiedSignals.map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY")).filter(Boolean))),
+          blockers: briefRes.qualityResult.blockers,
+          warnings: briefRes.qualityResult.warnings,
+          metrics: briefRes.qualityResult.metrics,
+        });
+
+        if (briefRes.finalStatus === "PUBLISHED" && publishedCount < maxPublishedOpportunities) {
+          publishedSlugs.push(briefRes.generatedSlug);
+          publishedCount++;
+        }
+      }
+    }
+
+    // 6b. Process existing persisted candidates: update each in place with independent corroboration & qualification
     // Cap existing candidate updates so that newly discovered clusters always have evaluation and publication slots
     const maxExistingUpdates = Math.max(1, Math.min(validExistingCandidates.length, Math.floor(maxCandidates / 2)));
     const existingCandidatesToUpdate = validExistingCandidates.slice(0, maxExistingUpdates);
     for (const candidate of existingCandidatesToUpdate) {
-      if (Date.now() > deadline || candidateEvaluations.length >= maxExistingUpdates) break;
+      if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates) break;
 
       const targetOriginalSignals: Array<{
         normalizedSignal: any;
@@ -3348,82 +3422,6 @@ export async function executeManualStagingIngestion(
       if (qual.finalStatus === "PUBLISHED" && publishedCount < maxPublishedOpportunities) {
         publishedSlugs.push(candidate.slug);
         publishedCount++;
-      }
-    }
-
-    // 6b. Cluster remaining pool of unmatched signals into new candidates
-    unmatchedPoolCount = pool.length;
-    if (pool.length > 0 && candidateEvaluations.length < maxCandidates) {
-      const newClusters = clusterSignals(pool, 0.72);
-      newClusters.sort((a, b) => b.signalIds.length - a.signalIds.length);
-      totalClustersDiscovered += newClusters.length;
-      const availableCandidateSlots = Math.max(0, maxCandidates - candidateEvaluations.length);
-
-      for (const cl of newClusters) {
-        if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates || publishedCount >= maxPublishedOpportunities) break;
-        if (availableCandidateSlots <= 0) break;
-        const verifiedSignals: Array<{ normalizedSignal: any; rawSignal: any; source: any }> = [];
-        for (const sigId of cl.signalIds) {
-          const normSig = await prisma.normalizedSignal.findUnique({
-            where: { id: sigId },
-            include: { rawSignal: { include: { source: true } } },
-          });
-          if (normSig && normSig.rawSignal && normSig.rawSignal.source) {
-            verifiedSignals.push({ normalizedSignal: normSig, rawSignal: normSig.rawSignal, source: normSig.rawSignal.source });
-          }
-        }
-        if (verifiedSignals.length === 0) continue;
-
-        // Gating: An opportunity hypothesis may only be created if the cluster contains genuine evidence
-        // of a concrete problem, workaround, or willingness to pay / purchase intent.
-        const hasCommercialProblemEvidence = verifiedSignals.some((vs) => {
-          const sigType = (vs.normalizedSignal.signalType || "").toUpperCase();
-          const title = vs.rawSignal.title || vs.normalizedSignal.sourceTitle || "";
-          const excerpt = vs.normalizedSignal.sanitizedExcerpt || "";
-          const summary = vs.normalizedSignal.problemSummary || "";
-          const text = `${title} ${excerpt} ${summary}`.toLowerCase();
-          if (/vague question about|without industry context/i.test(text)) return false;
-          if (/\b(ready-for-agent|ai text below|create a branch and open a pr|parent:\s*#\d+|epic\s*#\d+|are harnesses worth the cost)\b/i.test(text)) {
-            return false;
-          }
-          const isActionableType = ["PAIN_COMPLAINT", "PAIN", "PROBLEM_STATEMENT", "WORKAROUND_REQUEST", "WORKAROUND", "PURCHASE_INTENT", "WILLINGNESS_TO_PAY", "COMPETITOR_DISSATISFACTION", "COMPETITOR_COMPLAINT"].includes(sigType);
-          const hasExplicitPain = /\b(costing|broken|slow|pain|waste|failing|error|leak|spike|manual|expensive|struggle|problem|bottleneck|hacky|workaround|issue|bug|frustrat|need a tool|looking for a tool|willing to pay|timeout|outage|drift|reconcil|oom|out of memory|lock)\b/i.test(text);
-          const isPureNews = ["EMERGING_TECH", "TECHNOLOGY_ENABLER", "MARKET_ACTIVITY", "NOISE"].includes(sigType);
-          return (isActionableType || vs.normalizedSignal.purchaseIntent || hasExplicitPain) && !isPureNews;
-        });
-
-        if (!hasCommercialProblemEvidence) {
-          continue;
-        }
-
-        const briefRes = await buildAndPersistOpportunityBrief(
-          prisma,
-          cl,
-          verifiedSignals,
-          deadline,
-          processedHashes,
-        );
-
-        candidateEvaluations.push({
-          id: briefRes.opp.id,
-          title: briefRes.formattedTitle,
-          slug: briefRes.generatedSlug,
-          status: briefRes.finalStatus,
-          publicationQualityStatus: briefRes.pubQualityStatus,
-          originalUrls: [],
-          addedUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
-          supportingUrls: Array.from(new Set(verifiedSignals.map((vs) => vs.rawSignal.sourceUrl))),
-          independenceKeys: Array.from(new Set(verifiedSignals.map((vs) => vs.normalizedSignal.independenceKey || `id:${vs.normalizedSignal.id}`))),
-          sourceFamilies: Array.from(new Set(verifiedSignals.map((vs) => (vs.source.key === "github" ? "DEVELOPER_ECOSYSTEM" : vs.source.key === "krasia" || vs.source.key === "e27" ? "DISCOVERY" : vs.source.sourceFamily || "COMMUNITY")).filter(Boolean))),
-          blockers: briefRes.qualityResult.blockers,
-          warnings: briefRes.qualityResult.warnings,
-          metrics: briefRes.qualityResult.metrics,
-        });
-
-        if (briefRes.finalStatus === "PUBLISHED" && publishedCount < maxPublishedOpportunities) {
-          publishedSlugs.push(briefRes.generatedSlug);
-          publishedCount++;
-        }
       }
     }
 
