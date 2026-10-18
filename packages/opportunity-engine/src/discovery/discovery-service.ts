@@ -459,6 +459,9 @@ export function deriveEconomicBuyerRole(audience: string, vertical?: string): st
   if (lower.includes("firmware") || lower.includes("hardware") || lower.includes("iot") || lower.includes("embedded")) {
     return "VP of Hardware Engineering or Head of Embedded Systems";
   }
+  if (lower.includes("ai") || lower.includes("llm") || lower.includes("prompt") || lower.includes("eval") || lower.includes("model")) {
+    return "Head of AI or VP of Engineering";
+  }
   if (lower.includes("frontend") || lower.includes("web") || lower.includes("mobile")) {
     return "VP of Product Engineering or Head of Frontend";
   }
@@ -473,6 +476,9 @@ export function deriveEndUserRole(audience: string, actorRole?: string | null): 
     return actorRole.trim();
   }
   const lower = audience.toLowerCase();
+  if (lower.includes("ai") || lower.includes("llm") || lower.includes("prompt") || lower.includes("eval")) {
+    return "AI / Prompt Engineer or Applied LLM Developer";
+  }
   if (lower.includes("devops") || lower.includes("release") || lower.includes("ci/cd")) {
     return "Senior DevOps / Release Engineer";
   }
@@ -820,7 +826,13 @@ export function signalsSupportSameProblem(
   }
 
   // Common high-signal technical anchors
-  const anchors = ["ingress", "websocket", "latency", "rebalance", "kafka", "gpu", "cluster", "memory", "leak", "deadlock", "timeout", "docker", "kubernetes", "sqlite", "postgres", "redis"];
+  const anchors = [
+    "ingress", "websocket", "latency", "rebalance", "kafka", "gpu", "cluster",
+    "memory", "leak", "deadlock", "timeout", "docker", "kubernetes", "sqlite",
+    "postgres", "redis", "terraform", "datadog", "observability", "prompt",
+    "evaluation", "benchmark", "vllm", "cuda", "finops", "state", "locking",
+    "crashloopbackoff", "oomkilled", "cost"
+  ];
   const anchorOverlap = anchors.some((a) => words1.has(a) && words2.has(a));
 
   return overlap >= 3 || (overlap >= 2 && anchorOverlap);
