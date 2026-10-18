@@ -2317,8 +2317,12 @@ export async function executeManualStagingIngestion(
         if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github" || src.key === "stackexchange" || src.key === "lobsters")) {
           const queriesToRun = pickQueriesForSource(src.key, targetQueries);
           for (const q of queriesToRun) {
-            if (rawSignals.length >= srcSlots) break;
             const remainingForSource = srcSlots - rawSignals.length;
+            if (remainingForSource <= 0) {
+              const res = await executeSourceQuery(q, 1);
+              currentStats.executedQueries.push(res.stat);
+              continue;
+            }
             const perQuery = Math.min(15, remainingForSource);
             const res = await executeSourceQuery(q, perQuery);
             currentStats.executedQueries.push(res.stat);

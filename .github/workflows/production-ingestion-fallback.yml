@@ -101,6 +101,25 @@ jobs:
               completedAt: .completedAt
             }' 2>/dev/null || echo "$HTTP_BODY"
 
+            echo "=== Candidate Evaluations (Pass $PASS) ==="
+            echo "$HTTP_BODY" | jq '.summary.candidateEvaluations[] | {
+              title: .title,
+              slug: .slug,
+              status: .status,
+              pubQualityStatus: .publicationQualityStatus,
+              qualificationReason: .qualificationReason,
+              supportingUrls: .supportingUrls,
+              contradictingUrls: .contradictingUrls
+            }' 2>/dev/null
+
+            echo "=== Executed Source Queries (Pass $PASS) ==="
+            echo "$HTTP_BODY" | jq '.summary.perSourceStats | to_entries[] | {
+              source: .key,
+              status: .value.status,
+              reason: .value.reason,
+              queries: .value.executedQueries
+            }' 2>/dev/null
+
             HAS_MORE=$(echo "$HTTP_BODY" | jq -r '.summary.hasMorePending // false' 2>/dev/null || echo "false")
             PUBLISHED_COUNT=$(echo "$HTTP_BODY" | jq -r '.counters.published // 0' 2>/dev/null || echo "0")
 

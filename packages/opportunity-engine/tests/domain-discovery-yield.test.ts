@@ -6,6 +6,7 @@ import {
   signalsSupportSameProblem,
   deriveEconomicBuyerRole,
   deriveEndUserRole,
+  isConcreteProblemOrWorkaround,
 } from "../src/index.js";
 
 function createMockPrisma() {
@@ -427,4 +428,51 @@ describe("Domain Discovery Yield & Parameter Verification", () => {
     expect(qual.pubQualityStatus).toBe("HYPOTHESIS");
     expect(qual.qualificationReason).toContain("Qualified opportunity hypothesis");
   });
+
+  it("recognizes concrete operational friction in DevOps and AI developer tooling signals", () => {
+    // 1. Datadog bill spike & manual proxy workaround
+    expect(
+      isConcreteProblemOrWorkaround({
+        title: "Infrastructure decisions I endorse or regret after 4 years at a startup",
+        sanitizedExcerpt: "Our Datadog bill spiked 300% after migrating to microservices with custom tags. We spent days building a proxy to drop tags.",
+        canonicalUrl: "https://news.ycombinator.com/item?id=47085504",
+        sourceKey: "hackernews",
+        signalType: "PAIN",
+      }),
+    ).toBe(true);
+
+    // 2. Kubernetes OOMKilled & CrashLoopBackOff pod eviction
+    expect(
+      isConcreteProblemOrWorkaround({
+        title: "My container works under docker compose but gets OOMKilled the moment I set a memory limit in the Deployment",
+        sanitizedExcerpt: "The pod enters CrashLoopBackOff with OOMKilled exit code 137 under memory limit.",
+        canonicalUrl: "https://stackoverflow.com/questions/79989436",
+        sourceKey: "stackexchange",
+        signalType: "PAIN",
+      }),
+    ).toBe(true);
+
+    // 3. Terraform state lock acquisition failure in CI
+    expect(
+      isConcreteProblemOrWorkaround({
+        title: "Bootstrap Terraform remote state (S3 + locking)",
+        sanitizedExcerpt: "Error acquiring the state lock: ConditionalCheckFailedException DynamoDB lock release timeout.",
+        canonicalUrl: "https://github.com/JaiG1998/devops-platform/issues/6",
+        sourceKey: "github",
+        signalType: "PAIN",
+      }),
+    ).toBe(true);
+
+    // 4. Prompt regression and evaluation framework
+    expect(
+      isConcreteProblemOrWorkaround({
+        title: "Evaluation and Prompt Regression",
+        sanitizedExcerpt: "We need an evaluation framework to benchmark prompt regressions before shipping changes to production.",
+        canonicalUrl: "https://github.com/SamiranB8888/ai-pm-copilot/issues/68",
+        sourceKey: "github",
+        signalType: "PAIN",
+      }),
+    ).toBe(true);
+  });
 });
+
