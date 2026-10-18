@@ -200,37 +200,65 @@ export const KNOWN_SYNTHETIC_FIXTURE_URLS = [
 ];
 
 async function deleteOpportunityAndDependents(prisma: any, oppId: string): Promise<void> {
-  await prisma.evidenceLink?.deleteMany?.({
-    where: { OR: [{ opportunityId: oppId }, { opportunityRevision: { opportunityId: oppId } }] },
-  }).catch(() => {});
+  try {
+    const revisions = await prisma.opportunityRevision?.findMany?.({
+      where: { opportunityId: oppId },
+      select: { id: true },
+    }).catch(() => []);
+    const revIds = (revisions || []).map((r: any) => r.id);
 
-  await prisma.scoreDimension?.deleteMany?.({
-    where: { scorecard: { opportunityId: oppId } },
-  }).catch(() => {});
+    if (revIds.length > 0) {
+      const bps = await prisma.opportunityBlueprint?.findMany?.({
+        where: { opportunityRevisionId: { in: revIds } },
+        select: { id: true },
+      }).catch(() => []);
+      const bpIds = (bps || []).map((b: any) => b.id);
 
-  await prisma.scorecard?.deleteMany?.({
-    where: { opportunityId: oppId },
-  }).catch(() => {});
+      if (bpIds.length > 0) {
+        await prisma.blueprintCustomerSegment?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.blueprintMvpFeature?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.opportunityFounderRequirements?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.founderFitEvaluation?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.blueprintCompetitor?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.financialScenario?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.costLineItem?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.benefitDriver?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.blueprintRisk?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.blueprintAssumption?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.validationExperiment?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.decisionEvaluation?.deleteMany?.({ where: { blueprintId: { in: bpIds } } }).catch(() => {});
+        await prisma.opportunityBlueprint?.deleteMany?.({ where: { id: { in: bpIds } } }).catch(() => {});
+      }
 
-  await prisma.savedOpportunity?.deleteMany?.({
-    where: { opportunityId: oppId },
-  }).catch(() => {});
+      await prisma.opportunityRevision?.deleteMany?.({ where: { id: { in: revIds } } }).catch(() => {});
+    }
 
-  await prisma.opportunityChangeEvent?.deleteMany?.({
-    where: { opportunityId: oppId },
-  }).catch(() => {});
+    await prisma.evidenceLink?.deleteMany?.({
+      where: { OR: [{ opportunityId: oppId }, { opportunityRevision: { opportunityId: oppId } }] },
+    }).catch(() => {});
 
-  await prisma.opportunityBlueprint?.deleteMany?.({
-    where: { revision: { opportunityId: oppId } },
-  }).catch(() => {});
+    await prisma.scoreDimension?.deleteMany?.({
+      where: { scorecard: { opportunityId: oppId } },
+    }).catch(() => {});
 
-  await prisma.opportunityRevision?.deleteMany?.({
-    where: { opportunityId: oppId },
-  }).catch(() => {});
+    await prisma.scorecard?.deleteMany?.({
+      where: { opportunityId: oppId },
+    }).catch(() => {});
 
-  await prisma.opportunity?.delete?.({
-    where: { id: oppId },
-  }).catch(() => {});
+    await prisma.savedOpportunity?.deleteMany?.({
+      where: { opportunityId: oppId },
+    }).catch(() => {});
+
+    await prisma.opportunityChangeEvent?.deleteMany?.({
+      where: { opportunityId: oppId },
+    }).catch(() => {});
+
+    await prisma.opportunity?.delete?.({
+      where: { id: oppId },
+    }).catch(() => {});
+  } catch (err: any) {
+    logger.warn("deleteOpportunityAndDependents warning", { oppId, error: err?.message });
+  }
 }
 
 /**
@@ -1124,8 +1152,8 @@ export async function buildAndPersistOpportunityBrief(
   // and must possess verified commercial/pain evidence score >= 45.
   const isEligibleForOpportunity = feasibility.isFeasible && !isSingleRepo && commercialIndicators.opportunityScore >= 45;
   const isVerified = isEligibleForOpportunity && qualityResult.status === "VERIFIED" && qualityResult.isEligibleForVerified;
-  const finalStatus = isEligibleForOpportunity ? "PUBLISHED" : "RESEARCH_LEAD";
-  const pubQualityStatus = isEligibleForOpportunity ? (qualityResult.status || "HYPOTHESIS") : "RESEARCH_LEAD";
+  const finalStatus = isEligibleForOpportunity ? "PUBLISHED" : (feasibility.isFeasible ? "DRAFT" : "REJECTED");
+  const pubQualityStatus = isEligibleForOpportunity ? (qualityResult.status || "HYPOTHESIS") : "EVIDENCE_PENDING";
 
   const oppData = {
     slug: generatedSlug,
@@ -2703,8 +2731,8 @@ export async function executeManualStagingIngestion(
       const isTargetSingleRepo = isSingleRepoTicket(primaryTargetUrl, targetCandidate.problemStatement) && allTargetSignals.length <= 1;
 
       const isTargetEligible = targetFeasibility.isFeasible && !isTargetSingleRepo && targetCommercialIndicators.opportunityScore >= 45;
-      const targetFinalStatus = isTargetEligible ? "PUBLISHED" : "RESEARCH_LEAD";
-      const targetPubQualityStatus = isTargetEligible ? (targetQualityResult.status || "HYPOTHESIS") : "RESEARCH_LEAD";
+      const targetFinalStatus = isTargetEligible ? "PUBLISHED" : (targetFeasibility.isFeasible ? "DRAFT" : "REJECTED");
+      const targetPubQualityStatus = isTargetEligible ? (targetQualityResult.status || "HYPOTHESIS") : "EVIDENCE_PENDING";
 
       if (newTargetVerifiedSignals.length > 0) {
         // Synthesize updated blueprint with combined evidence
