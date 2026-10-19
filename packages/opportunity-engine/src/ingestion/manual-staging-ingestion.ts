@@ -484,6 +484,36 @@ function deriveDomainAlternatives(problemText: string): {
       existingWorkflow: "Engineers manually inspect consumer group offsets via CLI and run custom rebalance scripts during incidents",
     };
   }
+  if (lower.includes("cpu limit") || lower.includes("cfs") || (lower.includes("kubernetes") && lower.includes("oom"))) {
+    return {
+      competitors: [
+        "Datadog Container Monitoring (high per-node telemetry fees)",
+        "Prometheus + Alertmanager custom cgroup YAML alert rules",
+        "Manual node resizing & ad-hoc pod memory limit increases",
+      ],
+      weaknesses: [
+        "Fails to correlate CFS throttle periods with memory cgroup pressure before OOMKill fires",
+        "Encourages expensive over-provisioning of node RAM instead of fixing CPU quota constraints",
+        "Ad-hoc limit increases mask root-cause CFS throttling without resolving thread starvation",
+      ],
+      existingWorkflow: "SREs manually increase container memory limits and upsize nodes when pods are OOMKilled, masking CFS throttling",
+    };
+  }
+  if (lower.includes("crashpad") || lower.includes("minidump") || lower.includes("dump generation") || (lower.includes("codex") && lower.includes("dump"))) {
+    return {
+      competitors: [
+        "Manual shell cleanup commands (rm -rf Crashpad/pending)",
+        "User-written cron jobs and launchd periodic scripts",
+        "Waiting for upstream vendor (OpenAI) patch releases",
+      ],
+      weaknesses: [
+        "Manual file deletion is forgotten until disk space is completely exhausted",
+        "Ad-hoc shell scripts risk deleting active locks or corrupting app state",
+        "Upstream vendor fixes have indefinite release timelines for desktop edge-cases",
+      ],
+      existingWorkflow: "Developers manually find and delete Crashpad minidump folders after receiving OS low-disk-space warnings",
+    };
+  }
   if (lower.includes("kubernetes") || lower.includes("k8s") || lower.includes("container") || lower.includes("oom") || lower.includes("pod") || lower.includes("eks")) {
     return {
       competitors: [
@@ -3081,6 +3111,16 @@ export async function executeManualStagingIngestion(
       (o: any) => !/vague-question-about|^vague question about|without industry context/i.test(`${o.slug || ""} ${o.title || ""}`),
     );
 
+    // Prioritize pending hypotheses needing corroboration and candidates with oldest updates
+    validExistingCandidates.sort((a: any, b: any) => {
+      const aHyp = a.publicationQualityStatus === "HYPOTHESIS" ? 0 : 1;
+      const bHyp = b.publicationQualityStatus === "HYPOTHESIS" ? 0 : 1;
+      if (aHyp !== bHyp) return aHyp - bHyp;
+      const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return aTime - bTime;
+    });
+
     let pool = [...clusterCandidates];
     const candidateEvaluations: any[] = [];
     let totalClustersDiscovered = 0;
@@ -3161,12 +3201,12 @@ export async function executeManualStagingIngestion(
       }
     }
 
-    // 6b. Process existing persisted candidates: update each in place with independent corroboration & qualification
     // Cap existing candidate updates so that newly discovered clusters always have evaluation and publication slots
     const maxExistingUpdates = Math.max(1, Math.min(validExistingCandidates.length, Math.floor(maxCandidates / 2)));
     const existingCandidatesToUpdate = validExistingCandidates.slice(0, maxExistingUpdates);
+    let existingEvaluationsCount = 0;
     for (const candidate of existingCandidatesToUpdate) {
-      if (Date.now() > deadline || candidateEvaluations.length >= maxCandidates) break;
+      if (Date.now() > deadline || existingEvaluationsCount >= maxExistingUpdates) break;
 
       const targetOriginalSignals: Array<{
         normalizedSignal: any;
@@ -3418,6 +3458,8 @@ export async function executeManualStagingIngestion(
         warnings: qualityResult.warnings,
         metrics: qualityResult.metrics,
       });
+
+      existingEvaluationsCount++;
 
       if (qual.finalStatus === "PUBLISHED" && publishedCount < maxPublishedOpportunities) {
         publishedSlugs.push(candidate.slug);

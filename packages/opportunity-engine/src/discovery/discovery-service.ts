@@ -344,7 +344,7 @@ export function deriveSpecificAudience(text: string, actorRole?: string | null):
  * Derives a distinct, plausible product concept addressing the specific technical friction,
  * avoiding vague or repetitive "Targeted solution addressing: [title]" templates.
  */
-export function derivePlausibleProductDirection(problemSummary: string, targetAudience: string): string {
+export function derivePlausibleProductDirection(problemSummary: string, _targetAudience?: string): string {
   const lower = problemSummary.toLowerCase();
 
   if (lower.includes("protocol") || lower.includes("decoding") || lower.includes("uart") || lower.includes("rotex") || lower.includes("hpsu") || lower.includes("sensor") || lower.includes("firmware")) {
@@ -359,6 +359,12 @@ export function derivePlausibleProductDirection(problemSummary: string, targetAu
   if (lower.includes("database") || lower.includes("postgres") || lower.includes("mysql") || lower.includes("query timeout")) {
     return "Slow-query regression analyzer with automated execution plan diffing and proactive indexing recommendations";
   }
+  if (lower.includes("cpu limit") || lower.includes("cfs") || (lower.includes("kubernetes") && (lower.includes("oom") || lower.includes("limit")))) {
+    return "Kubernetes CPU limit and CFS quota optimizer detecting silent thread throttling and false-positive OOMKill terminations";
+  }
+  if (lower.includes("crashpad") || lower.includes("minidump") || lower.includes("dump generation") || (lower.includes("codex") && lower.includes("dump"))) {
+    return "Background disk hygiene utility and Crashpad dump pruner for AI desktop developer environments with space threshold alerts";
+  }
   if (lower.includes("kubernetes") || lower.includes("k8s") || lower.includes("pod") || lower.includes("ingress")) {
     return "Automated ingress traffic triage & pod eviction root-cause visualizer for production clusters";
   }
@@ -370,10 +376,7 @@ export function derivePlausibleProductDirection(problemSummary: string, targetAu
   }
 
   const cleanProblem = problemSummary.replace(/^[a-z]+:\s*/i, "").replace(/[.!?]+$/, "").trim();
-  if (targetAudience && !targetAudience.startsWith("Unknown")) {
-    return `Specialized workflow automation tool eliminating manual workarounds for ${targetAudience}: ${cleanProblem}`;
-  }
-  return `Specialized workflow automation tool eliminating manual workarounds for ${cleanProblem}`;
+  return `Targeted workflow automation tool eliminating manual workarounds for ${cleanProblem}`;
 }
 
 /**
@@ -394,12 +397,18 @@ export function deriveSpecificValidationExperiment(problemSummary: string, targe
   if (lower.includes("security") || lower.includes("vulnerability") || lower.includes("cve")) {
     return "Scan 10 production staging clusters to measure exposure window and test automated mitigation rules";
   }
+  if (lower.includes("cpu limit") || lower.includes("cfs") || (lower.includes("kubernetes") && (lower.includes("oom") || lower.includes("limit")))) {
+    return "Audit CFS throttling metrics (container_cpu_cfs_throttled_periods_total) vs OOMKill rates across 5 production Kubernetes clusters to verify false-positive memory leak diagnosis";
+  }
+  if (lower.includes("crashpad") || lower.includes("minidump") || lower.includes("dump generation") || (lower.includes("codex") && lower.includes("dump"))) {
+    return "Benchmark recurring Crashpad dump disk exhaustion across 5 desktop AI developer environments to test adoption of an automated pruner utility versus manual deletion";
+  }
   if (lower.includes("container") || lower.includes("oom") || lower.includes("memory leak") || lower.includes("freeze")) {
     return "Profile container heap dumps across 5 production deployments to benchmark memory leak trajectory and automated restart efficacy";
   }
 
   if (targetAudience && !targetAudience.startsWith("Unknown")) {
-    return `Interview 5 ${targetAudience} to benchmark frequency of this breakdown and quantify hours spent on manual recovery`;
+    return `Interview 5 practitioners (${targetAudience}) to benchmark frequency of this breakdown and quantify hours spent on manual recovery`;
   }
 
   return "Conduct discovery interviews with affected users to validate workaround frequency and operational cost";

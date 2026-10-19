@@ -250,6 +250,23 @@ export async function GET() {
             },
           ],
           publishedAt: o.createdAt.toISOString(),
+          sourcePublicationDate: (() => {
+            const pubTimes = evidenceLinks
+              .map((el) => (el.signal?.publishedAt ? new Date(el.signal.publishedAt).getTime() : null))
+              .filter((t): t is number => t !== null && !isNaN(t));
+            return pubTimes.length > 0 ? new Date(Math.min(...pubTimes)).toISOString() : o.createdAt.toISOString();
+          })(),
+          firstDiscoveryDate: (() => {
+            const discTimes = (o.evidenceLinks || [])
+              .map((el: any) => {
+                const dt = el.normalizedSignal?.firstDiscoveredAt || el.normalizedSignal?.createdAt || el.createdAt;
+                return dt ? new Date(dt).getTime() : null;
+              })
+              .filter((t): t is number => t !== null && !isNaN(t));
+            return discTimes.length > 0 ? new Date(Math.min(...discTimes)).toISOString() : o.createdAt.toISOString();
+          })(),
+          briefCreationDate: o.createdAt.toISOString(),
+          briefUpdatedDate: o.updatedAt ? o.updatedAt.toISOString() : o.createdAt.toISOString(),
           evidenceLinks: evidenceLinks as any,
         } as StoredOpportunity;
       });

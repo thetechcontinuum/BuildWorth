@@ -40,6 +40,10 @@ export interface StoredOpportunity {
     isAssumption?: boolean;
   }[];
   publishedAt: string;
+  sourcePublicationDate?: string;
+  firstDiscoveryDate?: string;
+  briefCreationDate?: string;
+  briefUpdatedDate?: string;
   evidenceLinks: ClaimEvidenceLinkItem[];
 }
 
