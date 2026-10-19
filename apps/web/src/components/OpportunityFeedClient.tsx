@@ -379,13 +379,19 @@ export function OpportunityFeedClient() {
                         </span>
                       )}
 
-                      <span className="text-xs font-mono text-zinc-500 ml-auto">
-                        {new Date(op.publishedAt).toLocaleDateString(undefined, {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </span>
+                      <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-500 ml-auto flex-wrap justify-end">
+                        <span title="Date source signal was published by practitioner">
+                          Source: <strong className="text-zinc-400 font-sans">{new Date(op.sourcePublicationDate || op.publishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</strong>
+                        </span>
+                        <span className="text-zinc-700">•</span>
+                        <span title="Date BuildWorth first ingested and staged signal">
+                          Discovered: <strong className="text-zinc-400 font-sans">{new Date(op.firstDiscoveryDate || op.publishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</strong>
+                        </span>
+                        <span className="text-zinc-700">•</span>
+                        <span title="Date opportunity hypothesis brief was synthesized">
+                          Brief: <strong className="text-indigo-400 font-sans">{new Date(op.briefCreationDate || op.publishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</strong>
+                        </span>
+                      </div>
                     </div>
 
                     <Link href={`/opportunities/${op.slug}`} className="group block">

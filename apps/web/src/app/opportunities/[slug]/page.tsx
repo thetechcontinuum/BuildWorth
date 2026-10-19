@@ -779,6 +779,49 @@ export default async function OpportunityDetailPage({
           </div>
         </div>
 
+        {/* Signal & Brief Date Lineage Breakdown */}
+        {(() => {
+          const primarySig = (rawLinks[0]?.signal || rawLinks[0]?.normalizedSignal);
+          const sourcePubDateRaw = primarySig?.publishedAt || rawLinks[0]?.createdAt || opp.sourcePublicationDate;
+          const firstDiscoveryDateRaw = primarySig?.firstDiscoveredAt || primarySig?.createdAt || rawLinks[0]?.createdAt || opp.firstDiscoveryDate;
+          const briefCreatedDateRaw = dbOppRecord?.createdAt || opp.briefCreationDate || (opp as any).createdAt || opp.publishedAt;
+          const briefUpdatedDateRaw = dbOppRecord?.updatedAt || opp.briefUpdatedDate || (opp as any).updatedAt || briefCreatedDateRaw;
+
+          const formatDate = (d: any) => {
+            if (!d) return "Unrecorded";
+            const parsed = new Date(d);
+            return isNaN(parsed.getTime()) ? "Unrecorded" : parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          };
+
+          return (
+            <div className="flex items-center gap-4 text-xs font-mono text-zinc-400 p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span className="text-zinc-500">Source Publication:</span>
+                <strong className="text-zinc-200 font-sans">{formatDate(sourcePubDateRaw)}</strong>
+              </div>
+              <span className="text-zinc-700">•</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-zinc-500">First Ingested:</span>
+                <strong className="text-zinc-200 font-sans">{formatDate(firstDiscoveryDateRaw)}</strong>
+              </div>
+              <span className="text-zinc-700">•</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-zinc-500">Brief Created:</span>
+                <strong className="text-indigo-300 font-sans">{formatDate(briefCreatedDateRaw)}</strong>
+              </div>
+              {briefUpdatedDateRaw && new Date(briefUpdatedDateRaw).getTime() > new Date(briefCreatedDateRaw).getTime() + 60000 && (
+                <>
+                  <span className="text-zinc-700">•</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-500">Last Updated:</span>
+                    <strong className="text-emerald-400 font-sans">{formatDate(briefUpdatedDateRaw)}</strong>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
           {/* Specific Problem & Affected Customer */}
           <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800/80 space-y-2.5">

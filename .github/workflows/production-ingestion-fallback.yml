@@ -2,8 +2,10 @@ name: Production Ingestion Fallback
 
 on:
   schedule:
-    # 01:15 UTC every day (approx 75 minutes after 00:00 UTC Vercel cron window)
+    # Daily production schedule at 01:15 UTC (approx 75 minutes after 00:00 UTC Vercel cron window)
     - cron: "15 1 * * *"
+    # Scheduled automated execution every 10 minutes
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -45,7 +47,7 @@ jobs:
 
           FORCE_INPUT="${{ github.event.inputs.force }}"
           KEY_INPUT="${{ github.event.inputs.idempotency_key }}"
-          TODAY_KEY="cron-daily-$(date -u +%Y-%m-%d)"
+          TODAY_KEY="cron-schedule-$(date -u +%Y-%m-%d-%H%M)"
           BASE_KEY="${KEY_INPUT:-$TODAY_KEY}"
 
           for PASS in 1 2 3; do
@@ -80,6 +82,13 @@ jobs:
             if [ "$HTTP_STATUS" -ne 200 ]; then
               echo "::error::Production cron invocation failed on Pass $PASS with HTTP $HTTP_STATUS"
               echo "Sanitized Response Body:"
+              echo "$HTTP_BODY" | jq '.' 2>/dev/null || echo "$HTTP_BODY" | head -n 20
+              exit 1
+            fi
+
+            RUN_STATUS=$(echo "$HTTP_BODY" | jq -r '.status // "COMPLETED"' 2>/dev/null || echo "COMPLETED")
+            if [ "$RUN_STATUS" = "FAILED" ]; then
+              echo "::error::Production cron execution failed on Pass $PASS with status: FAILED"
               echo "$HTTP_BODY" | jq '.' 2>/dev/null || echo "$HTTP_BODY" | head -n 20
               exit 1
             fi
