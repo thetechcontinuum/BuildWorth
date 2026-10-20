@@ -69,14 +69,15 @@ async function handleScheduledIngestion(request: NextRequest) {
     customIdempotencyKey = headerIdempotencyKey.trim();
   }
 
+  let parsedBody: any = null;
   if (request.method === "POST") {
     try {
-      const body = await request.clone().json().catch(() => null);
-      if (body && typeof body === "object") {
-        if (body.idempotencyKey && typeof body.idempotencyKey === "string" && /^[a-zA-Z0-9_-]+$/.test(body.idempotencyKey.trim())) {
-          customIdempotencyKey = body.idempotencyKey.trim();
+      parsedBody = await request.clone().json().catch(() => null);
+      if (parsedBody && typeof parsedBody === "object") {
+        if (parsedBody.idempotencyKey && typeof parsedBody.idempotencyKey === "string" && /^[a-zA-Z0-9_-]+$/.test(parsedBody.idempotencyKey.trim())) {
+          customIdempotencyKey = parsedBody.idempotencyKey.trim();
         }
-        if (body.force === true || body.forceRetry === true) {
+        if (parsedBody.force === true || parsedBody.forceRetry === true) {
           forceRetry = true;
         }
       }
@@ -114,14 +115,22 @@ async function handleScheduledIngestion(request: NextRequest) {
         "arxiv",
         "samgov",
       ],
-      targetQueries: [
-        "datadog expensive",
-        "terraform state lock",
-        "kubernetes oomkilled",
-        "prompt regression",
-        "evaluating prompts",
-        "vllm out of memory",
-      ],
+      targetQueries: (parsedBody && Array.isArray(parsedBody.targetQueries) && parsedBody.targetQueries.length > 0)
+        ? parsedBody.targetQueries
+        : [
+            "datadog expensive",
+            "terraform state lock",
+            "kubernetes oomkilled",
+            "opentelemetry high cardinality",
+            "argocd sync failed",
+            "prometheus memory leak",
+            "prompt regression",
+            "evaluating prompts",
+            "vllm out of memory",
+            "gpu memory leak",
+            "langchain breaking change",
+            "cuda out of memory python",
+          ],
       cleanSyntheticPrior: true,
     });
 

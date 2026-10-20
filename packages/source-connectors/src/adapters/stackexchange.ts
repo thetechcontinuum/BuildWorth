@@ -59,16 +59,17 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
         fromDateSec = Math.floor((Date.now() - 180 * 24 * 60 * 60 * 1000) / 1000);
       }
 
-      // Guard against future timestamps or excessive forward drift blocking relevant questions
+      // Guard against future timestamps blocking relevant questions
       const nowSec = Math.floor(Date.now() / 1000);
-      if (fromDateSec > nowSec - 86400 * 7) {
-        fromDateSec = nowSec - 180 * 24 * 60 * 60;
+      if (fromDateSec > nowSec) {
+        fromDateSec = nowSec - 86400 * 7;
       }
 
       const effectiveQuery = query || "workaround bottleneck timeout memory leak rate limit migration";
       const sortParam = query ? "relevance" : "votes";
+      const page = options.page || 1;
 
-      const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=${sortParam}&fromdate=${fromDateSec}&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&filter=withbody`;
+      const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=${sortParam}&fromdate=${fromDateSec}&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&page=${page}&filter=withbody`;
 
       let res = await fetch(url, {
         headers: { "User-Agent": "BuildWorth-Market-Intelligence/1.0" },
@@ -77,8 +78,8 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
       if (res.ok) {
         let json = await res.json();
         let items = json.items || [];
-        if (items.length === 0 && fromDateSec > 0 && query) {
-          const fbUrl = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&filter=withbody`;
+        if (items.length === 0 && fromDateSec > 0 && query && options.searchType === "HISTORICAL_CORROBORATION") {
+          const fbUrl = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&page=${page}&filter=withbody`;
           const fbRes = await fetch(fbUrl, {
             headers: { "User-Agent": "BuildWorth-Market-Intelligence/1.0" },
           });

@@ -22,6 +22,7 @@ export interface FetchSignalsOptions {
   page?: number;
   checkpoint?: string;
   since?: Date;
+  searchType?: "DISCOVERY" | "HISTORICAL_CORROBORATION";
 }
 
 export interface RawIngestSignal {
