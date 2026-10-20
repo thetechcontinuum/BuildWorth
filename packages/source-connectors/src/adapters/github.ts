@@ -63,7 +63,7 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
       if (res.ok) {
         let json = await res.json();
         let items = json.items || [];
-        if (items.length === 0 && q.includes("updated:>")) {
+        if (items.length === 0 && q.includes("updated:>") && options.searchType === "HISTORICAL_CORROBORATION") {
           const fbQ = q.replace(/\s+updated:>[^\s]+/g, "");
           const fbRes = await fetch(
             `https://api.github.com/search/issues?q=${encodeURIComponent(fbQ)}&per_page=${limit}&page=${page}`,

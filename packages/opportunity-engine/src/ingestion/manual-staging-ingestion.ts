@@ -191,11 +191,102 @@ export const DEFAULT_FOCUSED_DOMAIN_QUERIES = [
   "datadog expensive",
   "terraform state lock",
   "kubernetes oomkilled",
+  "opentelemetry high cardinality",
+  "argocd sync failed",
+  "prometheus memory leak",
   // AI Developer Tooling
   "prompt regression",
   "evaluating prompts",
   "vllm out of memory",
+  "gpu memory leak",
+  "langchain breaking change",
+  "cuda out of memory python",
 ];
+
+export interface QueryCheckpointState {
+  lastCheckpoint?: string;
+  lastPublishedAt?: string;
+  page: number;
+  consecutiveDuplicatePages: number;
+  lastRunAt?: string;
+  totalPersisted: number;
+}
+
+export interface SourceProgressState {
+  lastQueryIndex: number;
+  queryProgress: Record<string, QueryCheckpointState>;
+}
+
+export function parseSourceProgressState(storageRestrictions?: string | null): SourceProgressState {
+  if (storageRestrictions && storageRestrictions.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(storageRestrictions);
+      if (parsed && typeof parsed === "object" && typeof parsed.lastQueryIndex === "number") {
+        return parsed as SourceProgressState;
+      }
+    } catch {
+      // return clean state on parse error
+    }
+  }
+  return {
+    lastQueryIndex: -1,
+    queryProgress: {},
+  };
+}
+
+export function pickQueriesForSourceWithRotation(
+  srcKey: string,
+  queries: string[],
+  lastQueryIndex: number = -1,
+  count: number = 3,
+): { selectedQueries: string[]; nextQueryIndex: number } {
+  let eligible: string[] = [];
+  if (srcKey === "hackernews") {
+    eligible = queries.filter((q) =>
+      q.includes("datadog") || q.includes("prompt") || q.includes("evaluating") ||
+      q.includes("kubernetes") || q.includes("vllm") || q.includes("cost") ||
+      q.includes("oom") || q.includes("memory") || q.includes("gpu") || q.includes("cardinality")
+    );
+  } else if (srcKey === "stackexchange") {
+    eligible = queries.filter((q) =>
+      q.includes("terraform") || q.includes("kubernetes") || q.includes("evaluating") ||
+      q.includes("prompt") || q.includes("lock") || q.includes("memory") ||
+      q.includes("oom") || q.includes("gpu") || q.includes("cuda")
+    );
+  } else if (srcKey === "github") {
+    eligible = queries.filter((q) =>
+      q.includes("datadog") || q.includes("terraform") || q.includes("prompt") ||
+      q.includes("kubernetes") || q.includes("vllm") || q.includes("memory") ||
+      q.includes("oom") || q.includes("sync") || q.includes("langchain")
+    );
+  } else {
+    eligible = [...queries];
+  }
+
+  if (eligible.length === 0) {
+    eligible = queries.slice(0, Math.max(1, count));
+  }
+
+  const total = eligible.length;
+  const numToPick = Math.min(count, total);
+  const startIndex = (lastQueryIndex + 1) % total;
+
+  const selectedQueries: string[] = [];
+  for (let i = 0; i < numToPick; i++) {
+    const idx = (startIndex + i) % total;
+    if (eligible[idx]) {
+      selectedQueries.push(eligible[idx]);
+    }
+  }
+
+  const nextQueryIndex = (startIndex + numToPick - 1) % total;
+  return { selectedQueries, nextQueryIndex };
+}
+
+// Backwards compatibility alias
+export function pickQueriesForSource(srcKey: string, queries: string[]): string[] {
+  return pickQueriesForSourceWithRotation(srcKey, queries, -1, 3).selectedQueries;
+}
 
 export const KNOWN_SYNTHETIC_FIXTURE_EXTERNAL_IDS = [
   "gh-issue-98214",
@@ -1110,7 +1201,7 @@ export async function searchIndependentCorroboration(
 
       try {
         const fetchedSignals = await Promise.race([
-          adapter.fetchSignals({ limit: 5, query: targetQuery, page: 1 }),
+          adapter.fetchSignals({ limit: 5, query: targetQuery, page: 1, searchType: "HISTORICAL_CORROBORATION" }),
           timeoutPromise,
         ]);
         return { srcKey, srcRecord, fetchedSignals: Array.isArray(fetchedSignals) ? fetchedSignals : [] };
@@ -2212,6 +2303,11 @@ export async function executeManualStagingIngestion(
         executedQueries: [] as Array<{
           query: string;
           itemsFetched: number;
+          duplicates?: number;
+          newlyPersisted?: number;
+          rejected?: number;
+          page?: number;
+          checkpoint?: string;
           status: "SUCCESS" | "NO_SUPPORTING_EVIDENCE_FOUND" | "RATE_LIMITED" | "TIMEOUT" | "ERROR";
           failureReason?: string;
           durationMs: number;
@@ -2231,39 +2327,29 @@ export async function executeManualStagingIngestion(
       let srcErrorMsg: string | null = null;
 
       try {
-        const rawSignals: any[] = [];
         const slotsAvailable = maxFetchItems - totalFetched;
-        // Ensure remaining sources get slots by capping each source to perSourceBaseBudget
-        // or remaining slots if it's the last source
         const isLastSource = srcIndex === activeSources.length - 1;
         const srcSlots = isLastSource
           ? Math.min(slotsAvailable, perSourceBaseBudget * 2)
           : Math.min(slotsAvailable, perSourceBaseBudget);
 
-        // Checkpoint state recovery: Query latest RawSignal for this source to pass checkpoint/since
-        let latestCheckpoint: string | undefined = undefined;
+        // Checkpoint state recovery: Load persisted progress state per source and query
+        const sourceProgress = parseSourceProgressState(src.storageRestrictions);
+        let latestSignalDate: Date | undefined = undefined;
+        let latestSignalExternalId: string | undefined = undefined;
         try {
           const latestSignal = await prisma.rawSignal.findFirst({
             where: { sourceId: src.id },
-            orderBy: { createdAt: "desc" },
+            orderBy: { publishedAt: "desc" },
             select: { publishedAt: true, createdAt: true, externalId: true },
           });
           if (latestSignal) {
             const rawDate = latestSignal.publishedAt || latestSignal.createdAt;
             const parsed = new Date(rawDate);
-            const now = new Date();
-            const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-            const latestDate =
-              !isNaN(parsed.getTime()) && parsed <= fourteenDaysAgo
-                ? parsed
-                : fourteenDaysAgo;
-            if (src.key === "hackernews") {
-              latestCheckpoint = String(Math.floor(latestDate.getTime() / 1000));
-            } else if (src.key === "github") {
-              latestCheckpoint = latestDate.toISOString().split("T")[0];
-            } else {
-              latestCheckpoint = latestSignal.externalId;
+            if (!isNaN(parsed.getTime())) {
+              latestSignalDate = parsed;
             }
+            latestSignalExternalId = latestSignal.externalId;
           }
         } catch (cpErr: any) {
           logger.warn("Checkpoint lookup warning", { source: src.key, error: cpErr?.message });
@@ -2272,7 +2358,9 @@ export async function executeManualStagingIngestion(
         const executeSourceQuery = async (
           queryStr?: string,
           limitCount: number = 5,
-        ): Promise<{ signals: any[]; stat: { query: string; itemsFetched: number; status: "SUCCESS" | "NO_SUPPORTING_EVIDENCE_FOUND" | "RATE_LIMITED" | "TIMEOUT" | "ERROR"; failureReason?: string; durationMs: number } }> => {
+          checkpoint?: string,
+          page: number = 1,
+        ): Promise<{ signals: any[]; stat: { query: string; itemsFetched: number; page: number; checkpoint?: string; status: "SUCCESS" | "NO_SUPPORTING_EVIDENCE_FOUND" | "RATE_LIMITED" | "TIMEOUT" | "ERROR"; failureReason?: string; durationMs: number } }> => {
           const effectiveQuery = queryStr || "general";
           const qStart = Date.now();
           let timer: any;
@@ -2284,8 +2372,9 @@ export async function executeManualStagingIngestion(
               adapter.fetchSignals({
                 limit: limitCount,
                 query: queryStr,
-                checkpoint: latestCheckpoint,
-                page: 1,
+                checkpoint,
+                page,
+                searchType: "DISCOVERY",
               }),
               timeoutPromise,
             ]);
@@ -2295,12 +2384,12 @@ export async function executeManualStagingIngestion(
             if (validList.length > 0) {
               return {
                 signals: validList,
-                stat: { query: effectiveQuery, itemsFetched: validList.length, status: "SUCCESS", durationMs },
+                stat: { query: effectiveQuery, itemsFetched: validList.length, page, checkpoint, status: "SUCCESS", durationMs },
               };
             }
             return {
               signals: [],
-              stat: { query: effectiveQuery, itemsFetched: 0, status: "NO_SUPPORTING_EVIDENCE_FOUND", durationMs },
+              stat: { query: effectiveQuery, itemsFetched: 0, page, checkpoint, status: "NO_SUPPORTING_EVIDENCE_FOUND", durationMs },
             };
           } catch (fetchErr: any) {
             clearTimeout(timer);
@@ -2309,93 +2398,436 @@ export async function executeManualStagingIngestion(
             if (msg.includes("QUERY_TIMEOUT") || msg.includes("timeout") || msg.includes("ETIMEDOUT")) {
               return {
                 signals: [],
-                stat: { query: effectiveQuery, itemsFetched: 0, status: "TIMEOUT", failureReason: "Request timed out after 4000ms", durationMs },
+                stat: { query: effectiveQuery, itemsFetched: 0, page, checkpoint, status: "TIMEOUT", failureReason: "Request timed out after 4000ms", durationMs },
               };
             }
             if (msg.includes("429") || msg.includes("rate limit") || msg.includes("403")) {
               return {
                 signals: [],
-                stat: { query: effectiveQuery, itemsFetched: 0, status: "RATE_LIMITED", failureReason: msg.slice(0, 100), durationMs },
+                stat: { query: effectiveQuery, itemsFetched: 0, page, checkpoint, status: "RATE_LIMITED", failureReason: msg.slice(0, 100), durationMs },
               };
             }
             return {
               signals: [],
-              stat: { query: effectiveQuery, itemsFetched: 0, status: "ERROR", failureReason: msg.slice(0, 100), durationMs },
+              stat: { query: effectiveQuery, itemsFetched: 0, page, checkpoint, status: "ERROR", failureReason: msg.slice(0, 100), durationMs },
             };
           }
         };
 
-        const pickQueriesForSource = (srcKey: string, queries: string[]): string[] => {
-          if (srcKey === "hackernews") {
-            const hnQueries = queries.filter((q) =>
-              q.includes("datadog") || q.includes("prompt") || q.includes("evaluating") || q.includes("kubernetes") || q.includes("vllm") || q.includes("cost")
-            );
-            return hnQueries.length > 0 ? hnQueries.slice(0, 3) : queries.slice(0, 3);
-          }
-          if (srcKey === "stackexchange") {
-            const seQueries = queries.filter((q) =>
-              q.includes("terraform") || q.includes("kubernetes") || q.includes("evaluating") || q.includes("prompt") || q.includes("lock") || q.includes("memory")
-            );
-            return seQueries.length > 0 ? seQueries.slice(0, 3) : queries.slice(0, 3);
-          }
-          if (srcKey === "github") {
-            const ghQueries = queries.filter((q) =>
-              q.includes("datadog") || q.includes("terraform") || q.includes("prompt") || q.includes("kubernetes") || q.includes("vllm") || q.includes("memory")
-            );
-            return ghQueries.length > 0 ? ghQueries.slice(0, 3) : queries.slice(0, 3);
-          }
-          return queries.slice(0, 2);
-        };
+        const isQueryableSource = src.key === "hackernews" || src.key === "github" || src.key === "stackexchange" || src.key === "lobsters";
+        let queriesToRun: string[] = [];
+        let nextQueryIndex = sourceProgress.lastQueryIndex;
 
-        if (targetQueries.length > 0 && (src.key === "hackernews" || src.key === "github" || src.key === "stackexchange" || src.key === "lobsters")) {
-          const queriesToRun = pickQueriesForSource(src.key, targetQueries);
-          for (const q of queriesToRun) {
-            const remainingForSource = srcSlots - rawSignals.length;
-            if (remainingForSource <= 0) {
-              const res = await executeSourceQuery(q, 1);
-              currentStats.executedQueries.push(res.stat);
-              continue;
-            }
-            const perQuery = Math.min(15, remainingForSource);
-            const res = await executeSourceQuery(q, perQuery);
-            currentStats.executedQueries.push(res.stat);
-            for (const sig of res.signals) {
-              if (!rawSignals.some((r) => (r.externalId && sig.externalId && r.externalId === sig.externalId) || (r.sourceUrl && sig.sourceUrl && r.sourceUrl === sig.sourceUrl))) {
-                rawSignals.push(sig);
-              }
-            }
-            logger.info("Source adapter query finished", {
-              source: src.key,
-              query: res.stat.query,
-              status: res.stat.status,
-              items: res.stat.itemsFetched,
-              durationMs: res.stat.durationMs,
-            });
-          }
-
-          if (rawSignals.length < srcSlots) {
-            const remaining = srcSlots - rawSignals.length;
-            const fallbackQuery = src.key === "hackernews" ? "workaround" : undefined;
-            const res = await executeSourceQuery(fallbackQuery, Math.min(10, remaining));
-            currentStats.executedQueries.push(res.stat);
-            for (const sig of res.signals) {
-              if (!rawSignals.some((r) => (r.externalId && sig.externalId && r.externalId === sig.externalId) || (r.sourceUrl && sig.sourceUrl && r.sourceUrl === sig.sourceUrl))) {
-                rawSignals.push(sig);
-              }
-            }
-          }
+        if (targetQueries.length > 0 && isQueryableSource) {
+          const rotationResult = pickQueriesForSourceWithRotation(
+            src.key,
+            targetQueries,
+            sourceProgress.lastQueryIndex,
+            3,
+          );
+          queriesToRun = rotationResult.selectedQueries;
+          nextQueryIndex = rotationResult.nextQueryIndex;
         } else {
-          const fallbackQuery = src.key === "hackernews" ? "workaround" : undefined;
-          const res = await executeSourceQuery(fallbackQuery, Math.min(15, srcSlots));
-          currentStats.executedQueries.push(res.stat);
-          for (const sig of res.signals) {
-            if (!rawSignals.some((r) => (r.externalId && sig.externalId && r.externalId === sig.externalId) || (r.sourceUrl && sig.sourceUrl && r.sourceUrl === sig.sourceUrl))) {
-              rawSignals.push(sig);
-            }
-          }
+          queriesToRun = [src.key === "hackernews" ? "workaround" : ""];
         }
 
-        if (rawSignals.length === 0 && currentStats.executedQueries.length > 0) {
+        const seenRejectedKeys = new Set<string>();
+
+        for (const q of queriesToRun) {
+          if (Date.now() > collectionDeadline || rawSignalsCount >= maxRawSignals) break;
+
+          const normQ = (q || "general").trim().toLowerCase();
+          const qState = sourceProgress.queryProgress[normQ] || {
+            page: 1,
+            consecutiveDuplicatePages: 0,
+            totalPersisted: 0,
+          };
+
+          // Prioritize per-query checkpoint if set, otherwise prioritize records newer than last successful collection / latestSignalDate
+          let queryCheckpoint: string | undefined = qState.lastCheckpoint;
+          if (!queryCheckpoint) {
+            const baselineDate = latestSignalDate || src.lastSuccessfulCollection;
+            if (baselineDate && !isNaN(baselineDate.getTime())) {
+              if (src.key === "hackernews" || src.key === "stackexchange") {
+                queryCheckpoint = String(Math.floor(baselineDate.getTime() / 1000));
+              } else if (src.key === "github") {
+                queryCheckpoint = baselineDate.toISOString();
+              } else {
+                queryCheckpoint = latestSignalExternalId || baselineDate.toISOString();
+              }
+            }
+          }
+
+          let queryPage = qState.page || 1;
+          const remainingForSource = srcSlots - srcIngestedCount;
+          const perQuery = Math.max(5, Math.min(15, remainingForSource > 0 ? remainingForSource : 5));
+
+          const queryResult = await executeSourceQuery(q || undefined, perQuery, queryCheckpoint, queryPage);
+          const rawList = queryResult.signals;
+
+          // Process signals batch for this query
+          let newlyPersisted = 0;
+          let duplicates = 0;
+          let rejected = 0;
+          let batchMaxPublishedAt: Date | null = null;
+          let batchLastExternalId: string | null = null;
+
+          for (const raw of rawList) {
+            totalFetched++;
+            currentStats.fetched++;
+
+            const rawItemKey = String(raw.externalId || raw.sourceUrl || raw.rawContent || "").trim();
+
+            if (!raw.rawContent || raw.rawContent.trim().length === 0) {
+              if (!rawItemKey || !seenRejectedKeys.has(rawItemKey)) {
+                if (rawItemKey) seenRejectedKeys.add(rawItemKey);
+                currentStats.rejected++;
+                totalRejected++;
+                currentStats.rejectionReasons["EMPTY_PAYLOAD"] = (currentStats.rejectionReasons["EMPTY_PAYLOAD"] || 0) + 1;
+              }
+              rejected++;
+              continue;
+            }
+
+            if (raw.rawContent.trim().length < 10) {
+              if (!rawItemKey || !seenRejectedKeys.has(rawItemKey)) {
+                if (rawItemKey) seenRejectedKeys.add(rawItemKey);
+                currentStats.rejected++;
+                totalRejected++;
+                currentStats.rejectionReasons["CONTENT_TOO_SHORT"] = (currentStats.rejectionReasons["CONTENT_TOO_SHORT"] || 0) + 1;
+              }
+              rejected++;
+              continue;
+            }
+
+            const maxExcerpt = Math.min(280, src.permittedExcerptLength || 280);
+            const sanitizedExcerpt = sanitizeRawContent(raw.rawContent, maxExcerpt);
+            const canonicalUrl = canonicalizeUrl(raw.sourceUrl);
+            const contentHash = computeContentHash(sanitizedExcerpt, src.key);
+
+            if (processedHashes.has(contentHash)) {
+              totalDeduplicated++;
+              currentStats.duplicates++;
+              duplicates++;
+              continue;
+            }
+            processedHashes.add(contentHash);
+
+            let rawRecord = await prisma.rawSignal.findUnique({
+              where: { contentHash },
+            });
+
+            const validPublishedAt =
+              raw.publishedAt instanceof Date && !isNaN(raw.publishedAt.getTime())
+                ? raw.publishedAt
+                : new Date();
+
+            if (!rawRecord) {
+              if (rawSignalsCount < maxRawSignals) {
+                rawRecord = await prisma.rawSignal.create({
+                  data: {
+                    sourceId: src.id,
+                    sourceRunId: sourceRun.id,
+                    externalId: String(raw.externalId || crypto.randomUUID()),
+                    sourceUrl: canonicalUrl,
+                    title: raw.title ? sanitizeRawContent(raw.title, 150) : null,
+                    rawContent: sanitizedExcerpt,
+                    contentHash,
+                    publishedAt: validPublishedAt,
+                    authorFingerprint: raw.authorFingerprint || null,
+                    createdAt: new Date(),
+                  },
+                });
+                rawSignalsCount++;
+                srcIngestedCount++;
+                newlyPersisted++;
+                currentStats.newRawSignals++;
+                currentStats.persisted++;
+                currentStats.persistedUrls.push(canonicalUrl);
+
+                if (!batchMaxPublishedAt || validPublishedAt > batchMaxPublishedAt) {
+                  batchMaxPublishedAt = validPublishedAt;
+                }
+                batchLastExternalId = rawRecord.externalId;
+              } else {
+                if (!rawItemKey || !seenRejectedKeys.has(rawItemKey)) {
+                  if (rawItemKey) seenRejectedKeys.add(rawItemKey);
+                  currentStats.rejected++;
+                  totalRejected++;
+                  currentStats.rejectionReasons["MAX_RAW_SIGNALS_EXCEEDED"] = (currentStats.rejectionReasons["MAX_RAW_SIGNALS_EXCEEDED"] || 0) + 1;
+                }
+                rejected++;
+              }
+            } else {
+              totalDeduplicated++;
+              currentStats.duplicates++;
+              duplicates++;
+            }
+
+            if (rawRecord) {
+              let normRecord = await prisma.normalizedSignal.findFirst({
+                where: { rawSignalId: rawRecord.id },
+              });
+
+              if (!normRecord) {
+                const { key: independenceKey, method: independenceMethod } = deriveIndependenceKey(
+                  src.key,
+                  rawRecord.externalId,
+                  canonicalUrl,
+                  rawRecord.authorFingerprint || undefined,
+                  raw.metadata,
+                );
+
+                normRecord = await prisma.normalizedSignal.create({
+                  data: {
+                    rawSignalId: rawRecord.id,
+                    sourceId: src.id,
+                    signalType:
+                      src.key === "ted" || src.key === "samgov"
+                        ? "PROCUREMENT"
+                        : src.key === "arxiv"
+                        ? "EMERGING_TECH"
+                        : src.key === "krasia" || src.key === "e27" || src.key === "siliconcanals" || src.key === "techcrunch"
+                        ? "MARKET_ACTIVITY"
+                        : "PAIN",
+                    evidenceOrigin: "COLLECTED",
+                    originalUrl: raw.sourceUrl,
+                    canonicalUrl,
+                    sourceTitle: rawRecord.title,
+                    sanitizedExcerpt,
+                    problemSummary: rawRecord.title || sanitizedExcerpt,
+                    severityScore: 3,
+                    frequencyScore: 3,
+                    intentToPayScore: 2,
+                    confidenceScore: 75,
+                    verificationStatus: "VERIFIED",
+                    verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
+                    verifiedAt: new Date(),
+                    independenceKey,
+                    independenceMethod,
+                  },
+                });
+                normalizedSignalsCount++;
+              }
+
+              sanitizedSignalsToProcess.push({
+                rawSignalId: rawRecord.id,
+                normalizedSignalId: normRecord.id,
+                externalId: rawRecord.externalId,
+                title: rawRecord.title || sanitizedExcerpt,
+                excerpt: sanitizedExcerpt,
+                sourceKey: src.key,
+                sourceId: src.id,
+                sourceName: src.name,
+              });
+            }
+          }
+
+          // Advance pagination when a page contains only duplicates
+          if (rawList.length > 0 && duplicates === rawList.length && newlyPersisted === 0) {
+            qState.page = queryPage + 1;
+            qState.consecutiveDuplicatePages = (qState.consecutiveDuplicatePages || 0) + 1;
+            logger.info("Page contained only duplicates; advanced cursor to next page", {
+              source: src.key,
+              query: q,
+              previousPage: queryPage,
+              nextPage: qState.page,
+              consecutiveDuplicatePages: qState.consecutiveDuplicatePages,
+            });
+
+            // Proactively fetch next page if budget allows
+            if (qState.consecutiveDuplicatePages <= 2 && Date.now() < collectionDeadline - 5000 && rawSignalsCount < maxRawSignals) {
+              const nextPageResult = await executeSourceQuery(q || undefined, perQuery, queryCheckpoint, qState.page);
+              if (nextPageResult.signals.length > 0) {
+                for (const raw of nextPageResult.signals) {
+                  totalFetched++;
+                  currentStats.fetched++;
+
+                  const rawItemKey = String(raw.externalId || raw.sourceUrl || raw.rawContent || "").trim();
+
+                  if (!raw.rawContent || raw.rawContent.trim().length === 0) {
+                    if (!rawItemKey || !seenRejectedKeys.has(rawItemKey)) {
+                      if (rawItemKey) seenRejectedKeys.add(rawItemKey);
+                      rejected++;
+                      currentStats.rejected++;
+                      totalRejected++;
+                      currentStats.rejectionReasons["EMPTY_PAYLOAD"] = (currentStats.rejectionReasons["EMPTY_PAYLOAD"] || 0) + 1;
+                    }
+                    continue;
+                  }
+
+                  if (raw.rawContent.trim().length < 10) {
+                    if (!rawItemKey || !seenRejectedKeys.has(rawItemKey)) {
+                      if (rawItemKey) seenRejectedKeys.add(rawItemKey);
+                      rejected++;
+                      currentStats.rejected++;
+                      totalRejected++;
+                      currentStats.rejectionReasons["CONTENT_TOO_SHORT"] = (currentStats.rejectionReasons["CONTENT_TOO_SHORT"] || 0) + 1;
+                    }
+                    continue;
+                  }
+
+                  const maxExcerpt = Math.min(280, src.permittedExcerptLength || 280);
+                  const sanitizedExcerpt = sanitizeRawContent(raw.rawContent, maxExcerpt);
+                  const canonicalUrl = canonicalizeUrl(raw.sourceUrl);
+                  const contentHash = computeContentHash(sanitizedExcerpt, src.key);
+
+                  if (processedHashes.has(contentHash)) {
+                    duplicates++;
+                    currentStats.duplicates++;
+                    totalDeduplicated++;
+                    continue;
+                  }
+                  processedHashes.add(contentHash);
+
+                  let rawRecord = await prisma.rawSignal.findUnique({ where: { contentHash } });
+                  const validPublishedAt =
+                    raw.publishedAt instanceof Date && !isNaN(raw.publishedAt.getTime())
+                      ? raw.publishedAt
+                      : new Date();
+
+                  if (!rawRecord) {
+                    if (rawSignalsCount < maxRawSignals) {
+                      rawRecord = await prisma.rawSignal.create({
+                        data: {
+                          sourceId: src.id,
+                          sourceRunId: sourceRun.id,
+                          externalId: String(raw.externalId || crypto.randomUUID()),
+                          sourceUrl: canonicalUrl,
+                          title: raw.title ? sanitizeRawContent(raw.title, 150) : null,
+                          rawContent: sanitizedExcerpt,
+                          contentHash,
+                          publishedAt: validPublishedAt,
+                          authorFingerprint: raw.authorFingerprint || null,
+                          createdAt: new Date(),
+                        },
+                      });
+                      rawSignalsCount++;
+                      srcIngestedCount++;
+                      newlyPersisted++;
+                      currentStats.newRawSignals++;
+                      currentStats.persisted++;
+                      currentStats.persistedUrls.push(canonicalUrl);
+
+                      if (!batchMaxPublishedAt || validPublishedAt > batchMaxPublishedAt) {
+                        batchMaxPublishedAt = validPublishedAt;
+                      }
+                      batchLastExternalId = rawRecord.externalId;
+                    }
+                  } else {
+                    duplicates++;
+                    currentStats.duplicates++;
+                    totalDeduplicated++;
+                  }
+
+                  if (rawRecord) {
+                    let normRecord = await prisma.normalizedSignal.findFirst({
+                      where: { rawSignalId: rawRecord.id },
+                    });
+
+                    if (!normRecord) {
+                      const { key: independenceKey, method: independenceMethod } = deriveIndependenceKey(
+                        src.key,
+                        rawRecord.externalId,
+                        canonicalUrl,
+                        rawRecord.authorFingerprint || undefined,
+                        raw.metadata,
+                      );
+
+                      normRecord = await prisma.normalizedSignal.create({
+                        data: {
+                          rawSignalId: rawRecord.id,
+                          sourceId: src.id,
+                          signalType:
+                            src.key === "ted" || src.key === "samgov"
+                              ? "PROCUREMENT"
+                              : src.key === "arxiv"
+                              ? "EMERGING_TECH"
+                              : src.key === "krasia" || src.key === "e27" || src.key === "siliconcanals" || src.key === "techcrunch"
+                              ? "MARKET_ACTIVITY"
+                              : "PAIN",
+                          evidenceOrigin: "COLLECTED",
+                          originalUrl: raw.sourceUrl,
+                          canonicalUrl,
+                          sourceTitle: rawRecord.title,
+                          sanitizedExcerpt,
+                          problemSummary: rawRecord.title || sanitizedExcerpt,
+                          severityScore: 3,
+                          frequencyScore: 3,
+                          intentToPayScore: 2,
+                          confidenceScore: 75,
+                          verificationStatus: "VERIFIED",
+                          verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
+                          verifiedAt: new Date(),
+                          independenceKey,
+                          independenceMethod,
+                        },
+                      });
+                      normalizedSignalsCount++;
+                    }
+
+                    sanitizedSignalsToProcess.push({
+                      rawSignalId: rawRecord.id,
+                      normalizedSignalId: normRecord.id,
+                      externalId: rawRecord.externalId,
+                      title: rawRecord.title || sanitizedExcerpt,
+                      excerpt: sanitizedExcerpt,
+                      sourceKey: src.key,
+                      sourceId: src.id,
+                      sourceName: src.name,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          // Advance checkpoint ONLY after successful persistence
+          if (newlyPersisted > 0 && batchMaxPublishedAt) {
+            const pubDate = batchMaxPublishedAt;
+            if (src.key === "hackernews" || src.key === "stackexchange") {
+              qState.lastCheckpoint = String(Math.floor(pubDate.getTime() / 1000));
+            } else if (src.key === "github") {
+              qState.lastCheckpoint = pubDate.toISOString();
+            } else {
+              qState.lastCheckpoint = batchLastExternalId || pubDate.toISOString();
+            }
+            qState.lastPublishedAt = pubDate.toISOString();
+            qState.page = 1;
+            qState.consecutiveDuplicatePages = 0;
+            qState.totalPersisted = (qState.totalPersisted || 0) + newlyPersisted;
+          }
+
+          qState.lastRunAt = new Date().toISOString();
+          sourceProgress.queryProgress[normQ] = qState;
+
+          currentStats.executedQueries.push({
+            query: queryResult.stat.query,
+            page: queryPage,
+            checkpoint: queryCheckpoint,
+            itemsFetched: queryResult.stat.itemsFetched,
+            duplicates,
+            newlyPersisted,
+            rejected,
+            status: queryResult.stat.status,
+            failureReason: queryResult.stat.failureReason,
+            durationMs: queryResult.stat.durationMs,
+          });
+
+          logger.info("Source adapter query finished with per-query progress", {
+            source: src.key,
+            query: queryResult.stat.query,
+            page: queryPage,
+            checkpoint: queryCheckpoint,
+            fetched: queryResult.stat.itemsFetched,
+            duplicates,
+            persisted: newlyPersisted,
+            status: queryResult.stat.status,
+            durationMs: queryResult.stat.durationMs,
+          });
+        }
+
+        if (currentStats.fetched === 0 && currentStats.executedQueries.length > 0) {
           const anyRateLimited = currentStats.executedQueries.some((eq) => eq.status === "RATE_LIMITED");
           const anyTimedOut = currentStats.executedQueries.some((eq) => eq.status === "TIMEOUT");
           const allEmpty = currentStats.executedQueries.every((eq) => eq.status === "NO_SUPPORTING_EVIDENCE_FOUND");
@@ -2408,139 +2840,13 @@ export async function executeManualStagingIngestion(
           }
         }
 
-        const boundedRawSignals = rawSignals.slice(0, Math.max(0, Math.min(slotsAvailable, srcSlots)));
-        totalFetched += boundedRawSignals.length;
-        currentStats.fetched += boundedRawSignals.length;
-
-        for (const raw of boundedRawSignals) {
-          if (!raw.rawContent || raw.rawContent.trim().length === 0) {
-            currentStats.rejected++;
-            totalRejected++;
-            currentStats.rejectionReasons["EMPTY_PAYLOAD"] = (currentStats.rejectionReasons["EMPTY_PAYLOAD"] || 0) + 1;
-            continue;
-          }
-
-          if (raw.rawContent.trim().length < 10) {
-            currentStats.rejected++;
-            totalRejected++;
-            currentStats.rejectionReasons["CONTENT_TOO_SHORT"] = (currentStats.rejectionReasons["CONTENT_TOO_SHORT"] || 0) + 1;
-            continue;
-          }
-
-          const maxExcerpt = Math.min(280, src.permittedExcerptLength || 280);
-          const sanitizedExcerpt = sanitizeRawContent(raw.rawContent, maxExcerpt);
-          const canonicalUrl = canonicalizeUrl(raw.sourceUrl);
-          const contentHash = computeContentHash(sanitizedExcerpt, src.key);
-
-          if (processedHashes.has(contentHash)) {
-            totalDeduplicated++;
-            currentStats.duplicates++;
-            continue;
-          }
-          processedHashes.add(contentHash);
-
-          let rawRecord = await prisma.rawSignal.findUnique({
-            where: { contentHash },
-          });
-
-          const validPublishedAt =
-            raw.publishedAt instanceof Date && !isNaN(raw.publishedAt.getTime())
-              ? raw.publishedAt
-              : new Date();
-
-          if (!rawRecord) {
-            if (rawSignalsCount < maxRawSignals) {
-              rawRecord = await prisma.rawSignal.create({
-                data: {
-                  sourceId: src.id,
-                  sourceRunId: sourceRun.id,
-                  externalId: String(raw.externalId || crypto.randomUUID()),
-                  sourceUrl: canonicalUrl,
-                  title: raw.title ? sanitizeRawContent(raw.title, 150) : null,
-                  rawContent: sanitizedExcerpt,
-                  contentHash,
-                  publishedAt: validPublishedAt,
-                  authorFingerprint: raw.authorFingerprint || null,
-                  createdAt: new Date(),
-                },
-              });
-              rawSignalsCount++;
-              srcIngestedCount++;
-              currentStats.newRawSignals++;
-              currentStats.persisted++;
-              currentStats.persistedUrls.push(canonicalUrl);
-            } else {
-              currentStats.rejected++;
-              totalRejected++;
-              currentStats.rejectionReasons["MAX_RAW_SIGNALS_EXCEEDED"] = (currentStats.rejectionReasons["MAX_RAW_SIGNALS_EXCEEDED"] || 0) + 1;
-            }
-          } else {
-            totalDeduplicated++;
-            currentStats.duplicates++;
-          }
-
-          if (rawRecord) {
-            let normRecord = await prisma.normalizedSignal.findFirst({
-              where: { rawSignalId: rawRecord.id },
-            });
-
-            if (!normRecord) {
-              const { key: independenceKey, method: independenceMethod } = deriveIndependenceKey(
-                src.key,
-                rawRecord.externalId,
-                canonicalUrl,
-                rawRecord.authorFingerprint || undefined,
-                raw.metadata,
-              );
-
-              normRecord = await prisma.normalizedSignal.create({
-                data: {
-                  rawSignalId: rawRecord.id,
-                  sourceId: src.id,
-                  signalType:
-                    src.key === "ted" || src.key === "samgov"
-                      ? "PROCUREMENT"
-                      : src.key === "arxiv"
-                      ? "EMERGING_TECH"
-                      : src.key === "krasia" || src.key === "e27" || src.key === "siliconcanals" || src.key === "techcrunch"
-                      ? "MARKET_ACTIVITY"
-                      : "PAIN",
-                  evidenceOrigin: "COLLECTED",
-                  originalUrl: raw.sourceUrl,
-                  canonicalUrl,
-                  sourceTitle: rawRecord.title,
-                  sanitizedExcerpt,
-                  problemSummary: rawRecord.title || sanitizedExcerpt,
-                  severityScore: 3,
-                  frequencyScore: 3,
-                  intentToPayScore: 2,
-                  confidenceScore: 75,
-                  verificationStatus: "VERIFIED",
-                  verificationMethod: "AUTOMATED_SOURCE_VALIDATION",
-                  verifiedAt: new Date(),
-                  independenceKey,
-                  independenceMethod,
-                },
-              });
-              normalizedSignalsCount++;
-            }
-
-            sanitizedSignalsToProcess.push({
-              rawSignalId: rawRecord.id,
-              normalizedSignalId: normRecord.id,
-              externalId: rawRecord.externalId,
-              title: rawRecord.title || sanitizedExcerpt,
-              excerpt: sanitizedExcerpt,
-              sourceKey: src.key,
-              sourceId: src.id,
-              sourceName: src.name,
-            });
-          }
-        }
-
+        sourceProgress.lastQueryIndex = nextQueryIndex;
         await prisma.source.update({
           where: { id: src.id },
-          data: { lastSuccessfulCollection: new Date() },
+          data: {
+            storageRestrictions: JSON.stringify(sourceProgress),
+            ...(srcIngestedCount > 0 ? { lastSuccessfulCollection: new Date() } : {}),
+          },
         });
       } catch (srcErr: any) {
         srcErrorMsg = srcErr.message || String(srcErr);

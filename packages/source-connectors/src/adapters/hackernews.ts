@@ -91,8 +91,8 @@ export class HackerNewsAdapter extends BaseSourceAdapter {
         }
       }
 
-      // If strict date filter yielded 0 hits for a targeted practitioner query, fall back to recent search
-      if (collectedHits.length === 0 && url.includes("numericFilters=") && query) {
+      // If strict date filter yielded 0 hits for a targeted practitioner query, fall back to recent search ONLY during historical corroboration
+      if (collectedHits.length === 0 && url.includes("numericFilters=") && query && options.searchType === "HISTORICAL_CORROBORATION") {
         const fbUrl = url.replace(/&numericFilters=[^&]+/, "");
         const fbRes = await fetch(fbUrl, {
           headers: { "User-Agent": "BuildWorth-Staging/1.0" },
