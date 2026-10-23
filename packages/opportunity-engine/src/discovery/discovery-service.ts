@@ -217,7 +217,7 @@ export function isConcreteProblemOrWorkaround(signal: {
   // 12. Explicit concrete friction / breakdown / workaround / cost pain indicators
   // The excerpt or title must describe actual failure, broken functionality, error, or manual hack
   const hasConcreteBreakdown =
-    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|crash|crashes|crashloopbackoff|oom|oomkilled|oom-killed|out of memory|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|manual reconciliation|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes|spiked|billing surprises?|delays?|drift|lags?|state lock|locking failure|prompt regression|regression|degradation|hallucinat|building a proxy|manual proxy|spent (days|hours|weeks))\b/i.test(fullText);
+    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|misses|missed|crash|crashes|crashloopbackoff|oom|oomkilled|oom-killed|out of memory|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|manual reconciliation|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes|spiked|billing surprises?|delays?|drift|lags?|state lock|locking failure|prompt regression|regression|degradation|hallucinat|building a proxy|manual proxy|spent (days|hours|weeks))\b/i.test(fullText);
 
   // High quality problem types from GitHub / StackOverflow / HN or unclassified signals with problem keywords
   const isProblemType = [
@@ -273,6 +273,9 @@ export function deriveSpecificAudience(text: string, actorRole?: string | null):
     (lower.includes("production") && /\b(outage|crash|crashes|freeze|freezes|dies?|kill|killed|leaks?)\b/i.test(lower))
   ) {
     return "Platform Engineering & Site Reliability Teams";
+  }
+  if (lower.includes("opengl") || (lower.includes("macos") && (lower.includes("graphics") || lower.includes("metal")))) {
+    return "macOS Desktop & Game Engine Maintainers";
   }
   if (lower.includes("security") || lower.includes("vulnerability") || lower.includes("cve") || lower.includes("exploit")) {
     return "Security Operations & AppSec Engineers";
@@ -365,6 +368,9 @@ export function derivePlausibleProductDirection(problemSummary: string, _targetA
   if (lower.includes("crashpad") || lower.includes("minidump") || lower.includes("dump generation") || (lower.includes("codex") && lower.includes("dump"))) {
     return "Background disk hygiene utility and Crashpad dump pruner for AI desktop developer environments with space threshold alerts";
   }
+  if (lower.includes("opengl") || (lower.includes("macos") && lower.includes("graphics"))) {
+    return "Automated compatibility test runner and OpenGL-on-Metal translation diagnostic harness detecting driver bitrot in deprecated macOS graphics shims";
+  }
   if (lower.includes("kubernetes") || lower.includes("k8s") || lower.includes("pod") || lower.includes("ingress")) {
     return "Automated ingress traffic triage & pod eviction root-cause visualizer for production clusters";
   }
@@ -402,6 +408,9 @@ export function deriveSpecificValidationExperiment(problemSummary: string, targe
   }
   if (lower.includes("crashpad") || lower.includes("minidump") || lower.includes("dump generation") || (lower.includes("codex") && lower.includes("dump"))) {
     return "Benchmark recurring Crashpad dump disk exhaustion across 5 desktop AI developer environments to test adoption of an automated pruner utility versus manual deletion";
+  }
+  if (lower.includes("opengl") || (lower.includes("macos") && lower.includes("graphics"))) {
+    return "Run automated OpenGL test suites against macOS pre-release Developer Beta / Release Candidate builds across 5 legacy application maintainers to benchmark regression detection before official OS releases";
   }
   if (lower.includes("container") || lower.includes("oom") || lower.includes("memory leak") || lower.includes("freeze")) {
     return "Profile container heap dumps across 5 production deployments to benchmark memory leak trajectory and automated restart efficacy";
@@ -473,6 +482,9 @@ export function deriveEconomicBuyerRole(audience: string, vertical?: string): st
   if (lower.includes("frontend") || lower.includes("web") || lower.includes("mobile")) {
     return "VP of Product Engineering or Head of Frontend";
   }
+  if (lower.includes("opengl") || lower.includes("game engine") || (lower.includes("macos") && lower.includes("graphics"))) {
+    return "Head of Graphics Engineering or Studio Technical Director";
+  }
   return "VP of Engineering or Technical Operations Director";
 }
 
@@ -501,6 +513,9 @@ export function deriveEndUserRole(audience: string, actorRole?: string | null): 
   }
   if (lower.includes("firmware") || lower.includes("iot") || lower.includes("embedded")) {
     return "Embedded Systems / Firmware Engineer";
+  }
+  if (lower.includes("opengl") || lower.includes("game engine") || (lower.includes("macos") && lower.includes("graphics"))) {
+    return "Graphics Software Engineer / Engine Maintainer";
   }
   return "Senior Software Engineer";
 }
@@ -741,6 +756,22 @@ export function evaluateCorroboratingEvidence(
       relationshipType: "IRRELEVANT",
       rejectReason: "KEYWORD_OVERLAP_ONLY",
       explanation: "Superficial keyword overlap: discusses related technology terms without describing the same concrete breakdown.",
+    };
+  }
+
+  // 4b. Concrete failure mechanism check: if primary problem asserts an OOMKill or memory exhaustion breakdown,
+  // the candidate signal must corroborate memory/OOM/kill mechanisms rather than merely general CPU/cgroup configuration.
+  const pCombined = `${primarySignal.title || ""} ${primarySignal.text || ""}`.toLowerCase();
+  const cCombined = `${candidateSignal.title || ""} ${candidateSignal.text || ""}`.toLowerCase();
+  const isOOMProblem = /\b(oomkill|oomkilled|oom|out of memory|memory leak|cgroup oom)\b/i.test(pCombined);
+  const mentionsOOM = /\b(oomkill|oomkilled|oom|out of memory|memory leak|cgroup oom)\b/i.test(cCombined);
+
+  if (isOOMProblem && !mentionsOOM) {
+    return {
+      isIndependent: false,
+      relationshipType: "IRRELEVANT",
+      rejectReason: "KEYWORD_OVERLAP_ONLY",
+      explanation: "Related CPU/cgroup context: discusses container cgroup CPU limit resolution (e.g. kserve ancestor cgroup traversal) without corroborating the OOMKill or memory exhaustion failure mechanism.",
     };
   }
 

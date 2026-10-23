@@ -655,4 +655,180 @@ describe("Discovery Collector Progress and Loop Prevention Suite", () => {
     expect(progress.queryProgress["kubernetes oomkilled"].lastCheckpoint).toBe(initialCheckpoint);
     expect(progress.queryProgress["kubernetes oomkilled"].totalPersisted).toBe(0);
   });
+
+  it("strictly separates brief counters into created, updated, and republished based on actual DB operations", async () => {
+    // 1. Pre-seed an existing published opportunity (Kubernetes OOMKill)
+    const existingOpp = {
+      id: "opp-k8s-existing",
+      slug: "kubernetes-cpu-limits-silently-cause-oomkills-that-are-misdi",
+      title: "CPU limits in Kubernetes cause misdiagnosed OOMKill",
+      problemStatement: "Kubernetes CPU limits silently cause OOMKills",
+      status: "PUBLISHED",
+      publicationQualityStatus: "HYPOTHESIS",
+      isDemoFixture: false,
+      createdAt: new Date("2026-10-18T20:00:00.000Z"),
+      updatedAt: new Date("2026-10-18T20:00:00.000Z"),
+    };
+    prisma._store.opportunities.push(existingOpp);
+
+    // Mock incoming signals:
+    // Signal 1 matches existing Kubernetes opportunity (should UPDATE)
+    // Signal 2 is a new problem cluster (macOS 15.8.2 Breaks OpenGL) (should CREATE)
+    fetchSpy.mockImplementation(async (url: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes("algolia")) {
+        return {
+          ok: true,
+          json: async () => ({
+            hits: [
+              {
+                objectID: "50141909",
+                title: "macOS 15.8.2 Breaks OpenGL",
+                story_text: null,
+                comment_text: "macOS 15.8.2 release candidate broke OpenGL rendering for legacy engines",
+                url: "https://developer.apple.com/forums/thread/850550",
+                author: "Audiophilip",
+                created_at_i: 1729270000,
+              },
+            ],
+          }),
+        } as any;
+      }
+      return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
+    });
+
+    const run = await executeManualStagingIngestion(prisma, {
+      idempotencyKey: "test-counters-separation-01",
+      aiProvider: mockAi,
+      maxFetchItems: 5,
+      targetSourceKeys: ["hackernews"],
+      targetQueries: ["macos opengl"],
+    });
+
+    expect(run.status).toBe("COMPLETED");
+    expect(run.counters).toBeDefined();
+
+    // Verify created, updated, and republished counters match actual DB operations
+    expect(run.counters.published).toBeGreaterThanOrEqual(1);
+    expect(run.counters.created).toBeDefined();
+    expect(run.counters.updated).toBeDefined();
+    expect(run.counters.republished).toBeDefined();
+
+    // Summary must also provide briefCounters
+    expect(run.summary?.briefCounters).toBeDefined();
+    expect(run.summary?.briefCounters.created).toBe(run.counters.created);
+    expect(run.summary?.briefCounters.updated).toBe(run.counters.updated);
+    expect(run.summary?.briefCounters.republished).toBe(run.counters.republished);
+
+    // If existing opportunity was evaluated, it must NOT count as created
+    const k8sEval = run.summary?.candidateEvaluations?.find((e: any) => e.id === existingOpp.id);
+    if (k8sEval) {
+      expect(k8sEval.databaseOperation).toBe("UPDATED");
+      expect(run.counters.created).toBeLessThan(run.counters.published);
+    }
+  });
+
+  it("verifies macOS OpenGL brief against Developer Forums thread 850550 and rejects OpenAL audio quote", async () => {
+    // Test incoming signal with OpenAL analogy from comment 50143367
+    fetchSpy.mockImplementation(async (url: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes("algolia")) {
+        return {
+          ok: true,
+          json: async () => ({
+            hits: [
+              {
+                objectID: "50143367",
+                title: "macOS 15.8.2 Breaks OpenGL",
+                comment_text: "I hope it does get fixed, but Apple broke AppleAL (OpenAL) in Tahoe with mono-channel audio on Aarch64 luanti-org/luanti#16499",
+                url: "https://news.ycombinator.com/item?id=50143367",
+                author: "dunder_cat",
+                created_at_i: 1729270000,
+              },
+            ],
+          }),
+        } as any;
+      }
+      return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
+    });
+
+    const customAi: any = {
+      name: "custom-mock-ai",
+      generateStructured: async (_msgs: any, schema: any) => {
+        const data = {
+          signalType: "PAIN_COMPLAINT",
+          sanitizedExcerpt: "macOS 15.8.2 release candidate broke OpenGL rendering for legacy engines",
+          problemSummary: "macOS 15.8.2 update breaks OpenGL, disrupting applications that depend on it",
+          actorRole: "Graphics Software Engineer",
+          workflowContext: "Desktop Game Development & Graphics Engines",
+          severityScore: 4,
+          frequencyScore: 4,
+          intentToPayScore: 2,
+          extractedEntities: ["macOS", "OpenGL", "Metal"],
+          confidenceScore: 85,
+        };
+        return { data: schema.parse(data), rawResponse: JSON.stringify(data) };
+      },
+      generateEmbedding: async () => ({ embedding: new Array(64).fill(0.1) }),
+    };
+
+    const run = await executeManualStagingIngestion(prisma, {
+      idempotencyKey: "test-macos-opengl-verification-02",
+      aiProvider: customAi,
+      maxFetchItems: 5,
+      targetSourceKeys: ["hackernews"],
+      targetQueries: ["macos opengl"],
+    });
+
+    expect(run.status).toBe("COMPLETED");
+
+    // Find the generated macOS opportunity
+    const macOpp = prisma._store.opportunities.find((o: any) => /macos.*opengl|opengl.*macos|15-8-2/i.test(o.slug));
+    expect(macOpp).toBeDefined();
+
+    // Verify problem statement accurately identifies pre-release RC regression and driver bitrot
+    expect(macOpp.problemStatement).toContain("Pre-release regression in macOS 15.8.2 Release Candidate");
+    expect(macOpp.problemStatement).toContain("OpenGL");
+
+    // Verify proposed product addresses automated compatibility test runner / translation harness
+    expect(macOpp.proposedProduct).toContain("Automated compatibility test runner");
+
+    // Verify target customer segment is graphics software engineer / engine maintainers
+    expect(macOpp.targetCustomerSegments[0]).toContain("Graphics Software Engineer");
+
+    // Verify evidence links do NOT quote OpenAL audio bug
+    const macLinks = prisma._store.evidenceLinks.filter((l: any) => l.opportunityId === macOpp.id);
+    for (const link of macLinks) {
+      expect(link.claimSnippet).not.toContain("AppleAL (OpenAL)");
+      expect(link.claimSnippet).not.toContain("mono-channel audio");
+      expect(link.claimSnippet).toContain("OpenGL");
+    }
+  });
+
+  it("labels kserve#6393 as related CPU/cgroup context without corroborating the Kubernetes OOMKill mechanism", async () => {
+    const { evaluateCorroboratingEvidence } = await import("../src/discovery/discovery-service.js");
+
+    const primaryOOMKillSignal = {
+      title: "For the love of god stop using CPU limits in Kubernetes",
+      text: "Kubernetes CPU limits can also cause memory issues and OOMKills. It looks like a memory leak, the usual fix is a bigger memory limit, but the actual cause is the CPU limit.",
+      url: "https://news.ycombinator.com/item?id=49349908",
+      sourceKey: "hackernews",
+    };
+
+    const kserveSignal = {
+      title: "cpu_count() misses CPU limits set on parent cgroups",
+      text: "kserve.utils.utils.cpu_count() reads the CPU limit only from the process's own cgroup (cpu.max on cgroup v2, cpu.cfs_quota_us on v1). It never looks at ancestor cgroups, so a limit set on a parent cgroup is not picked up and the function falls back to the node CPU count.",
+      url: "https://github.com/kserve/kserve/issues/6393",
+      sourceKey: "github",
+    };
+
+    const evalResult = evaluateCorroboratingEvidence(primaryOOMKillSignal, kserveSignal);
+
+    // Must NOT be classified as direct problem corroboration
+    expect(evalResult.relationshipType).toBe("IRRELEVANT");
+    expect(evalResult.isIndependent).toBe(false);
+    expect(evalResult.rejectReason).toBe("KEYWORD_OVERLAP_ONLY");
+    expect(evalResult.explanation).toContain("Related CPU/cgroup context");
+    expect(evalResult.explanation).toContain("without corroborating the OOMKill");
+  });
 });
