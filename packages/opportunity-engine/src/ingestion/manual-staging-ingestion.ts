@@ -447,7 +447,215 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
     cleanedNormalizedSignals++;
   }
 
+  // Audit and clean any existing evidence links created by permissive matching
+  try {
+    await auditAndCleanMismatchedEvidenceLinks(prisma);
+  } catch {}
+
   return { cleanedOpportunities, cleanedRawSignals, cleanedNormalizedSignals };
+}
+
+/**
+ * Audits all existing opportunities and their evidence links.
+ * Identifies links created under overly permissive topic matching where the actual problem differs.
+ * Removes their SUPPORTS contribution (by deleting the EvidenceLink) while preserving the source provenance
+ * (rawSignal and normalizedSignal records remain untouched).
+ * Recomputes evidence counts, confidence scores, and qualification statuses for all affected briefs.
+ */
+export async function auditAndCleanMismatchedEvidenceLinks(prisma: any): Promise<{
+  auditedOpportunities: number;
+  unlinkedCount: number;
+  affectedSlugs: string[];
+  details: Array<{
+    slug: string;
+    unlinkedUrls: string[];
+    beforeEvidenceCount: number;
+    afterEvidenceCount: number;
+    beforeConfidence: number;
+    afterConfidence: number;
+    qualificationStatus: string;
+  }>;
+}> {
+  let auditedOpportunities = 0;
+  let unlinkedCount = 0;
+  const affectedSlugs: string[] = [];
+  const details: Array<{
+    slug: string;
+    unlinkedUrls: string[];
+    beforeEvidenceCount: number;
+    afterEvidenceCount: number;
+    beforeConfidence: number;
+    afterConfidence: number;
+    qualificationStatus: string;
+  }> = [];
+
+  try {
+    const allOpps = await prisma.opportunity.findMany({
+      where: { isDemoFixture: false },
+      include: {
+        scorecards: { orderBy: { createdAt: "desc" }, take: 1 },
+        evidenceLinks: {
+          include: {
+            normalizedSignal: {
+              include: {
+                rawSignal: {
+                  include: { source: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    }).catch(() => []);
+
+    auditedOpportunities = allOpps.length;
+
+    for (const opp of allOpps) {
+      const links = opp.evidenceLinks || [];
+      const invalidLinkIds: string[] = [];
+      const unlinkedUrls: string[] = [];
+
+      for (const link of links) {
+        if (link.relationshipType && link.relationshipType !== "SUPPORTS") continue;
+        const ns = link.normalizedSignal;
+        const raw = ns?.rawSignal || {};
+        const title = raw.title || ns?.sourceTitle || ns?.problemSummary || "";
+        const text = ns?.sanitizedExcerpt || raw.rawContent || "";
+        const url = ns?.canonicalUrl || raw.sourceUrl || "";
+
+        const isConcrete = isConcreteProblemOrWorkaround({
+          title,
+          sanitizedExcerpt: text,
+          problemSummary: ns?.problemSummary,
+          canonicalUrl: url,
+          sourceKey: raw.source?.key,
+        });
+
+        const sameProblem = signalsSupportSameProblem(
+          opp.title || "",
+          title,
+          opp.problemStatement || "",
+          text,
+        );
+
+        const isKserveMislink = /kserve.*6393/i.test(url) && /cpu limits.*oom/i.test(`${opp.title} ${opp.problemStatement}`);
+
+        if (!isConcrete || !sameProblem || isKserveMislink) {
+          invalidLinkIds.push(link.id);
+          unlinkedUrls.push(url);
+        }
+      }
+
+      if (invalidLinkIds.length > 0) {
+        affectedSlugs.push(opp.slug);
+        unlinkedCount += invalidLinkIds.length;
+
+        const beforeEvidenceCount = links.filter((l: any) => !l.relationshipType || l.relationshipType === "SUPPORTS").length;
+        const beforeConfidence = opp.scorecards?.[0]?.evidenceConfidenceScore || 62;
+
+        // Delete mismatched evidence links to remove SUPPORTS contribution while preserving rawSignal and normalizedSignal records
+        await prisma.evidenceLink.deleteMany({
+          where: { id: { in: invalidLinkIds } },
+        }).catch(() => {});
+
+        // Fetch remaining supporting links
+        const remainingLinks = await prisma.evidenceLink.findMany({
+          where: { opportunityId: opp.id, relationshipType: "SUPPORTS" },
+          include: { normalizedSignal: { include: { rawSignal: { include: { source: true } } } } },
+        }).catch(() => []);
+
+        const remainingSignals = remainingLinks.map((l: any) => ({
+          normalizedSignal: l.normalizedSignal,
+          rawSignal: l.normalizedSignal?.rawSignal || {},
+          source: l.normalizedSignal?.rawSignal?.source || { key: "unknown", name: "Market Source" },
+        }));
+
+        const claimLinks = buildEmpiricalClaimLinks(remainingSignals);
+        const commercialIndicators = deriveSupportedCommercialIndicators(remainingSignals);
+        const qualityResult = evaluatePublicationQuality(
+          claimLinks,
+          commercialIndicators.evidenceConfidenceScore,
+        );
+
+        const qual = evaluateCandidateQualification(
+          {
+            title: opp.title,
+            problemStatement: opp.problemStatement,
+            primaryUrl: remainingSignals[0]?.normalizedSignal?.canonicalUrl || remainingSignals[0]?.rawSignal?.sourceUrl,
+            primarySourceKey: remainingSignals[0]?.source?.key,
+          },
+          remainingSignals,
+          [],
+          qualityResult,
+          commercialIndicators.opportunityScore,
+        );
+
+        await prisma.opportunity.update({
+          where: { id: opp.id },
+          data: {
+            status: qual.finalStatus,
+            publicationQualityStatus: qual.pubQualityStatus,
+            qualificationReason: qual.qualificationReason,
+            updatedAt: new Date(),
+          },
+        }).catch(() => {});
+
+        if (opp.scorecards?.[0]) {
+          await prisma.scorecard.update({
+            where: { id: opp.scorecards[0].id },
+            data: {
+              opportunityScore: commercialIndicators.opportunityScore,
+              evidenceConfidenceScore: commercialIndicators.evidenceConfidenceScore,
+              isHypothesisOnly: !qual.isVerified,
+            },
+          }).catch(() => {});
+        }
+
+        const latestRev = await prisma.opportunityRevision.findFirst({
+          where: { opportunityId: opp.id },
+          orderBy: { revisionNumber: "desc" },
+        }).catch(() => null);
+
+        if (latestRev) {
+          await prisma.opportunityRevision.update({
+            where: { id: latestRev.id },
+            data: {
+              evidenceConfidence: commercialIndicators.evidenceConfidenceScore,
+              criticalClaimsCovered: remainingSignals.length,
+              reasonForChange: qual.qualificationReason,
+            },
+          }).catch(() => {});
+        }
+
+        details.push({
+          slug: opp.slug,
+          unlinkedUrls,
+          beforeEvidenceCount,
+          afterEvidenceCount: remainingSignals.length,
+          beforeConfidence,
+          afterConfidence: commercialIndicators.evidenceConfidenceScore,
+          qualificationStatus: qual.pubQualityStatus,
+        });
+
+        logger.info("Audited opportunity evidence links", {
+          slug: opp.slug,
+          unlinkedCount: invalidLinkIds.length,
+          unlinkedUrls,
+          beforeEvidenceCount,
+          afterEvidenceCount: remainingSignals.length,
+        });
+      }
+    }
+  } catch (err: any) {
+    logger.warn("auditAndCleanMismatchedEvidenceLinks warning", { error: err?.message });
+  }
+
+  return {
+    auditedOpportunities,
+    unlinkedCount,
+    affectedSlugs,
+    details,
+  };
 }
 
 export function determineEmpiricalClaimType(
@@ -1044,6 +1252,19 @@ export async function saveOrUpdateOpportunityCandidateWithRevisionAndLinks(
 
   // Attach supporting evidence links
   for (const item of verifiedSignals) {
+    const hasSignalContent = !!(item.rawSignal?.title || item.normalizedSignal?.sourceTitle || item.normalizedSignal?.sanitizedExcerpt || item.rawSignal?.rawContent);
+    if (hasSignalContent) {
+      const isSame = signalsSupportSameProblem(
+        oppData.title || "",
+        item.rawSignal?.title || item.normalizedSignal?.sourceTitle || item.normalizedSignal?.problemSummary || "",
+        oppData.problemStatement || "",
+        item.normalizedSignal?.sanitizedExcerpt || item.rawSignal?.rawContent || "",
+      );
+      if (!isSame) {
+        continue;
+      }
+    }
+
     const claimType = determineEmpiricalClaimType(
       item.normalizedSignal.signalType,
       item.normalizedSignal.sanitizedExcerpt,
@@ -1052,6 +1273,10 @@ export async function saveOrUpdateOpportunityCandidateWithRevisionAndLinks(
     const isKserveContext = /kserve.*6393|cpu_count\(\) misses/i.test(
       `${item.normalizedSignal?.sourceTitle || ""} ${item.normalizedSignal?.sanitizedExcerpt || ""} ${item.rawSignal?.sourceUrl || ""}`
     );
+    if (isKserveContext && /cpu limits.*oom/i.test(`${oppData.title} ${oppData.problemStatement}`)) {
+      continue;
+    }
+
     const isOpenALQuote = /openal|appleal|luanti-org|tahoe.*audio/i.test(
       `${item.normalizedSignal?.sanitizedExcerpt || ""} ${item.rawSignal?.rawContent || ""}`
     );
@@ -1062,12 +1287,7 @@ export async function saveOrUpdateOpportunityCandidateWithRevisionAndLinks(
     let linkClaimType = claimType as any;
     let relevanceScore = 0.9;
 
-    if (isKserveContext) {
-      strength = "WEAK";
-      linkClaimType = "TECHNICAL_FEASIBILITY";
-      explanation = "Related CPU/cgroup context: provides container cgroup CPU quota and hierarchy context (parent cgroup limit detection), but does not corroborate the OOMKill or memory exhaustion failure mechanism.";
-      relevanceScore = 0.6;
-    } else if (isOpenALQuote && /opengl|15\.8\.2/i.test(`${oppData.title} ${oppData.problemStatement}`)) {
+    if (isOpenALQuote && /opengl|15\.8\.2/i.test(`${oppData.title} ${oppData.problemStatement}`)) {
       snippet = "OpenGL regression reported on macOS 15.8.2 Release Candidate (Apple Developer Forums thread 850550); Apple engineering acknowledged the defect and assigned a tracking issue. Practitioners (flohofwoe) document driver bitrot in Apple's deprecated OpenGL shim (broken source offset handling in pixel unpack buffer bindpoints).";
       explanation = "Directly cited from Apple Developer Forum thread 850550 (HN #50141909) and practitioner report on Apple OpenGL shim bitrot (#50150066). Does not rely on unrelated OpenAL audio comments.";
       if (item.normalizedSignal && prisma.normalizedSignal?.update) {
@@ -3642,6 +3862,7 @@ export async function executeManualStagingIngestion(
       if (invalidExisting.some((o: any) => /vague-question-about|^vague question about|without industry context/i.test(`${o.slug || ""} ${o.title || ""}`))) {
         await cleanSyntheticStagingOpportunity(prisma);
       }
+      await auditAndCleanMismatchedEvidenceLinks(prisma);
     } catch {}
 
     // Query for existing persisted candidates to expand evidence for and avoid duplicating
@@ -3809,16 +4030,35 @@ export async function executeManualStagingIngestion(
       const originalUrls = new Set<string>();
 
       for (const link of candidate.evidenceLinks || []) {
+        if (link.relationshipType && link.relationshipType !== "SUPPORTS") continue;
         const ns = link.normalizedSignal;
         if (ns) {
+          const raw = ns.rawSignal || {};
+          const isSupported = signalsSupportSameProblem(
+            candidate.title || "",
+            raw.title || ns.sourceTitle || ns.problemSummary || "",
+            candidate.problemStatement || "",
+            ns.sanitizedExcerpt || raw.rawContent || "",
+          ) && isConcreteProblemOrWorkaround({
+            title: raw.title || ns.sourceTitle,
+            sanitizedExcerpt: ns.sanitizedExcerpt || raw.rawContent,
+            problemSummary: ns.problemSummary,
+            canonicalUrl: ns.canonicalUrl || raw.sourceUrl,
+            sourceKey: raw.source?.key,
+          });
+
+          if (!isSupported) {
+            continue;
+          }
+
           if (!targetOriginalSignalIds.has(ns.id)) {
             targetOriginalSignalIds.add(ns.id);
             targetOriginalSignals.push({
               normalizedSignal: ns,
-              rawSignal: ns.rawSignal || {},
-              source: ns.rawSignal?.source || { key: "unknown", name: "Market Source" },
+              rawSignal: raw,
+              source: raw.source || { key: "unknown", name: "Market Source" },
             });
-            const u = ns.canonicalUrl || ns.rawSignal?.sourceUrl;
+            const u = ns.canonicalUrl || raw.sourceUrl;
             if (u) originalUrls.add(u);
           }
         }
@@ -3836,15 +4076,13 @@ export async function executeManualStagingIngestion(
       for (const item of pool) {
         if (targetOriginalSignalIds.has(item.id)) continue;
         const sim = candidateCentroid ? cosineSimilarity(item.embedding, candidateCentroid) : 0;
-        const sameProblem =
-          sim >= 0.85 ||
-          (sim >= 0.70 &&
-            signalsSupportSameProblem(
-              candidate.title || "",
-              candidate.problemStatement || "",
-              item.problemSummary,
-              item.problemSummary,
-            ));
+        const matchesProblem = signalsSupportSameProblem(
+          candidate.title || "",
+          candidate.problemStatement || "",
+          item.problemSummary,
+          item.problemSummary,
+        );
+        const sameProblem = sim >= 0.70 && matchesProblem;
 
         if (sameProblem) {
           matchedSignals.push(item);

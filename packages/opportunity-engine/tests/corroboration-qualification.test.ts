@@ -51,12 +51,30 @@ function createMockPrisma() {
           return true;
         }) || null;
       },
-      findMany: async ({ where }: any = {}) => {
+      findMany: async ({ where, include }: any = {}) => {
         return store.opportunities.filter((o) => {
-          if (where?.slug?.startsWith) {
-            return o.slug.startsWith(where.slug.startsWith);
-          }
+          if (where?.slug?.startsWith && !o.slug.startsWith(where.slug.startsWith)) return false;
+          if (where?.isDemoFixture !== undefined && o.isDemoFixture !== where.isDemoFixture) return false;
           return true;
+        }).map((o) => {
+          const res = { ...o };
+          if (include?.evidenceLinks) {
+            res.evidenceLinks = store.evidenceLinks.filter((el) => el.opportunityId === o.id).map((el) => {
+              const elCopy = { ...el };
+              if (include.evidenceLinks.include?.normalizedSignal) {
+                const ns = store.normalizedSignals.find((n) => n.id === el.normalizedSignalId);
+                elCopy.normalizedSignal = ns ? {
+                  ...ns,
+                  rawSignal: store.rawSignals.find((r) => r.id === ns.rawSignalId),
+                } : null;
+              }
+              return elCopy;
+            });
+          }
+          if (include?.scorecards) {
+            res.scorecards = store.scorecards.filter((sc) => sc.opportunityId === o.id);
+          }
+          return res;
         });
       },
       create: async ({ data }: any) => {
@@ -196,7 +214,21 @@ function createMockPrisma() {
         }
         return { count };
       },
-      deleteMany: async () => ({ count: store.evidenceLinks.length }),
+      deleteMany: async ({ where }: any = {}) => {
+        let count = 0;
+        store.evidenceLinks = store.evidenceLinks.filter((el) => {
+          if (where?.id?.in && where.id.in.includes(el.id)) {
+            count++;
+            return false;
+          }
+          if (where?.opportunityId && el.opportunityId === where.opportunityId) {
+            count++;
+            return false;
+          }
+          return true;
+        });
+        return { count };
+      },
     },
     source: {
       findFirst: async ({ where }: any) => {
@@ -649,6 +681,218 @@ describe("Corroboration Stage & Qualification Suite", () => {
       expect(prisma._store.evidenceLinks).toHaveLength(2);
       expect(prisma._store.evidenceLinks[0].relationshipType).toBe("SUPPORTS");
       expect(prisma._store.evidenceLinks[1].relationshipType).toBe("SUPPORTS");
+    });
+  });
+
+  describe("Topic Similarity vs Problem Mechanics Regression (Run cd9e2129-3c9b-48cf-91a2-9b835e1b9278)", () => {
+    it("distinguishes Kubernetes CPU limits silent OOMKill opportunity from kserve parent cgroup bug", async () => {
+      const { signalsSupportSameProblem, evaluateCorroboratingEvidence } = await import("../src/index.js");
+
+      const oppTitle = "CPU limits in Kubernetes cause misdiagnosed OOMKill and memory throttling";
+      const oppStatement = "Setting CPU limits in Kubernetes causes container CFS quota throttling, which delays execution and manifests as misdiagnosed memory exhaustion or silent OOMKill degradation.";
+
+      const kserveTitle = "cpu_count() misses CPU limits set on parent cgroups";
+      const kserveBody = "kserve.utils.utils.cpu_count() reads the CPU limit only from the process's own cgroup (cpu.max on cgroup v2, cpu.cfs_quota_us on v1). It never looks at ancestor cgroups, so a limit set on a parent cgroup is not picked up and the function falls back to the node CPU count.";
+
+      // Shared words 'kubernetes', 'cpu', 'limits' must NOT merge distinct problems
+      expect(signalsSupportSameProblem(oppTitle, kserveTitle, oppStatement, kserveBody)).toBe(false);
+
+      const evalResult = evaluateCorroboratingEvidence(
+        { title: oppTitle, text: oppStatement, sourceKey: "hackernews", url: "https://news.ycombinator.com/item?id=49349908" },
+        { title: kserveTitle, text: kserveBody, sourceKey: "github", url: "https://github.com/kserve/kserve/issues/6393" },
+      );
+      expect(evalResult.isIndependent).toBe(false);
+      expect(evalResult.relationshipType).toBe("IRRELEVANT");
+      expect(evalResult.rejectReason).toBe("KEYWORD_OVERLAP_ONLY");
+    });
+
+    it("distinguishes CrashLoopBackOff triage opportunity from CI/E2E test cluster preservation feature", async () => {
+      const { signalsSupportSameProblem, isConcreteProblemOrWorkaround, evaluateCorroboratingEvidence } = await import("../src/index.js");
+
+      const oppTitle = "Debugging Kubernetes CrashLoopBackOff requires jumping between logs and events";
+      const oppStatement = "Debugging Kubernetes CrashLoopBackOff requires switching across logs, events, and pod states to diagnose container restart loops and termination exit codes.";
+
+      const openShellTitle = "feat(e2e): preserve Kubernetes clusters for debugging";
+      const openShellBody = "As an OpenShell contributor debugging a Kubernetes E2E failure, I want to preserve the ephemeral cluster and test artifacts after the run so that I can inspect the failed state directly. The Kubernetes E2E wrapper always deletes the k3d cluster and temporary work directory from its exit trap.";
+
+      expect(signalsSupportSameProblem(oppTitle, openShellTitle, oppStatement, openShellBody)).toBe(false);
+      expect(isConcreteProblemOrWorkaround({ title: openShellTitle, sanitizedExcerpt: openShellBody })).toBe(false);
+
+      const evalResult = evaluateCorroboratingEvidence(
+        { title: oppTitle, text: oppStatement, sourceKey: "hackernews", url: "https://news.ycombinator.com/item?id=47364723" },
+        { title: openShellTitle, text: openShellBody, sourceKey: "github", url: "https://github.com/NVIDIA/OpenShell/issues/3675" },
+      );
+      expect(evalResult.isIndependent).toBe(false);
+      expect(evalResult.relationshipType).toBe("IRRELEVANT");
+    });
+
+    it("distinguishes CrashLoopBackOff triage from local dev container mounting and Compose profiles", async () => {
+      const { signalsSupportSameProblem, isConcreteProblemOrWorkaround } = await import("../src/index.js");
+
+      const oppTitle = "Debugging Kubernetes CrashLoopBackOff requires jumping between logs and events";
+      const oppStatement = "Debugging Kubernetes CrashLoopBackOff requires switching across logs, events, and pod states.";
+
+      const honuaTitle = "feat(gp): container debugging with source mounts, a Compose integration profile, and a local Kubernetes Job harness";
+      const honuaBody = "The complete native container-debugging/Compose-worker profile and local Kubernetes lifecycle matrix remain 2026.2.";
+
+      expect(signalsSupportSameProblem(oppTitle, honuaTitle, oppStatement, honuaBody)).toBe(false);
+      expect(isConcreteProblemOrWorkaround({ title: honuaTitle, sanitizedExcerpt: honuaBody })).toBe(false);
+    });
+
+    it("rejects synthetic AI benchmark scenario tasks as operational customer problems", async () => {
+      const { signalsSupportSameProblem, isConcreteProblemOrWorkaround } = await import("../src/index.js");
+
+      const oppTitle = "Diagnosing Kubernetes CrashLoopBackOff from logs is manual and fragmented";
+      const oppStatement = "Diagnosing Kubernetes CrashLoopBackOff errors requires manual log inspection and correlation.";
+
+      const benchmarkTitle = "[Scenario] Add a Kubernetes CrashLoopBackOff investigation case";
+      const benchmarkBody = "Add a sanitized scenario under evals/scenarios/ for a Kubernetes workload repeatedly entering CrashLoopBackOff. Include ground truth, required evidence, red herrings.";
+
+      expect(signalsSupportSameProblem(oppTitle, benchmarkTitle, oppStatement, benchmarkBody)).toBe(false);
+      expect(isConcreteProblemOrWorkaround({ title: benchmarkTitle, sanitizedExcerpt: benchmarkBody })).toBe(false);
+    });
+
+    it("rejects certification exam prep checklists as customer problem friction", async () => {
+      const { signalsSupportSameProblem, isConcreteProblemOrWorkaround } = await import("../src/index.js");
+
+      const oppTitle = "Diagnosing Kubernetes CrashLoopBackOff from logs is manual and fragmented";
+      const oppStatement = "Diagnosing Kubernetes CrashLoopBackOff errors requires manual log inspection.";
+
+      const ckaTitle = "[TRBL-02] CrashLoopBackOff 원인 분석";
+      const ckaBody = "## 학습 목표 [TRBL-02] CrashLoopBackOff 원인 분석 주제를 Kubernetes 관리자 관점에서 이해하고 직접 검증한다. kubectl get, describe, logs 등으로 상태를 확인한다.";
+
+      expect(signalsSupportSameProblem(oppTitle, ckaTitle, oppStatement, ckaBody)).toBe(false);
+      expect(isConcreteProblemOrWorkaround({ title: ckaTitle, sanitizedExcerpt: ckaBody })).toBe(false);
+    });
+
+    it("ensures feature requests with genuine customer pain are NOT disqualified by 'feat' prefix", async () => {
+      const { signalsSupportSameProblem, isConcreteProblemOrWorkaround } = await import("../src/index.js");
+
+      // 1. Feature request for Terraform state lock timeout
+      const tfOppTitle = "Terraform State Lock acquisition error in CI pipeline";
+      const tfOppStatement = "Deployment blocks when DynamoDB state lock fails to release cleanly.";
+      const tfFeatTitle = "feat(terraform): retry mechanism for intermittent state lock acquisition timeout";
+      const tfFeatBody = "Our automated Terraform pipeline halts because DynamoDB state lock fails to release cleanly, causing intermittent runner timeouts.";
+
+      expect(isConcreteProblemOrWorkaround({ title: tfFeatTitle, sanitizedExcerpt: tfFeatBody })).toBe(true);
+      expect(signalsSupportSameProblem(tfOppTitle, tfFeatTitle, tfOppStatement, tfFeatBody)).toBe(true);
+
+      // 2. Feature request for vLLM CUDA OOM workaround
+      const vllmOppTitle = "CUDA out-of-memory error during vLLM batching inference";
+      const vllmOppStatement = "vLLM server restarts fail with out of memory error during concurrent requests.";
+      const vllmFeatTitle = "feature(vllm): workaround for CUDA out of memory during long-context batching";
+      const vllmFeatBody = "vLLM worker crashes intermittently with CUDA out-of-memory error when processing concurrent context requests.";
+
+      expect(isConcreteProblemOrWorkaround({ title: vllmFeatTitle, sanitizedExcerpt: vllmFeatBody })).toBe(true);
+      expect(signalsSupportSameProblem(vllmOppTitle, vllmFeatTitle, vllmOppStatement, vllmFeatBody)).toBe(true);
+
+      // 3. Feature request for Prometheus memory leak
+      const promOppTitle = "Prometheus memory leak causes unexpected pod crashes";
+      const promOppStatement = "Prometheus container memory leak causes unexpected pod restarts and silent monitoring degradation.";
+      const promFeatTitle = "feat: automated alert for Prometheus memory leak before OOMKill";
+      const promFeatBody = "Prometheus memory leak causes unexpected pod crashes and OOMKill in production cluster.";
+
+      expect(isConcreteProblemOrWorkaround({ title: promFeatTitle, sanitizedExcerpt: promFeatBody })).toBe(true);
+      expect(signalsSupportSameProblem(promOppTitle, promFeatTitle, promOppStatement, promFeatBody)).toBe(true);
+    });
+
+    it("audits existing evidence links, removing SUPPORTS contribution while preserving source provenance", async () => {
+      const { auditAndCleanMismatchedEvidenceLinks } = await import("../src/index.js");
+
+      const mockPrisma = createMockPrisma();
+
+      // Create opportunity
+      const opp = await mockPrisma.opportunity.create({
+        data: {
+          slug: "kubernetes-cpu-limits-silently-cause-oomkills-that-are-misdi",
+          title: "CPU limits in Kubernetes cause misdiagnosed OOMKill and memory throttling",
+          problemStatement: "Setting CPU limits in Kubernetes causes container CFS quota throttling and silent OOMKill misdiagnoses.",
+          status: "PUBLISHED",
+          publicationQualityStatus: "HYPOTHESIS",
+          isDemoFixture: false,
+        },
+      });
+
+      // Raw and Normalized signal 1 (Genuine HN signal)
+      const raw1 = {
+        id: "raw-hn",
+        sourceUrl: "https://news.ycombinator.com/item?id=49349908",
+        title: "For the love of god stop using CPU limits in Kubernetes",
+        rawContent: "Kubernetes CPU limits can cause memory issues and OOMKills. The actual cause is the CFS CPU limit.",
+      };
+      const ns1 = {
+        id: "ns-hn",
+        rawSignalId: raw1.id,
+        rawSignal: raw1,
+        sourceTitle: raw1.title,
+        sanitizedExcerpt: raw1.rawContent,
+        problemSummary: raw1.title,
+        canonicalUrl: raw1.sourceUrl,
+      };
+      mockPrisma._store.rawSignals.push(raw1);
+      mockPrisma._store.normalizedSignals.push(ns1);
+
+      // Raw and Normalized signal 2 (Mismatched kserve signal)
+      const raw2 = {
+        id: "raw-kserve",
+        sourceUrl: "https://github.com/kserve/kserve/issues/6393",
+        title: "cpu_count() misses CPU limits set on parent cgroups",
+        rawContent: "kserve.utils.utils.cpu_count() reads the CPU limit only from the process's own cgroup (cpu.max on cgroup v2, cpu.cfs_quota_us on v1). It never looks at ancestor cgroups.",
+      };
+      const ns2 = {
+        id: "ns-kserve",
+        rawSignalId: raw2.id,
+        rawSignal: raw2,
+        sourceTitle: raw2.title,
+        sanitizedExcerpt: raw2.rawContent,
+        problemSummary: raw2.title,
+        canonicalUrl: raw2.sourceUrl,
+      };
+      mockPrisma._store.rawSignals.push(raw2);
+      mockPrisma._store.normalizedSignals.push(ns2);
+
+      // Create 2 EvidenceLinks
+      const link1 = {
+        id: "link-hn",
+        opportunityId: opp.id,
+        normalizedSignalId: ns1.id,
+        normalizedSignal: ns1,
+        relationshipType: "SUPPORTS",
+      };
+      const link2 = {
+        id: "link-kserve",
+        opportunityId: opp.id,
+        normalizedSignalId: ns2.id,
+        normalizedSignal: ns2,
+        relationshipType: "SUPPORTS",
+      };
+      mockPrisma._store.evidenceLinks.push(link1, link2);
+
+      // Create Scorecard
+      mockPrisma._store.scorecards.push({
+        id: "sc-1",
+        opportunityId: opp.id,
+        opportunityScore: 78,
+        evidenceConfidenceScore: 74,
+      });
+
+      // Execute audit
+      const auditResult = await auditAndCleanMismatchedEvidenceLinks(mockPrisma);
+
+      // Verify 1 link was removed
+      expect(auditResult.unlinkedCount).toBe(1);
+      expect(auditResult.affectedSlugs).toContain("kubernetes-cpu-limits-silently-cause-oomkills-that-are-misdi");
+
+      // Verify the kserve link was deleted from the opportunity
+      const remainingLinks = mockPrisma._store.evidenceLinks.filter((l: any) => l.opportunityId === opp.id);
+      expect(remainingLinks).toHaveLength(1);
+      expect(remainingLinks[0].normalizedSignalId).toBe(ns1.id);
+
+      // Verify source provenance is strictly preserved (rawSignal & normalizedSignal remain untouched in DB)
+      expect(mockPrisma._store.rawSignals).toHaveLength(2);
+      expect(mockPrisma._store.normalizedSignals).toHaveLength(2);
+      expect(mockPrisma._store.rawSignals.some((r: any) => r.id === "raw-kserve")).toBe(true);
+      expect(mockPrisma._store.normalizedSignals.some((n: any) => n.id === "ns-kserve")).toBe(true);
     });
   });
 });

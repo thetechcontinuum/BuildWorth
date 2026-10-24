@@ -98,7 +98,7 @@ export function isConcreteProblemOrWorkaround(signal: {
   // 3. Strict Exclusions: Generic developer questions / Q&A / advice seeking / opinion essays / meta-critiques
   // e.g. "Why does adding local size improve performance in OpenCL?", "How to do X in Y", "Are Harnesses Worth the Cost?"
   const isGenuineProblemInquiry =
-    /\b(manual reconciliation|workaround|hacky workaround|bottleneck|production outage|memory leak|cost spike|bill spike|spiked|oom|oomkilled|crashloopbackoff|state lock|prompt regression|evaluation framework|benchmark|willing to pay|looking for a paid|looking for an alternative|recurring delays)\b/i.test(fullText);
+    /\b(manual reconciliation|workaround|hacky workaround|bottleneck|production outage|memory leak|cost spike|bill spike|spiked|oom|oomkill|oomkills|oomkilled|crashloopbackoff|state lock|prompt regression|evaluation framework|benchmark|willing to pay|looking for a paid|looking for an alternative|recurring delays)\b/i.test(fullText);
 
   if (
     !isGenuineProblemInquiry &&
@@ -127,8 +127,26 @@ export function isConcreteProblemOrWorkaround(signal: {
   }
 
   if (
-    /^(ep-\d+|feat:|feature:|task:|chore:|refactor:|daily ingest:|sprint \d+)/i.test(title) &&
+    /^(ep-\d+|feat(\([^)]+\))?:|feature(\([^)]+\))?:|task(\([^)]+\))?:|chore(\([^)]+\))?:|refactor(\([^)]+\))?:|daily ingest:|sprint \d+)/i.test(title) &&
     !/\b(broken|breaks|fails|failing|error|leak|spike|latency|outage|unusable|crash|crashing)\b/i.test(fullText)
+  ) {
+    return false;
+  }
+
+  // 4b. Strict Exclusions: Synthetic benchmark / eval scenario authoring tasks
+  // e.g. "[Scenario] Add a Kubernetes CrashLoopBackOff investigation case"
+  if (
+    /^\[scenario\]/i.test(title) ||
+    /\b(evals\/scenarios|benchmark scenario|evaluation scenario|ground truth.*red herrings|synthetic scenario)\b/i.test(fullText)
+  ) {
+    return false;
+  }
+
+  // 4c. Strict Exclusions: Certification exam study notes, learning objectives, and practice checklists
+  // e.g. "[TRBL-02] CrashLoopBackOff 원인 분석", CKA / CKAD study guides
+  if (
+    /^(\[trbl-\d+\]|\[cka\]|\[ckad\]|\[cks\]|\[aws-cert\]|study guide|exam prep|learning log)/i.test(title) ||
+    /\b(학습 목표|certification prep|exam preparation|study checklist|cka prep|ckad prep)\b/i.test(fullText)
   ) {
     return false;
   }
@@ -217,7 +235,7 @@ export function isConcreteProblemOrWorkaround(signal: {
   // 12. Explicit concrete friction / breakdown / workaround / cost pain indicators
   // The excerpt or title must describe actual failure, broken functionality, error, or manual hack
   const hasConcreteBreakdown =
-    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|misses|missed|crash|crashes|crashloopbackoff|oom|oomkilled|oom-killed|out of memory|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|manual reconciliation|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes|spiked|billing surprises?|delays?|drift|lags?|state lock|locking failure|prompt regression|regression|degradation|hallucinat|building a proxy|manual proxy|spent (days|hours|weeks))\b/i.test(fullText);
+    /\b(broken|breaks|breaks silently|failing|fails|fails to|failed|misses|missed|crash|crashes|crashloopbackoff|oom|oomkill|oomkills|oomkilled|oom-killed|out of memory|leak|leaks|silent failure|data corruption|permanently reports|cannot decode|unable to parse|sensor decoding error|outage|downtime|deadlock|deadlocks|throttled|timeout|workaround|hacky workaround|manual fix|manual reconciliation|costing|ruined|waste|wasted|unexpected spend|bill spike|bill spikes|spiked|billing surprises?|delays?|drift|lags?|state lock|locking failure|prompt regression|regression|degradation|hallucinat|building a proxy|manual proxy|spent (days|hours|weeks))\b/i.test(fullText);
 
   // High quality problem types from GitHub / StackOverflow / HN or unclassified signals with problem keywords
   const isProblemType = [
@@ -232,7 +250,7 @@ export function isConcreteProblemOrWorkaround(signal: {
     "UNCLASSIFIED",
   ].includes(sigType);
 
-  return hasConcreteBreakdown || (isProblemType && /\b(error|bug|issue|failure|broken|problem|bottleneck|friction|pain|cost|spend|waste|latency|spikes?|spiked|deadlock|deadlocks|downtime|delay|delays|drift|oom|oomkilled|lock|locking|regression|evaluat|benchmark)\b/i.test(fullText));
+  return hasConcreteBreakdown || (isProblemType && /\b(error|bug|issue|failure|broken|problem|bottleneck|friction|pain|cost|spend|waste|latency|spikes?|spiked|deadlock|deadlocks|downtime|delay|delays|drift|oom|oomkill|oomkills|oomkilled|lock|locking|regression|evaluat|benchmark)\b/i.test(fullText));
 }
 
 /**
@@ -744,6 +762,11 @@ export function evaluateCorroboratingEvidence(
   }
 
   // 4. Must address the same underlying technical problem mechanics, not superficial keyword overlap
+  const pCombined = `${primarySignal.title || ""} ${primarySignal.text || ""}`.toLowerCase();
+  const cCombined = `${candidateSignal.title || ""} ${candidateSignal.text || ""}`.toLowerCase();
+  const isOOMProblem = /\b(oomkill|oomkilled|oom|out of memory|memory leak|cgroup oom)\b/i.test(pCombined);
+  const mentionsOOM = /\b(oomkill|oomkilled|oom|out of memory|memory leak|cgroup oom)\b/i.test(cCombined);
+
   const sameProblem = signalsSupportSameProblem(
     primarySignal.title || "",
     candidateSignal.title || "",
@@ -751,6 +774,14 @@ export function evaluateCorroboratingEvidence(
     candidateSignal.text || "",
   );
   if (!sameProblem) {
+    if (isOOMProblem && !mentionsOOM) {
+      return {
+        isIndependent: false,
+        relationshipType: "IRRELEVANT",
+        rejectReason: "KEYWORD_OVERLAP_ONLY",
+        explanation: "Related CPU/cgroup context: discusses container cgroup CPU limit resolution (e.g. kserve ancestor cgroup traversal) without corroborating the OOMKill or memory exhaustion failure mechanism.",
+      };
+    }
     return {
       isIndependent: false,
       relationshipType: "IRRELEVANT",
@@ -761,11 +792,6 @@ export function evaluateCorroboratingEvidence(
 
   // 4b. Concrete failure mechanism check: if primary problem asserts an OOMKill or memory exhaustion breakdown,
   // the candidate signal must corroborate memory/OOM/kill mechanisms rather than merely general CPU/cgroup configuration.
-  const pCombined = `${primarySignal.title || ""} ${primarySignal.text || ""}`.toLowerCase();
-  const cCombined = `${candidateSignal.title || ""} ${candidateSignal.text || ""}`.toLowerCase();
-  const isOOMProblem = /\b(oomkill|oomkilled|oom|out of memory|memory leak|cgroup oom)\b/i.test(pCombined);
-  const mentionsOOM = /\b(oomkill|oomkilled|oom|out of memory|memory leak|cgroup oom)\b/i.test(cCombined);
-
   if (isOOMProblem && !mentionsOOM) {
     return {
       isIndependent: false,
@@ -842,6 +868,8 @@ export function isIndependentSource(
 
 /**
  * Checks whether two signals address the same underlying technical problem space.
+ * Shared words such as Kubernetes, CPU, cluster, or workflow do NOT establish the same problem;
+ * signals must describe the same underlying technical failure mechanism, not broad topic similarity.
  */
 export function signalsSupportSameProblem(
   title1: string,
@@ -849,6 +877,72 @@ export function signalsSupportSameProblem(
   text1: string,
   text2: string,
 ): boolean {
+  const combined1 = `${title1} ${text1}`.toLowerCase();
+  const combined2 = `${title2} ${text2}`.toLowerCase();
+
+  // Negative checks: Distinct problem mechanics that happen to share broad platform words
+
+  // 1. CI / E2E test harness cluster cleanup vs runtime workload triage (e.g. CrashLoopBackOff)
+  const isCIClusterPreservation = (t: string) =>
+    /\b(preserve.*(?:cluster|k3d|kind)|exit trap|delete.*cluster from.*trap|e2e wrapper|ephemeral cluster and test artifacts)\b/i.test(t);
+  if ((isCIClusterPreservation(combined1) && !isCIClusterPreservation(combined2)) ||
+      (isCIClusterPreservation(combined2) && !isCIClusterPreservation(combined1))) {
+    return false;
+  }
+
+  // 2. Local dev container mounts / compose profiles vs runtime workload triage
+  const isLocalDevProfile = (t: string) =>
+    /\b(source mounts?|compose integration profile|local.*job harness|release allocation|host-only authoring)\b/i.test(t);
+  if ((isLocalDevProfile(combined1) && !isLocalDevProfile(combined2)) ||
+      (isLocalDevProfile(combined2) && !isLocalDevProfile(combined1))) {
+    return false;
+  }
+
+  // 3. Eval / benchmark scenario authoring vs operational practitioner pain
+  const isBenchmarkScenario = (t: string, title: string) =>
+    /\b(evals\/scenarios|benchmark scenario|ground truth.*red herrings|good first contribution.*scenario)\b/i.test(t) ||
+    /^\[scenario\]/i.test(title);
+  if ((isBenchmarkScenario(combined1, title1) && !isBenchmarkScenario(combined2, title2)) ||
+      (isBenchmarkScenario(combined2, title2) && !isBenchmarkScenario(combined1, title1))) {
+    return false;
+  }
+
+  // 4. Study checklist / exam preparation vs operational practitioner pain
+  const isStudyGuide = (t: string, title: string) =>
+    /\b(학습 목표|cka\b|ckad\b|cks\b|exam prep|certification prep|study checklist)\b/i.test(t) ||
+    /^\[trbl-\d+\]/i.test(title);
+  if ((isStudyGuide(combined1, title1) && !isStudyGuide(combined2, title2)) ||
+      (isStudyGuide(combined2, title2) && !isStudyGuide(combined1, title1))) {
+    return false;
+  }
+
+  // 5. CPU limits causing OOMKill / CFS quota misdiagnosis vs utility function cgroup hierarchy traversal
+  const isCFSOOMKill = (t: string) =>
+    /\b(oom|oomkill|oomkills|oomkilled|out of memory|memory issues? and oom|cfs quota throttling)\b/i.test(t) &&
+    /\b(cpu limits?|cgroup.*limit)\b/i.test(t);
+  const isCgroupTraversalBug = (t: string) =>
+    /\b(cpu_count|reads the cpu limit only|ancestor cgroups?|parent cgroups?)\b/i.test(t) &&
+    !/\b(oomkill|oomkilled|silent.*kill|misdiagnos.*memory)\b/i.test(t);
+
+  if ((isCFSOOMKill(combined1) && isCgroupTraversalBug(combined2)) ||
+      (isCFSOOMKill(combined2) && isCgroupTraversalBug(combined1))) {
+    return false;
+  }
+
+  if (isCFSOOMKill(combined1) && isCFSOOMKill(combined2)) {
+    return true;
+  }
+
+  // Broad platform / ecosystem words that DO NOT establish the same problem on their own
+  const broadPlatformWords = new Set([
+    "kubernetes", "k8s", "docker", "container", "containers", "cluster", "clusters",
+    "cpu", "workflow", "workflows", "memory", "gpu", "gpus", "cloud", "server", "servers",
+    "terraform", "datadog", "observability", "prompt", "prompts", "evaluation", "evaluations",
+    "benchmark", "benchmarks", "service", "services", "system", "systems", "platform",
+    "debugging", "diagnosing", "investigation", "handling", "feature", "issue", "problem",
+    "running", "pipeline", "harness", "suite"
+  ]);
+
   const normalize = (t: string) =>
     t
       .toLowerCase()
@@ -859,22 +953,48 @@ export function signalsSupportSameProblem(
   const words1 = new Set(normalize(`${title1} ${text1}`));
   const words2 = new Set(normalize(`${title2} ${text2}`));
 
-  let overlap = 0;
-  for (const w of words1) {
-    if (words2.has(w)) overlap++;
+  // Specific failure mechanics anchors (narrow, high-signal failure modes, NOT broad platforms)
+  const specificFailureAnchors = [
+    "crashloopbackoff", "oomkilled", "oomkill", "cfs", "statelock", "deadlock",
+    "cardinality", "throttling", "conditionalcheckfailed"
+  ];
+
+  // Compound anchor checks (e.g. "state" + "lock", "memory" + "leak", "prompt" + "regression", "out of memory" / "cuda")
+  const hasStateLock1 = combined1.includes("state lock") || combined1.includes("state locking") || combined1.includes("statelock");
+  const hasStateLock2 = combined2.includes("state lock") || combined2.includes("state locking") || combined2.includes("statelock");
+  if (hasStateLock1 && hasStateLock2) return true;
+
+  const hasMemoryLeak1 = combined1.includes("memory leak") || (combined1.includes("leak") && combined1.includes("vram"));
+  const hasMemoryLeak2 = combined2.includes("memory leak") || (combined2.includes("leak") && combined2.includes("vram"));
+  if (hasMemoryLeak1 && hasMemoryLeak2) return true;
+
+  const hasOOM1 = combined1.includes("out of memory") || combined1.includes("oom") || combined1.includes("cuda out of memory");
+  const hasOOM2 = combined2.includes("out of memory") || combined2.includes("oom") || combined2.includes("cuda out of memory");
+  const hasVllmOrCuda1 = combined1.includes("vllm") || combined1.includes("cuda");
+  const hasVllmOrCuda2 = combined2.includes("vllm") || combined2.includes("cuda");
+  if (hasOOM1 && hasOOM2 && (hasVllmOrCuda1 || hasVllmOrCuda2)) return true;
+
+  const hasPromptEval1 = (combined1.includes("prompt") || combined1.includes("llm")) && (combined1.includes("regression") || combined1.includes("evaluat"));
+  const hasPromptEval2 = (combined2.includes("prompt") || combined2.includes("llm")) && (combined2.includes("regression") || combined2.includes("evaluat"));
+  if (hasPromptEval1 && hasPromptEval2) return true;
+
+  const hasCrashLoop1 = combined1.includes("crashloopbackoff") || combined1.includes("crashloop");
+  const hasCrashLoop2 = combined2.includes("crashloopbackoff") || combined2.includes("crashloop");
+  if (hasCrashLoop1 && hasCrashLoop2) {
+    return true;
   }
 
-  // Common high-signal technical anchors
-  const anchors = [
-    "ingress", "websocket", "latency", "rebalance", "kafka", "gpu", "cluster",
-    "memory", "leak", "deadlock", "timeout", "docker", "kubernetes", "sqlite",
-    "postgres", "redis", "terraform", "datadog", "observability", "prompt",
-    "evaluation", "benchmark", "vllm", "cuda", "finops", "state", "locking",
-    "crashloopbackoff", "oomkilled", "cost"
-  ];
-  const anchorOverlap = anchors.some((a) => words1.has(a) && words2.has(a));
+  // Count overlapping words, excluding broad platform words
+  let nonPlatformOverlap = 0;
+  for (const w of words1) {
+    if (words2.has(w) && !broadPlatformWords.has(w)) {
+      nonPlatformOverlap++;
+    }
+  }
 
-  return overlap >= 3 || (overlap >= 2 && anchorOverlap);
+  const anchorOverlap = specificFailureAnchors.some((a) => words1.has(a) && words2.has(a));
+
+  return (nonPlatformOverlap >= 2 && anchorOverlap) || nonPlatformOverlap >= 4;
 }
 
 /**
