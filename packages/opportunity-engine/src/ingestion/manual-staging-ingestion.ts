@@ -1263,21 +1263,12 @@ export async function sanitizeHistoricalProductionBriefsAndEvidence(prisma: any)
             where: { id: targetMacOpp.id },
             data: {
               problemStatement: updatedProblemStatement,
+              oneSentenceSummary: updatedProblemStatement,
               proposedProduct: updatedProposedProduct,
               targetCustomerSegments: [updatedAudience],
               economicBuyer: "[Assumption] VP of Engineering or Head of Studio",
               endUser: "Graphics Software Engineer",
               recommendedNextExperiment: updatedExperiment,
-              competitors: [
-                "Manual Apple Feedback Assistant radar tickets",
-                "Community Metal-to-OpenGL translation shims (MoltenVK / ANGLE)",
-                "Ad-hoc internal engine workarounds and patch branches",
-              ],
-              competitorWeaknesses: [
-                "No timeline or status visibility on Apple radar tickets; deprecated APIs receive minimal engineering priority",
-                "High manual configuration overhead and incomplete OpenGL feature parity in generic translation shims",
-                "Engine forks diverge from upstream and incur ongoing merge maintenance across releases",
-              ],
               majorRisks: [
                 "Commercial willingness to pay is unverified: no explicit pricing signals, budgets, or purchasing commitments observed",
                 "Workaround stickiness unknown: developers may migrate to Metal/Vulkan or wait for Apple's official 15.8.2 patch",
