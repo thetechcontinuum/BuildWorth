@@ -130,6 +130,7 @@ async function handleScheduledIngestion(request: NextRequest) {
             "gpu memory leak",
             "langchain breaking change",
             "cuda out of memory python",
+            "macos opengl",
           ],
       cleanSyntheticPrior: true,
     });
