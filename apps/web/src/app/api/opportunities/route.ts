@@ -106,6 +106,7 @@ export async function GET() {
             relationshipType: el.relationshipType as any,
             supportStrength: el.supportStrength as any,
             relevanceScore: el.relevanceScore,
+            explanation: el.explanation || undefined,
             createdAt: el.createdAt.toISOString(),
             signal: el.normalizedSignal
               ? {
