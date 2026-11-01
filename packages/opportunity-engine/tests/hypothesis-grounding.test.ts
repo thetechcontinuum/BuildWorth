@@ -405,7 +405,7 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
           id: "raw-rotex-1",
           title: "No valid decoding for Rotex HPSU bi-bloc 2010 RRLQ008BAV3 – likely old \"S protocol\" vs. newer \"I protocol\"",
           sourceUrl: "https://github.com/wrfz/esphome-components/issues/18",
-          publishedAt: new Date("2026-09-11T08:38:22Z"),
+          publishedAt: new Date(Date.now() - 33 * 24 * 60 * 60 * 1000),
           createdAt: new Date("2026-10-13T18:06:00Z"),
           source: {
             key: "github",
@@ -540,7 +540,7 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
           id: "raw-slint-1",
           title: "LineEdit cannot accept Chinese IME input on iOS device (English works fine)",
           sourceUrl: "https://github.com/slint-ui/slint/issues/14032",
-          publishedAt: new Date("2026-10-13T11:02:12Z"),
+          publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
           createdAt: new Date("2026-10-13T18:06:00Z"),
           source: {
             key: "github",
@@ -904,7 +904,7 @@ describe("Hypothesis Grounding & Schedule Alignment Regression Suite", () => {
           id: "raw-rotex-rl",
           title: "No valid decoding for Rotex HPSU bi-bloc 2010 RRLQ008BAV3",
           sourceUrl: "https://github.com/wrfz/esphome-components/issues/18",
-          publishedAt: new Date("2026-09-11T08:38:22Z"), // 33 days old (> 14 days)
+          publishedAt: new Date(Date.now() - 33 * 24 * 60 * 60 * 1000), // 33 days old (> 14 days)
           createdAt: new Date("2026-10-13T18:06:00Z"),
           source: {
             key: "github",

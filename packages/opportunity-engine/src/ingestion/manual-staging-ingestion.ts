@@ -197,6 +197,11 @@ export const DEFAULT_FOCUSED_DOMAIN_QUERIES = [
   "opentelemetry high cardinality",
   "argocd sync failed",
   "prometheus memory leak",
+  "aws egress cost",
+  "cloud cost spike",
+  "snowflake compute cost",
+  "kafka consumer lag",
+  "clickhouse memory limit",
   // AI Developer Tooling
   "prompt regression",
   "evaluating prompts",
@@ -204,6 +209,11 @@ export const DEFAULT_FOCUSED_DOMAIN_QUERIES = [
   "gpu memory leak",
   "langchain breaking change",
   "cuda out of memory python",
+  "context window overflow",
+  "llm token cost spike",
+  "rag retrieval hallucination",
+  "agent loop timeout",
+  "vector database latency",
 ];
 
 export interface QueryCheckpointState {
@@ -248,19 +258,22 @@ export function pickQueriesForSourceWithRotation(
     eligible = queries.filter((q) =>
       q.includes("datadog") || q.includes("prompt") || q.includes("evaluating") ||
       q.includes("kubernetes") || q.includes("vllm") || q.includes("cost") ||
-      q.includes("oom") || q.includes("memory") || q.includes("gpu") || q.includes("cardinality")
+      q.includes("oom") || q.includes("memory") || q.includes("gpu") || q.includes("cardinality") ||
+      q.includes("aws") || q.includes("token") || q.includes("rag") || q.includes("agent") || q.includes("snowflake")
     );
   } else if (srcKey === "stackexchange") {
     eligible = queries.filter((q) =>
       q.includes("terraform") || q.includes("kubernetes") || q.includes("evaluating") ||
       q.includes("prompt") || q.includes("lock") || q.includes("memory") ||
-      q.includes("oom") || q.includes("gpu") || q.includes("cuda")
+      q.includes("oom") || q.includes("gpu") || q.includes("cuda") ||
+      q.includes("kafka") || q.includes("clickhouse") || q.includes("vector")
     );
   } else if (srcKey === "github") {
     eligible = queries.filter((q) =>
       q.includes("datadog") || q.includes("terraform") || q.includes("prompt") ||
       q.includes("kubernetes") || q.includes("vllm") || q.includes("memory") ||
-      q.includes("oom") || q.includes("sync") || q.includes("langchain")
+      q.includes("oom") || q.includes("sync") || q.includes("langchain") ||
+      q.includes("agent") || q.includes("rag") || q.includes("latency")
     );
   } else {
     eligible = [...queries];
@@ -384,6 +397,8 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
     "china-s-push-for-domestic-ai-chip-capability-amid-internatio",
     "apple-id-locked-accounts-force-users-into-week-long-automate",
     "workflow-gap-in-agents-pr-fixer-md-requires-manual-workaroun",
+    "does-ds-read-file-download-the-entire-file-into-memory-bef",
+    "gbase8c-postgresql-pl-pgsql-recursive-function-consuming-exc",
   ];
 
   let cleanedOpportunities = 0;
@@ -402,18 +417,20 @@ export async function cleanSyntheticStagingOpportunity(prisma: any): Promise<{
     }
   }
 
-  // Also clean any non-demo opportunity failing solution feasibility or single-repo checks
+  // Also clean any non-demo opportunity failing solution feasibility, single-repo, or code-level API checks
   try {
     const allOpps = await prisma.opportunity.findMany({
       where: { isDemoFixture: false },
       select: { id: true, slug: true, title: true, problemStatement: true },
-      take: 25,
+      take: 100,
     }).catch(() => []);
     for (const o of allOpps) {
       const combined = `${o.slug || ""} ${o.title || ""} ${o.problemStatement || ""}`;
       const feasibility = evaluateSolutionFeasibility(o.problemStatement || o.title);
       if (
         /vague-question-about|^vague question about|without industry context/i.test(combined) ||
+        /recursive function consuming excessive memory|ds\.read_file\(\)/i.test(combined) ||
+        /^(does|can|will|should|is|how to|why does)\s+([a-z0-9_.]+\(\)|[a-z0-9_.]+\.[a-z0-9_]+)/i.test(o.title) ||
         !feasibility.isFeasible ||
         isSingleRepoTicket(undefined, combined)
       ) {

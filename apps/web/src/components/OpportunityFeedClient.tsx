@@ -86,8 +86,11 @@ export function OpportunityFeedClient() {
       })
       .sort((a, b) => {
         if (sortBy === "BEST_MATCH") return b.opportunityScore - a.opportunityScore;
-        if (sortBy === "DATE")
-          return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+        if (sortBy === "DATE") {
+          const timeA = new Date(a.sourcePublicationDate || a.publishedAt).getTime();
+          const timeB = new Date(b.sourcePublicationDate || b.publishedAt).getTime();
+          return timeB - timeA;
+        }
         if (sortBy === "SCORE") return b.opportunityScore - a.opportunityScore;
         if (sortBy === "CONFIDENCE") return b.confidenceScore - a.confidenceScore;
         if (sortBy === "COST") return a.costRange.minMinor - b.costRange.minMinor;

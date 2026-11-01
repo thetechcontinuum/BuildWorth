@@ -44,6 +44,7 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
     logger.info(`Fetching Stack Exchange technical questions (limit ${limit}${query ? `, query: ${query}` : ""})...`);
 
     try {
+      const isDiscovery = options.searchType !== "HISTORICAL_CORROBORATION";
       let fromDateSec: number;
       if (options.since && !isNaN(options.since.getTime())) {
         fromDateSec = Math.floor(options.since.getTime() / 1000);
@@ -53,10 +54,12 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
           fromDateSec = cpNum > 2000000000 ? Math.floor(cpNum / 1000) : cpNum;
         } else {
           const cpDate = new Date(options.checkpoint);
-          fromDateSec = !isNaN(cpDate.getTime()) ? Math.floor(cpDate.getTime() / 1000) : Math.floor((Date.now() - 180 * 24 * 60 * 60 * 1000) / 1000);
+          const defaultLookbackDays = isDiscovery ? 30 : 180;
+          fromDateSec = !isNaN(cpDate.getTime()) ? Math.floor(cpDate.getTime() / 1000) : Math.floor((Date.now() - defaultLookbackDays * 24 * 60 * 60 * 1000) / 1000);
         }
       } else {
-        fromDateSec = Math.floor((Date.now() - 180 * 24 * 60 * 60 * 1000) / 1000);
+        const defaultLookbackDays = isDiscovery ? 30 : 180;
+        fromDateSec = Math.floor((Date.now() - defaultLookbackDays * 24 * 60 * 60 * 1000) / 1000);
       }
 
       // Guard against future timestamps blocking relevant questions
@@ -66,7 +69,8 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
       }
 
       const effectiveQuery = query || "workaround bottleneck timeout memory leak rate limit migration";
-      const sortParam = query ? "relevance" : "votes";
+      // For discovery, always prioritize newly created questions rather than ancient relevance matches
+      const sortParam = isDiscovery ? "creation" : (query ? "relevance" : "votes");
       const page = options.page || 1;
 
       const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=${sortParam}&fromdate=${fromDateSec}&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&page=${page}&filter=withbody`;
