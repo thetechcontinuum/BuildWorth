@@ -27,11 +27,12 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
 
     logger.info(`Fetching GitHub issues signals (limit ${limit}, page ${page}${query ? `, query: ${query}` : ""})...`);
     try {
+      const isDiscovery = options.searchType !== "HISTORICAL_CORROBORATION";
       const defaultProblemQuery =
         '("workaround" OR "bottleneck" OR "manual process" OR "memory leak" OR "rate limit" OR "timeout" OR "cost spike" OR "migration")';
       let q =
         query && query.trim().length > 0
-          ? `is:public is:issue state:open ${query.trim()}`
+          ? `is:public is:issue state:open ${query.trim()} sort:updated-desc`
           : `is:public is:issue state:open ${defaultProblemQuery} sort:updated`;
 
       if (options.since) {
@@ -41,6 +42,10 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
         if (!isNaN(cpDate.getTime())) {
           q += ` updated:>${cpDate.toISOString()}`;
         }
+      } else if (isDiscovery) {
+        // Default discovery lookback to recent 30 days so issues reflect modern friction
+        const lookback = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        q += ` updated:>${lookback.toISOString()}`;
       }
 
       const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;

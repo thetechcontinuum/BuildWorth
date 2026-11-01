@@ -97,6 +97,15 @@ export function isConcreteProblemOrWorkaround(signal: {
 
   // 3. Strict Exclusions: Generic developer questions / Q&A / advice seeking / opinion essays / meta-critiques
   // e.g. "Why does adding local size improve performance in OpenCL?", "How to do X in Y", "Are Harnesses Worth the Cost?"
+  // Also strictly exclude single-function API inquiries and code-level recursion/algorithmic debugging
+  if (
+    /^(does|can|will|should|is|how to|how do i|why does)\s+([a-z0-9_.]+\(\)|[a-z0-9_.]+\.[a-z0-9_]+)/i.test(title) ||
+    /^(does|can|is)\s+[a-z0-9_]+\(\)/i.test(title) ||
+    /\b(recursive function consuming|infinite loop in (my|a|the)|syntax error in plpgsql|unhandled exception in function|pointer arithmetic in)\b/i.test(fullText)
+  ) {
+    return false;
+  }
+
   const isGenuineProblemInquiry =
     /\b(manual reconciliation|workaround|hacky workaround|bottleneck|production outage|memory leak|cost spike|bill spike|spiked|oom|oomkill|oomkills|oomkilled|crashloopbackoff|state lock|prompt regression|evaluation framework|benchmark|willing to pay|looking for a paid|looking for an alternative|recurring delays)\b/i.test(fullText);
 

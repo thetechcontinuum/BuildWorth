@@ -45,6 +45,12 @@ export async function GET() {
       if (/vague-question-about|^vague question about|without industry context/i.test(combined)) {
         return false;
       }
+      if (/recursive function consuming excessive memory|ds\.read_file\(\)/i.test(combined)) {
+        return false;
+      }
+      if (/^(does|can|will|should|is|how to|why does)\s+([a-z0-9_.]+\(\)|[a-z0-9_.]+\.[a-z0-9_]+)/i.test(o.title)) {
+        return false;
+      }
       const feasibility = evaluateSolutionFeasibility(o.problemStatement || o.title);
       if (!feasibility.isFeasible) {
         return false;
@@ -255,7 +261,7 @@ export async function GET() {
             const pubTimes = evidenceLinks
               .map((el) => (el.signal?.publishedAt ? new Date(el.signal.publishedAt).getTime() : null))
               .filter((t): t is number => t !== null && !isNaN(t));
-            return pubTimes.length > 0 ? new Date(Math.min(...pubTimes)).toISOString() : o.createdAt.toISOString();
+            return pubTimes.length > 0 ? new Date(Math.max(...pubTimes)).toISOString() : o.createdAt.toISOString();
           })(),
           firstDiscoveryDate: (() => {
             const discTimes = (o.evidenceLinks || [])

@@ -593,11 +593,10 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
   });
 
   it("strictly enforces 14-day publication limit, excluding July 25 and September 30 stale records and undated items", async () => {
-    // Current date is mid-October 2026
-    const baseNow = new Date("2026-10-14T21:45:00.000Z");
-    const freshDate = new Date("2026-10-12T10:00:00.000Z"); // 2 days old (valid)
-    const september30Date = new Date("2026-09-30T07:56:17.000Z"); // 14.5 days old (stale)
-    const july25Date = new Date("2026-07-25T07:11:24.000Z"); // 81 days old (stale)
+    const baseNow = new Date();
+    const freshDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days old (valid)
+    const september30Date = new Date(Date.now() - 16 * 24 * 60 * 60 * 1000); // 16 days old (stale)
+    const july25Date = new Date(Date.now() - 85 * 24 * 60 * 60 * 1000); // 85 days old (stale)
 
     const mockRawSignals = [
       // 1. Fresh signal (within 14 days) -> should be included
@@ -773,7 +772,7 @@ describe("Discovery Feed Service & DTO Isolation Suite", () => {
   });
 
   it("keeps single-source items labeled Research Leads and never validated opportunities", async () => {
-    const baseNow = new Date("2026-10-14T21:45:00.000Z");
+    const baseNow = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
 
     const mockSingleSourceSignal = {
       id: "ns-single-1",

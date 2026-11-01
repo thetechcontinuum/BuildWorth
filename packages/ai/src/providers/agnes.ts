@@ -146,7 +146,7 @@ export class AgnesAIProvider implements LLMProvider {
       let response: Response | null = null;
       let lastNetErr: any = null;
 
-      for (let attempt = 1; attempt <= 2; attempt++) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           response = await fetch(endpoint, {
             method: "POST",
@@ -166,12 +166,13 @@ export class AgnesAIProvider implements LLMProvider {
           if (response.ok || (response.status !== 429 && response.status < 500)) {
             break;
           }
-          if (attempt < 2) {
-            await new Promise((r) => setTimeout(r, 600));
+          if (attempt < 3) {
+            const delay = response.status === 429 ? attempt * 1200 : 600;
+            await new Promise((r) => setTimeout(r, delay));
           }
         } catch (netErr: any) {
           lastNetErr = netErr;
-          if (attempt < 2) {
+          if (attempt < 3) {
             await new Promise((r) => setTimeout(r, 600));
           }
         }
