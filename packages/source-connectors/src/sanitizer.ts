@@ -44,6 +44,9 @@ export function deriveIndependenceKey(
   if (sourceKey === "producthunt") {
     return { key: `ph:post:${externalId}`, method: "POST_ID" };
   }
+  if (sourceKey === "devto") {
+    return { key: `devto:author:${authorFingerprint || externalId}`, method: "AUTHOR_HANDLE" };
+  }
   if (sourceKey === "krasia" || sourceKey === "e27") {
     const synPartner = (metadata?.syndicationPartner || metadata?.syndicatedPublisher || (metadata?.isSyndicated ? authorFingerprint : undefined)) as string | undefined;
     if (synPartner && synPartner.trim().length > 0) {
