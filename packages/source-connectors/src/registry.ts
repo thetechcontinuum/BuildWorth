@@ -14,6 +14,7 @@ import { SamGovAdapter } from "./adapters/samgov.js";
 import { StackExchangeAdapter } from "./adapters/stackexchange.js";
 import { CisaKevAdapter } from "./adapters/cisakev.js";
 import { ArxivAdapter } from "./adapters/arxiv.js";
+import { DevToAdapter } from "./adapters/devto.js";
 import { GenericRssAdapter, GenericRssConfig } from "./adapters/generic-rss.js";
 import { SourceHealthStatus } from "./types.js";
 
@@ -36,6 +37,7 @@ export class SourceRegistry {
     this.register(new StackExchangeAdapter());
     this.register(new CisaKevAdapter());
     this.register(new ArxivAdapter());
+    this.register(new DevToAdapter());
   }
 
   public register(adapter: BaseSourceAdapter): void {

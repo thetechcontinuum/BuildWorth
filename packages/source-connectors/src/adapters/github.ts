@@ -30,9 +30,10 @@ export class GitHubIssuesAdapter extends BaseSourceAdapter {
       const isDiscovery = options.searchType !== "HISTORICAL_CORROBORATION";
       const defaultProblemQuery =
         '("workaround" OR "bottleneck" OR "manual process" OR "memory leak" OR "rate limit" OR "timeout" OR "cost spike" OR "migration")';
+      const engagementFilter = isDiscovery ? " comments:>=1" : "";
       let q =
         query && query.trim().length > 0
-          ? `is:public is:issue state:open ${query.trim()} sort:updated-desc`
+          ? `is:public is:issue state:open${engagementFilter} ${query.trim()} sort:updated-desc`
           : `is:public is:issue state:open ${defaultProblemQuery} sort:updated`;
 
       if (options.since) {

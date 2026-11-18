@@ -107,13 +107,10 @@ async function handleScheduledIngestion(request: NextRequest) {
         "hackernews",
         "github",
         "stackexchange",
+        "reddit",
         "lobsters",
+        "devto",
         "ted",
-        "krasia",
-        "siliconcanals",
-        "cisakev",
-        "arxiv",
-        "samgov",
       ],
       targetQueries: (parsedBody && Array.isArray(parsedBody.targetQueries) && parsedBody.targetQueries.length > 0)
         ? parsedBody.targetQueries

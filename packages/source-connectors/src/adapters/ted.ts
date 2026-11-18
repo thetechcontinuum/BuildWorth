@@ -2,6 +2,16 @@ import { BaseSourceAdapter } from "./base.js";
 import { RawIngestSignal, FetchSignalsOptions } from "../types.js";
 import { logger } from "@buildworth/observability";
 
+export function mapQueryToProcurementTopic(query: string): string {
+  const q = query.toLowerCase();
+  if (/\b(datadog|prometheus|opentelemetry|monitoring|observability)\b/.test(q)) return "cloud monitoring";
+  if (/\b(kubernetes|terraform|argocd|aws|cloud|egress)\b/.test(q)) return "cloud infrastructure";
+  if (/\b(snowflake|clickhouse|kafka|database|sql|vector)\b/.test(q)) return "data platform";
+  if (/\b(vllm|llm|prompt|rag|agent|gpu|cuda|ai)\b/.test(q)) return "artificial intelligence";
+  if (/\b(soc2|security|compliance|iam|cve)\b/.test(q)) return "cybersecurity";
+  return query.split(/\s+/).filter(Boolean).slice(0, 2).join(" ");
+}
+
 export class TedTendersAdapter extends BaseSourceAdapter {
   public readonly sourceKey = "ted";
   public readonly name = "TED Europa Tenders";
@@ -27,10 +37,17 @@ export class TedTendersAdapter extends BaseSourceAdapter {
     logger.info(`Fetching TED Europa tender notices (limit ${limit}${query ? `, query: ${query}` : ""})...`);
 
     try {
-      // Build query string
-      let expertQuery = "publication-date >= 20260901";
+      // Build query string with rolling 60-day lookback
+      const lookback = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      const yyyy = lookback.getUTCFullYear();
+      const mm = String(lookback.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(lookback.getUTCDate()).padStart(2, "0");
+      let expertQuery = `publication-date >= ${yyyy}${mm}${dd}`;
       if (query) {
-        expertQuery = `(${expertQuery}) AND notice-title ~ "${query.replace(/"/g, "")}"`;
+        const topic = mapQueryToProcurementTopic(query);
+        if (topic) {
+          expertQuery = `(${expertQuery}) AND notice-title ~ "${topic.replace(/"/g, "")}"`;
+        }
       }
 
       const res = await fetch("https://api.ted.europa.eu/v3/notices/search", {

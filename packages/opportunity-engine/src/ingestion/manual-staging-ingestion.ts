@@ -122,6 +122,7 @@ const ALLOWLISTED_SOURCE_KEYS = [
   "stackexchange",
   "cisakev",
   "arxiv",
+  "devto",
 ];
 
 export function formatMeaningfulTitle(text: string, maxLen = 75): string {
@@ -274,6 +275,19 @@ export function pickQueriesForSourceWithRotation(
       q.includes("kubernetes") || q.includes("vllm") || q.includes("memory") ||
       q.includes("oom") || q.includes("sync") || q.includes("langchain") ||
       q.includes("agent") || q.includes("rag") || q.includes("latency")
+    );
+  } else if (srcKey === "reddit") {
+    eligible = queries.filter((q) =>
+      q.includes("datadog") || q.includes("cost") || q.includes("terraform") ||
+      q.includes("kubernetes") || q.includes("aws") || q.includes("snowflake") ||
+      q.includes("prometheus") || q.includes("vllm") || q.includes("llm") ||
+      q.includes("agent") || q.includes("rag") || q.includes("postgres")
+    );
+  } else if (srcKey === "devto") {
+    eligible = queries.filter((q) =>
+      q.includes("kubernetes") || q.includes("terraform") || q.includes("opentelemetry") ||
+      q.includes("cost") || q.includes("memory") || q.includes("latency") ||
+      q.includes("prompt") || q.includes("rag") || q.includes("agent") || q.includes("kafka")
     );
   } else {
     eligible = [...queries];
@@ -1638,7 +1652,7 @@ export async function searchIndependentCorroboration(
       : (primarySignalOrKey || {});
 
   const primarySourceKey = (primarySignal.sourceKey || "").toLowerCase();
-  const candidateSourceKeys = ["github", "hackernews", "stackexchange", "lobsters", "reddit"].filter(
+  const candidateSourceKeys = ["github", "hackernews", "stackexchange", "reddit", "lobsters", "devto"].filter(
     (k) => k !== primarySourceKey,
   );
 
@@ -2637,12 +2651,37 @@ export async function executeManualStagingIngestion(
         attributionRequired: true,
         termsNotes: "Official arXiv API (export.arxiv.org). Scientific and technical research preprints and breakthroughs.",
       },
+      {
+        key: "devto",
+        name: "DEV Community Engineering",
+        description: "Practitioner post-mortems, migration guides, and production tooling workarounds",
+        sourceFamily: "COMMUNITY",
+        baseUrl: "https://dev.to",
+        adapterType: "DEVTO_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 60,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official public Forem / DEV.to REST API (https://dev.to/api/articles) with attribution to authors.",
+      },
     ];
 
     try {
+      const allExistingSources = await prisma.source.findMany({ where: {} }).catch(() => []);
+      const existingByKey = new Map<string, any>(
+        (Array.isArray(allExistingSources) ? allExistingSources : [])
+          .filter((s: any) => s && s.key)
+          .map((s: any) => [s.key, s]),
+      );
+
       for (const src of defaultSources) {
-        const existingList = await prisma.source.findMany({ where: { key: src.key } }).catch(() => []);
-        const existing = existingList[0];
+        const existing =
+          existingByKey.size > 0
+            ? existingByKey.get(src.key)
+            : (await prisma.source.findMany({ where: { key: src.key } }).catch(() => []))[0];
         if (existing) {
           if (existing.sourceFamily !== src.sourceFamily || existing.adapterType !== src.adapterType) {
             await prisma.source.update({
@@ -2782,9 +2821,15 @@ export async function executeManualStagingIngestion(
     const eligibleSourcesCount = Math.max(1, activeSources.length);
     const perSourceBaseBudget = Math.max(3, Math.floor(maxFetchItems / eligibleSourcesCount));
 
+    const loopStartTime = Date.now();
+    const effectiveCollectionDeadline = Math.min(
+      deadline - 12000,
+      Math.max(collectionDeadline, loopStartTime + Math.min(18000, Math.floor(executionTimeoutMs * 0.42))),
+    );
+
     for (let srcIndex = 0; srcIndex < activeSources.length; srcIndex++) {
       const src = activeSources[srcIndex];
-      if (Date.now() > collectionDeadline || totalFetched >= maxFetchItems) break;
+      if (Date.now() > effectiveCollectionDeadline || totalFetched >= maxFetchItems) break;
 
       let adapter = sourceRegistry.getAdapter(src.key);
       if (!adapter && src.adapterType === "GENERIC_RSS" && src.baseUrl) {
@@ -2926,16 +2971,23 @@ export async function executeManualStagingIngestion(
           }
         };
 
-        const isQueryableSource = src.key === "hackernews" || src.key === "github" || src.key === "stackexchange" || src.key === "lobsters";
+        const isQueryableSource =
+          src.key === "hackernews" ||
+          src.key === "github" ||
+          src.key === "stackexchange" ||
+          src.key === "reddit" ||
+          src.key === "devto" ||
+          src.key === "lobsters";
         let queriesToRun: string[] = [];
         let nextQueryIndex = sourceProgress.lastQueryIndex;
 
         if (targetQueries.length > 0 && isQueryableSource) {
+          const queryCountPerSource = activeSources.length >= 5 ? 2 : 3;
           const rotationResult = pickQueriesForSourceWithRotation(
             src.key,
             targetQueries,
             sourceProgress.lastQueryIndex,
-            3,
+            queryCountPerSource,
           );
           queriesToRun = rotationResult.selectedQueries;
           nextQueryIndex = rotationResult.nextQueryIndex;
@@ -2946,7 +2998,7 @@ export async function executeManualStagingIngestion(
         const seenRejectedKeys = new Set<string>();
 
         for (const q of queriesToRun) {
-          if (Date.now() > collectionDeadline || rawSignalsCount >= maxRawSignals) break;
+          if (Date.now() > effectiveCollectionDeadline || rawSignalsCount >= maxRawSignals) break;
 
           const normQ = (q || "general").trim().toLowerCase();
           const qState = sourceProgress.queryProgress[normQ] || {
@@ -3148,7 +3200,7 @@ export async function executeManualStagingIngestion(
             });
 
             // Proactively fetch next page if budget allows
-            if (qState.consecutiveDuplicatePages <= 2 && Date.now() < collectionDeadline - 5000 && rawSignalsCount < maxRawSignals) {
+            if (qState.consecutiveDuplicatePages <= 2 && Date.now() < effectiveCollectionDeadline - 5000 && rawSignalsCount < maxRawSignals) {
               const nextPageResult = await executeSourceQuery(q || undefined, perQuery, queryCheckpoint, qState.page);
               if (nextPageResult.signals.length > 0) {
                 for (const raw of nextPageResult.signals) {
@@ -3490,14 +3542,15 @@ export async function executeManualStagingIngestion(
         orderBy: { createdAt: "desc" },
       }).catch(() => []);
 
-      // Sort unlinked signals so problem-rich sources (HN, GitHub, StackExchange, Lobsters, TED) come first
+      // Sort unlinked signals so problem-rich sources (HN, GitHub, StackExchange, Reddit, DEV.to, Lobsters, TED) come first
       const problemSourcePriority: Record<string, number> = {
         hackernews: 1,
         github: 2,
         stackexchange: 3,
-        lobsters: 4,
-        ted: 5,
-        reddit: 6,
+        reddit: 4,
+        devto: 5,
+        lobsters: 6,
+        ted: 7,
       };
       existingUnlinked.sort((a: any, b: any) => {
         const keyA = a.rawSignal?.source?.key || "";
@@ -3613,9 +3666,10 @@ export async function executeManualStagingIngestion(
         hackernews: 1,
         github: 2,
         stackexchange: 3,
-        lobsters: 4,
-        ted: 5,
-        reddit: 6,
+        reddit: 4,
+        devto: 5,
+        lobsters: 6,
+        ted: 7,
       };
       sanitizedSignalsToProcess.sort((a, b) => {
         const aConcrete = isConcreteProblemOrWorkaround({ title: a.title, sanitizedExcerpt: a.excerpt }) ? 0 : 1;

@@ -13,7 +13,8 @@ export type AdapterType =
   | "SAMGOV_API"
   | "STACKEXCHANGE_API"
   | "CISAKEV_API"
-  | "ARXIV_API";
+  | "ARXIV_API"
+  | "DEVTO_API";
 export type SourceAccessMethod = "API" | "OAUTH_API" | "GRAPHQL" | "RSS";
 
 export interface FetchSignalsOptions {

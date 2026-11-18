@@ -18,6 +18,7 @@ export * from "./adapters/samgov.js";
 export * from "./adapters/stackexchange.js";
 export * from "./adapters/cisakev.js";
 export * from "./adapters/arxiv.js";
+export * from "./adapters/devto.js";
 export * from "./adapters/generic-rss.js";
 export * from "./registry.js";
 export * from "./runner.js";

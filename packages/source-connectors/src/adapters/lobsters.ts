@@ -4,6 +4,9 @@ import { safeFetch } from "../safe-fetch.js";
 import { logger } from "@buildworth/observability";
 import { detectPromptInjection, sanitizeToPlainText } from "@buildworth/shared";
 
+const LOBSTERS_FRICTION_RE =
+  /\b(memory|leak|oom|latency|slow|crash|outage|bug|failure|timeout|cost|expensive|migration|bottleneck|scaling|workaround|broken|deadlock|throttle|incident|deprec|limit|error|rust|linux|postgres|kubernetes|cloud|llm|ai)\b/i;
+
 /**
  * Lobsters Adapter (Global Developer Community & Friction).
  *
@@ -81,7 +84,7 @@ export class LobstersAdapter extends BaseSourceAdapter {
       const offset = (page > 0 ? page - 1 : 0) * Math.min(limit, 10);
       const slicedBlocks = itemBlocks.slice(offset);
 
-      const signals: RawIngestSignal[] = [];
+      const allParsedSignals: RawIngestSignal[] = [];
 
       for (const block of slicedBlocks) {
         const titleMatch =
@@ -132,18 +135,6 @@ export class LobstersAdapter extends BaseSourceAdapter {
         const primaryUrl = externalArticleUrl || discussionUrl;
         if (!primaryUrl || (!rawTitle && !rawDesc)) continue;
 
-        if (query && query.trim().length > 0) {
-          const qLower = query.trim().toLowerCase();
-          const terms = qLower.split(/\s+/).filter((t) => t.length >= 3);
-          const textToMatch = `${rawTitle} ${rawDesc}`.toLowerCase();
-          const matchesQuery =
-            textToMatch.includes(qLower) ||
-            (terms.length > 0 && terms.some((t) => textToMatch.includes(t)));
-          if (!matchesQuery) {
-            continue;
-          }
-        }
-
         const externalIdMatch = discussionUrl.match(/lobste\.rs\/s\/([a-zA-Z0-9]+)/i);
         const externalId =
           externalIdMatch && externalIdMatch[1]
@@ -153,7 +144,7 @@ export class LobstersAdapter extends BaseSourceAdapter {
         const promptInjectionDetected = detectPromptInjection(`${rawTitle} ${rawDesc}`);
         const sanitizedContent = sanitizeToPlainText(rawDesc, 280);
 
-        signals.push({
+        allParsedSignals.push({
           externalId,
           sourceKey: this.sourceKey,
           sourceUrl: primaryUrl,
@@ -172,11 +163,31 @@ export class LobstersAdapter extends BaseSourceAdapter {
             evidenceCategory: "DEVELOPER_FRICTION",
           },
         });
-
-        if (signals.length >= limit) break;
       }
 
-      return signals;
+      if (query && query.trim().length > 0) {
+        const qLower = query.trim().toLowerCase();
+        const terms = qLower.split(/\s+/).filter((t) => t.length >= 3);
+        const exactMatches = allParsedSignals.filter((sig) => {
+          const textToMatch = `${sig.title || ""} ${sig.rawContent}`.toLowerCase();
+          return (
+            textToMatch.includes(qLower) ||
+            (terms.length > 0 && terms.some((t) => textToMatch.includes(t)))
+          );
+        });
+        if (exactMatches.length > 0) {
+          return exactMatches.slice(0, limit);
+        }
+        if (options.searchType !== "HISTORICAL_CORROBORATION") {
+          const frictionMatches = allParsedSignals.filter((sig) =>
+            LOBSTERS_FRICTION_RE.test(`${sig.title || ""} ${sig.rawContent}`),
+          );
+          return frictionMatches.slice(0, limit);
+        }
+        return [];
+      }
+
+      return allParsedSignals.slice(0, limit);
     } catch (err: any) {
       logger.warn("Lobsters fetch failed", { error: err?.message });
       return [];

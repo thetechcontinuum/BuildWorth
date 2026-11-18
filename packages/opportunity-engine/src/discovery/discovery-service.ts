@@ -24,7 +24,7 @@ export function deriveMarketRegion(sourceKey?: string, sourceFamily?: string, in
   if (sourceKey === "eustartups" || sourceKey === "siliconcanals" || sourceKey === "ted") {
     return "Europe";
   }
-  if (sourceKey === "lobsters" || sourceKey === "github" || sourceKey === "stackexchange") {
+  if (sourceKey === "lobsters" || sourceKey === "github" || sourceKey === "stackexchange" || sourceKey === "devto") {
     return "Global / Developer Ecosystem";
   }
   if (sourceKey === "samgov") {

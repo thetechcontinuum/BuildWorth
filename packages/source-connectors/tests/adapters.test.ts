@@ -7,9 +7,9 @@ import { deriveIndependenceKey } from "../src/sanitizer.js";
 import * as safeFetchModule from "../src/safe-fetch.js";
 
 describe("Source Registry & Adapters", () => {
-  it("has 15 registered adapters by default including procurement, security, research, and developer sources", () => {
+  it("has 16 registered adapters by default including procurement, security, research, and developer sources", () => {
     const adapters = sourceRegistry.getAllAdapters();
-    expect(adapters.length).toBe(15);
+    expect(adapters.length).toBe(16);
     expect(sourceRegistry.getAdapter("krasia")).toBeDefined();
     expect(sourceRegistry.getAdapter("e27")).toBeDefined();
     expect(sourceRegistry.getAdapter("eustartups")).toBeDefined();
@@ -21,6 +21,7 @@ describe("Source Registry & Adapters", () => {
     expect(sourceRegistry.getAdapter("stackexchange")).toBeDefined();
     expect(sourceRegistry.getAdapter("cisakev")).toBeDefined();
     expect(sourceRegistry.getAdapter("arxiv")).toBeDefined();
+    expect(sourceRegistry.getAdapter("devto")).toBeDefined();
   });
 
   it("returns zero items cleanly when external API is unreachable or unconfigured", async () => {
@@ -475,6 +476,120 @@ describe("Source Registry & Adapters", () => {
       expect(signals[0].sourceKey).toBe("stackexchange");
       expect(signals[0].sourceUrl).toBe("https://stackoverflow.com/questions/887766/memory-leak-in-nodejs");
       expect(signals[0].rawContent).toContain("[node.js, memory-leaks]");
+
+      mockFetch.mockRestore();
+    });
+
+    it("selects specialized Stack Exchange sites (devops, serverfault, dba) for targeted infrastructure queries", async () => {
+      const adapter = sourceRegistry.getAdapter("stackexchange");
+      expect(adapter).toBeDefined();
+
+      const requestedUrls: string[] = [];
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+        requestedUrls.push(String(url));
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                question_id: 445566,
+                title: "Terraform state lock fails intermittently in GitLab CI",
+                creation_date: 1790900000,
+                tags: ["terraform"],
+                link: "https://devops.stackexchange.com/questions/445566/terraform-state-lock",
+                owner: { display_name: "sre_bob" },
+              },
+            ],
+          }),
+        } as any;
+      });
+
+      await adapter!.fetchSignals({ limit: 5, query: "terraform state lock", page: 1 });
+      await adapter!.fetchSignals({ limit: 5, query: "kubernetes oomkilled", page: 1 });
+      await adapter!.fetchSignals({ limit: 5, query: "clickhouse memory limit", page: 1 });
+
+      expect(requestedUrls[0]).toContain("site=devops");
+      expect(requestedUrls[1]).toContain("site=serverfault");
+      expect(requestedUrls[2]).toContain("site=dba");
+
+      mockFetch.mockRestore();
+    });
+  });
+
+  describe("DEV.to Engineering API Adapter", () => {
+    it("fetches and normalizes engineering post-mortems and migration articles", async () => {
+      const adapter = sourceRegistry.getAdapter("devto");
+      expect(adapter).toBeDefined();
+
+      const mockArticles = [
+        {
+          id: 301122,
+          title: "Why we migrated off Datadog after a 300% observability cost spike",
+          description: "High metric cardinality caused unexpected monthly overages so we built a telemetry filter.",
+          canonical_url: "https://dev.to/infra_team/why-we-migrated-off-datadog",
+          user: { username: "infra_lead" },
+          tag_list: ["monitoring", "devops"],
+          published_timestamp: "2026-11-10T10:00:00Z",
+          positive_reactions_count: 42,
+          comments_count: 9,
+        },
+      ];
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockArticles,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5, query: "datadog expensive" });
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("devto-301122");
+      expect(signals[0].sourceKey).toBe("devto");
+      expect(signals[0].sourceUrl).toBe("https://dev.to/infra_team/why-we-migrated-off-datadog");
+      expect(signals[0].authorFingerprint).toBe("infra_lead");
+      expect(signals[0].rawContent).toContain("observability cost spike");
+
+      mockFetch.mockRestore();
+    });
+  });
+
+  describe("Reddit Public Subreddit Search Adapter", () => {
+    it("fetches and parses technical community discussions from Reddit search JSON", async () => {
+      const adapter = sourceRegistry.getAdapter("reddit");
+      expect(adapter).toBeDefined();
+
+      const mockRedditResponse = {
+        data: {
+          children: [
+            {
+              data: {
+                id: "1abc999",
+                title: "Looking for an alternative to AWS NAT Gateway egress pricing",
+                selftext: "Our multi-AZ Kubernetes traffic egress costs jumped to $14k/mo and we need a cheaper architecture.",
+                permalink: "/r/devops/comments/1abc999/looking_for_alternative/",
+                author: "cloud_ops_mike",
+                subreddit: "devops",
+                created_utc: 1794800000,
+                score: 64,
+                num_comments: 31,
+                stickied: false,
+              },
+            },
+          ],
+        },
+      };
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockRedditResponse,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5, query: "aws egress cost" });
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("rd-1abc999");
+      expect(signals[0].sourceKey).toBe("reddit");
+      expect(signals[0].sourceUrl).toBe("https://www.reddit.com/r/devops/comments/1abc999/looking_for_alternative/");
+      expect(signals[0].authorFingerprint).toBe("cloud_ops_mike");
+      expect(signals[0].rawContent).toContain("Kubernetes traffic egress costs");
 
       mockFetch.mockRestore();
     });

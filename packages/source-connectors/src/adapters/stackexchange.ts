@@ -19,6 +19,21 @@ function stripSeHtml(html?: string): string {
     .trim();
 }
 
+export function selectStackExchangeSite(query: string, page: number = 1): string {
+  const q = query.trim();
+  if (!q) return "stackoverflow";
+  if (/\b(terraform|argocd|datadog|opentelemetry|prometheus)\b/i.test(q)) {
+    return page % 2 === 1 ? "devops" : "serverfault";
+  }
+  if (/\b(postgres|postgresql|clickhouse|snowflake|database|sql|kafka)\b/i.test(q)) {
+    return page % 2 === 1 ? "dba" : "stackoverflow";
+  }
+  if (/\b(aws|cloud|kubernetes|k8s|oomkilled|egress)\b/i.test(q)) {
+    return page % 2 === 1 ? "serverfault" : "stackoverflow";
+  }
+  return "stackoverflow";
+}
+
 export class StackExchangeAdapter extends BaseSourceAdapter {
   public readonly sourceKey = "stackexchange";
   public readonly name = "Stack Exchange & Stack Overflow";
@@ -72,8 +87,9 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
       // For discovery, always prioritize newly created questions rather than ancient relevance matches
       const sortParam = isDiscovery ? "creation" : (query ? "relevance" : "votes");
       const page = options.page || 1;
+      const site = selectStackExchangeSite(query, page);
 
-      const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=${sortParam}&fromdate=${fromDateSec}&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&page=${page}&filter=withbody`;
+      const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=${sortParam}&fromdate=${fromDateSec}&q=${encodeURIComponent(effectiveQuery)}&site=${site}&pagesize=${limit}&page=${page}&filter=withbody`;
 
       let res = await fetch(url, {
         headers: { "User-Agent": "BuildWorth-Market-Intelligence/1.0" },
@@ -82,6 +98,16 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
       if (res.ok) {
         let json = await res.json();
         let items = json.items || [];
+        if (items.length === 0 && site !== "stackoverflow") {
+          const siteFbUrl = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=${sortParam}&fromdate=${fromDateSec}&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&page=${page}&filter=withbody`;
+          const siteFbRes = await fetch(siteFbUrl, {
+            headers: { "User-Agent": "BuildWorth-Market-Intelligence/1.0" },
+          });
+          if (siteFbRes && siteFbRes.ok) {
+            const siteFbJson = await siteFbRes.json();
+            items = siteFbJson.items || [];
+          }
+        }
         if (items.length === 0 && fromDateSec > 0 && query && options.searchType === "HISTORICAL_CORROBORATION") {
           const fbUrl = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&page=${page}&filter=withbody`;
           const fbRes = await fetch(fbUrl, {
