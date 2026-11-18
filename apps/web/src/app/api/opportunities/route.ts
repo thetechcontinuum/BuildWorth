@@ -4,7 +4,12 @@ import {
   StoredOpportunity,
 } from "@/lib/opportunity-store";
 import { prisma } from "@buildworth/database";
-import { evaluateSolutionFeasibility, isSingleRepoTicket, isProductAnnouncement } from "@buildworth/opportunity-engine";
+import {
+  evaluateSolutionFeasibility,
+  isSingleRepoTicket,
+  isProductAnnouncement,
+  deriveOpportunityEconomics,
+} from "@buildworth/opportunity-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -189,6 +194,21 @@ export async function GET() {
               `[Assumption] Direct willingness-to-pay not yet confirmed in public threads; commercial indicator inferred from engineering labor & operational disruption cost.`,
             ];
 
+        const isLegacyHardcodedEconomics =
+          o.estimatedMvpCostMinCents === 600000 &&
+          o.estimatedMvpCostMaxCents === 1200000 &&
+          o.estimatedTimeToMvpMinWeeks === 4 &&
+          o.estimatedTimeToMvpMaxWeeks === 8;
+
+        const derivedEconomics = isLegacyHardcodedEconomics
+          ? deriveOpportunityEconomics({
+              title: o.title,
+              problemStatement: o.problemStatement || o.oneSentenceSummary,
+              proposedProduct: o.proposedProduct,
+              vertical: o.industry,
+            })
+          : null;
+
         return {
           slug: o.slug,
           title: o.title,
@@ -201,15 +221,19 @@ export async function GET() {
           confidenceScore: honestConfidenceScore,
           publicationQualityStatus: o.publicationQualityStatus as any,
           isDemoFixture: o.isDemoFixture,
-          costRange: {
-            minMinor: o.estimatedMvpCostMinCents,
-            maxMinor: o.estimatedMvpCostMaxCents,
-            currency: "USD",
-          },
-          timeToMvpWeeks: {
-            min: o.estimatedTimeToMvpMinWeeks,
-            max: o.estimatedTimeToMvpMaxWeeks,
-          },
+          costRange: derivedEconomics
+            ? derivedEconomics.estimatedMvpCost
+            : {
+                minMinor: o.estimatedMvpCostMinCents,
+                maxMinor: o.estimatedMvpCostMaxCents,
+                currency: "USD",
+              },
+          timeToMvpWeeks: derivedEconomics
+            ? derivedEconomics.estimatedTimeToMvpWeeks
+            : {
+                min: o.estimatedTimeToMvpMinWeeks,
+                max: o.estimatedTimeToMvpMaxWeeks,
+              },
           buyer: o.economicBuyer,
           endUser: o.endUser,
           targetCustomerSegments: o.targetCustomerSegments || [],

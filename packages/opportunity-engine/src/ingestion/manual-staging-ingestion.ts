@@ -27,6 +27,7 @@ import { extractSignalIntelligence } from "../extractor.js";
 import { clusterSignals, ClusterCandidate, ProblemClusterResult } from "../clustering/cluster-manager.js";
 import { cosineSimilarity } from "../clustering/vector-math.js";
 import { synthesizeOpportunity } from "../synthesizer.js";
+import { deriveOpportunityEconomics } from "../economics.js";
 import { createOpportunityRevisionTransaction } from "../revision/revision-service.js";
 import {
   isConcreteProblemOrWorkaround,
@@ -1600,6 +1601,45 @@ export async function sanitizeHistoricalProductionBriefsAndEvidence(prisma: any)
         }
 
         sanitizedMac = true;
+      }
+    }
+
+    // 3. Backfill legacy hardcoded $6k-$12k / 4-8w opportunities with domain-specific MVP economics
+    if (prisma.opportunity?.findMany && prisma.opportunity?.update) {
+      const legacyCostOpps = await prisma.opportunity.findMany({
+        where: {
+          isDemoFixture: false,
+          estimatedMvpCostMinCents: 600000,
+          estimatedMvpCostMaxCents: 1200000,
+        },
+        select: {
+          id: true,
+          title: true,
+          problemStatement: true,
+          proposedProduct: true,
+          industry: true,
+          estimatedTimeToMvpMinWeeks: true,
+          estimatedTimeToMvpMaxWeeks: true,
+        },
+        take: 100,
+      }).catch(() => []);
+
+      for (const opp of legacyCostOpps) {
+        const derivedEco = deriveOpportunityEconomics({
+          title: opp.title,
+          problemStatement: opp.problemStatement,
+          proposedProduct: opp.proposedProduct,
+          vertical: opp.industry,
+        });
+        await prisma.opportunity.update({
+          where: { id: opp.id },
+          data: {
+            estimatedMvpCostMinCents: derivedEco.estimatedMvpCost.minMinor,
+            estimatedMvpCostMaxCents: derivedEco.estimatedMvpCost.maxMinor,
+            estimatedTimeToMvpMinWeeks: derivedEco.estimatedTimeToMvpWeeks.min,
+            estimatedTimeToMvpMaxWeeks: derivedEco.estimatedTimeToMvpWeeks.max,
+          },
+        }).catch(() => {});
       }
     }
   } catch (err: any) {
