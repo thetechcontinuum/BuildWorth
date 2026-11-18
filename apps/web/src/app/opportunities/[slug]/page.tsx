@@ -12,6 +12,7 @@ import {
   evaluateSolutionFeasibility,
   isSingleRepoTicket,
   isProductAnnouncement,
+  deriveOpportunityEconomics,
 } from "@buildworth/opportunity-engine";
 import { resolveBlueprintForOpportunity } from "@/lib/blueprint-resolver";
 
@@ -261,6 +262,21 @@ export default async function OpportunityDetailPage({
         ? snapshot.evidenceOfWillingnessToPay
         : [];
 
+      const isLegacyHardcodedEconomics =
+        dbOpp.estimatedMvpCostMinCents === 600000 &&
+        dbOpp.estimatedMvpCostMaxCents === 1200000 &&
+        dbOpp.estimatedTimeToMvpMinWeeks === 4 &&
+        dbOpp.estimatedTimeToMvpMaxWeeks === 8;
+
+      const derivedEconomics = isLegacyHardcodedEconomics
+        ? deriveOpportunityEconomics({
+            title: dbOpp.title,
+            problemStatement: dbOpp.problemStatement || dbOpp.oneSentenceSummary,
+            proposedProduct: dbOpp.proposedProduct,
+            vertical: dbOpp.industry,
+          })
+        : null;
+
       opp = {
         slug: dbOpp.slug,
         title: dbOpp.title,
@@ -282,15 +298,19 @@ export default async function OpportunityDetailPage({
         confidenceScore: honestConfidenceScore,
         publicationQualityStatus: dbOpp.publicationQualityStatus as any,
         isDemoFixture: dbOpp.isDemoFixture,
-        costRange: {
-          minMinor: dbOpp.estimatedMvpCostMinCents,
-          maxMinor: dbOpp.estimatedMvpCostMaxCents,
-          currency: "USD",
-        },
-        timeToMvpWeeks: {
-          min: dbOpp.estimatedTimeToMvpMinWeeks,
-          max: dbOpp.estimatedTimeToMvpMaxWeeks,
-        },
+        costRange: derivedEconomics
+          ? derivedEconomics.estimatedMvpCost
+          : {
+              minMinor: dbOpp.estimatedMvpCostMinCents,
+              maxMinor: dbOpp.estimatedMvpCostMaxCents,
+              currency: "USD",
+            },
+        timeToMvpWeeks: derivedEconomics
+          ? derivedEconomics.estimatedTimeToMvpWeeks
+          : {
+              min: dbOpp.estimatedTimeToMvpMinWeeks,
+              max: dbOpp.estimatedTimeToMvpMaxWeeks,
+            },
         buyer: dbOpp.economicBuyer,
         signalsCount: evidenceLinks.length,
         recommendedExperiment: dbOpp.recommendedNextExperiment,

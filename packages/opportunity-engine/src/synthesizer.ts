@@ -1,5 +1,5 @@
 import { ProblemClusterResult } from "./clustering/cluster-manager.js";
-import { calculateEconomics } from "./economics.js";
+import { calculateEconomics, deriveOpportunityEconomics } from "./economics.js";
 import { evaluateOpportunityScorecard } from "@buildworth/scoring";
 import { critiqueOpportunity } from "./critic.js";
 import { ClaimEvidenceLinkItem } from "@buildworth/shared";
@@ -47,7 +47,12 @@ export function synthesizeOpportunity(
   cluster: ProblemClusterResult,
   supportingSignalsCount = 15,
 ): CompleteOpportunityBlueprint {
-  const economics = calculateEconomics("MEDIUM", "DEV_TOOL");
+  const economics = deriveOpportunityEconomics({
+    title: cluster.title,
+    problemStatement: cluster.summary,
+    vertical: cluster.vertical,
+    supportingSignalsCount,
+  });
 
   const dimensionInputs = [
     {
