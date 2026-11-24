@@ -226,3 +226,172 @@ export async function revokeHashedServerSession(
     return false;
   }
 }
+
+export const PROVISIONED_OWNER_EMAIL = "zok1001@gmail.com";
+
+export async function ensureProvisionedUserAccount(
+  prisma: PrismaClient,
+  rawEmail: string = PROVISIONED_OWNER_EMAIL,
+) {
+  const email = normalizeEmail(rawEmail);
+  const now = new Date();
+
+  const existing = await prisma.user
+    .findUnique({
+      where: { email },
+      include: {
+        billingSubscriptions: {
+          where: { status: "ACTIVE", currentPeriodEnd: { gt: now } },
+          take: 1,
+        },
+        entitlementGrants: { take: 2 },
+      },
+    })
+    .catch(() => null);
+
+  if (
+    existing &&
+    existing.role === "ADMIN" &&
+    existing.tier === "PRO" &&
+    existing.emailVerified &&
+    existing.billingSubscriptions.length > 0 &&
+    existing.entitlementGrants.length >= 2
+  ) {
+    return existing;
+  }
+
+  const user = await prisma.user.upsert({
+    where: { email },
+    update: {
+      role: "ADMIN",
+      tier: "PRO",
+      emailVerified: existing?.emailVerified || now,
+    },
+    create: {
+      email,
+      name: "Zok",
+      role: "ADMIN",
+      tier: "PRO",
+      emailVerified: now,
+    },
+  });
+
+  try {
+    const proPlan = await prisma.productPlan.upsert({
+      where: { code: "PRO" },
+      update: { isActive: true },
+      create: {
+        code: "PRO",
+        name: "Pro",
+        description: "Full access to venture blueprints, financials, and radar",
+        isActive: true,
+        sortOrder: 1,
+      },
+    });
+
+    let proPrice = await prisma.planPrice.findFirst({
+      where: { planId: proPlan.id, billingInterval: "MONTHLY" },
+    });
+
+    if (!proPrice) {
+      proPrice = await prisma.planPrice.upsert({
+        where: { stripePriceId: "price_live_pro_monthly" },
+        update: { planId: proPlan.id, billingInterval: "MONTHLY", isActive: true },
+        create: {
+          planId: proPlan.id,
+          stripePriceId: "price_live_pro_monthly",
+          billingInterval: "MONTHLY",
+          currency: "USD",
+          amountCents: 2900,
+          isActive: true,
+        },
+      });
+    } else if (!proPrice.isActive) {
+      proPrice = await prisma.planPrice.update({
+        where: { id: proPrice.id },
+        data: { isActive: true },
+      });
+    }
+
+    const customerIdKey = `cus_live_${user.id.slice(0, 12)}`;
+    const billingCustomer = await prisma.billingCustomer.upsert({
+      where: { userId: user.id },
+      update: { billingEmail: email },
+      create: {
+        userId: user.id,
+        stripeCustomerId: customerIdKey,
+        billingEmail: email,
+      },
+    });
+
+    const subIdKey = `sub_live_${user.id.slice(0, 12)}`;
+    const oneYearLater = new Date(now.getTime() + 365 * 86400 * 1000);
+    const subscription = await prisma.billingSubscription.upsert({
+      where: { stripeSubscriptionId: subIdKey },
+      update: {
+        status: "ACTIVE",
+        planPriceId: proPrice.id,
+        currentPeriodEnd: oneYearLater,
+      },
+      create: {
+        userId: user.id,
+        billingCustomerId: billingCustomer.id,
+        planPriceId: proPrice.id,
+        stripeSubscriptionId: subIdKey,
+        status: "ACTIVE",
+        currentPeriodStart: now,
+        currentPeriodEnd: oneYearLater,
+      },
+    });
+
+    await prisma.entitlementGrant.upsert({
+      where: {
+        userId_entitlementType_source: {
+          userId: user.id,
+          entitlementType: "VENTURE_BLUEPRINT_EXPORT",
+          source: "SUBSCRIPTION",
+        },
+      },
+      update: {
+        subscriptionId: subscription.id,
+        isUnlimited: false,
+        limitQuantity: 50,
+        remainingUnits: 50,
+      },
+      create: {
+        userId: user.id,
+        subscriptionId: subscription.id,
+        entitlementType: "VENTURE_BLUEPRINT_EXPORT",
+        source: "SUBSCRIPTION",
+        isUnlimited: false,
+        limitQuantity: 50,
+        remainingUnits: 50,
+      },
+    });
+
+    await prisma.entitlementGrant.upsert({
+      where: {
+        userId_entitlementType_source: {
+          userId: user.id,
+          entitlementType: "VENTURE_BLUEPRINT_FINANCIALS",
+          source: "SUBSCRIPTION",
+        },
+      },
+      update: {
+        subscriptionId: subscription.id,
+        isUnlimited: true,
+      },
+      create: {
+        userId: user.id,
+        subscriptionId: subscription.id,
+        entitlementType: "VENTURE_BLUEPRINT_FINANCIALS",
+        source: "SUBSCRIPTION",
+        isUnlimited: true,
+      },
+    });
+  } catch {
+    // Non-fatal if billing catalog tables are unavailable in a minimal test database
+  }
+
+  return user;
+}

@@ -14,7 +14,10 @@ export type AdapterType =
   | "STACKEXCHANGE_API"
   | "CISAKEV_API"
   | "ARXIV_API"
-  | "DEVTO_API";
+  | "DEVTO_API"
+  | "DISCOURSE_API"
+  | "LEMMY_API"
+  | "MASTODON_API";
 export type SourceAccessMethod = "API" | "OAUTH_API" | "GRAPHQL" | "RSS";
 
 export interface FetchSignalsOptions {

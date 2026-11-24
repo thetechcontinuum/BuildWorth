@@ -1,4 +1,5 @@
 import { prisma } from "./client.js";
+import { ensureProvisionedUserAccount, PROVISIONED_OWNER_EMAIL } from "./auth-identity.js";
 
 export async function seedDatabase() {
   console.log("Seeding BuildWorth database with deterministic baseline fixtures...");
@@ -165,6 +166,8 @@ export async function seedDatabase() {
       ],
     });
   }
+
+  await ensureProvisionedUserAccount(prisma, PROVISIONED_OWNER_EMAIL);
 
   console.log("Database seeded successfully.");
 }

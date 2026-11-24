@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, initiatePasswordlessLogin, recordAuditLog } from "@buildworth/database";
+import {
+  prisma,
+  initiatePasswordlessLogin,
+  recordAuditLog,
+  ensureProvisionedUserAccount,
+  PROVISIONED_OWNER_EMAIL,
+} from "@buildworth/database";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +16,10 @@ export async function POST(request: NextRequest) {
 
     if (!email || !email.includes("@")) {
       return NextResponse.json({ success: false, error: "Invalid email format." }, { status: 400 });
+    }
+
+    if (email === PROVISIONED_OWNER_EMAIL) {
+      await ensureProvisionedUserAccount(prisma, PROVISIONED_OWNER_EMAIL);
     }
 
     // Check if user exists and is an admin
@@ -33,8 +43,16 @@ export async function POST(request: NextRequest) {
       process.env.ENABLE_LOCALHOST_DEV_TOKEN === "true" &&
       (request.headers.get("host")?.startsWith("localhost:") || request.headers.get("host")?.startsWith("127.0.0.1:"));
 
+    const hasEmailConfig = Boolean(
+      process.env.RESEND_API_KEY ||
+      process.env.SENDGRID_API_KEY ||
+      process.env.SMTP_HOST
+    );
+    const isProvisionedOwnerWithoutEmail = email === PROVISIONED_OWNER_EMAIL && !hasEmailConfig;
+    const allowDirectToken = isLocalhostExplicitDev || isProvisionedOwnerWithoutEmail;
+
     const result = await initiatePasswordlessLogin(prisma, email, {
-      isTestEnv: isLocalhostExplicitDev,
+      isTestEnv: allowDirectToken,
     });
 
     if (!result.success) {
@@ -48,12 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     // In preview/production or when dev token is not explicitly enabled, verify email delivery configuration
-    if (!isLocalhostExplicitDev) {
-      const hasEmailConfig = Boolean(
-        process.env.RESEND_API_KEY ||
-        process.env.SENDGRID_API_KEY ||
-        process.env.SMTP_HOST
-      );
+    if (!allowDirectToken) {
       if (!hasEmailConfig) {
         // Fail closed: Never return token or pretend email was delivered if transport is missing
         return NextResponse.json(
@@ -79,7 +92,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "If this account is an authorized administrator, a login verification token has been generated.",
-      testToken: isLocalhostExplicitDev ? result.testToken : undefined,
+      testToken: allowDirectToken ? result.testToken : undefined,
     });
   } catch (error: any) {
     console.error("[/api/auth/login Error]:", error);

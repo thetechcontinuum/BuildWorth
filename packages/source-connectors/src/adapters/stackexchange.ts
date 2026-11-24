@@ -108,12 +108,21 @@ export class StackExchangeAdapter extends BaseSourceAdapter {
             items = siteFbJson.items || [];
           }
         }
-        if (items.length === 0 && fromDateSec > 0 && query && options.searchType === "HISTORICAL_CORROBORATION") {
-          const fbUrl = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(effectiveQuery)}&site=stackoverflow&pagesize=${limit}&page=${page}&filter=withbody`;
+        if (items.length === 0 && fromDateSec > 0 && query) {
+          const broaderFromDate =
+            options.searchType === "HISTORICAL_CORROBORATION"
+              ? 0
+              : Math.floor((Date.now() - 180 * 24 * 60 * 60 * 1000) / 1000);
+          const queryWords = effectiveQuery.split(/\s+/).filter((w) => w.length >= 2);
+          const relaxedQuery = queryWords.length > 2 ? queryWords.slice(0, 2).join(" ") : effectiveQuery;
+          const fbUrl =
+            broaderFromDate > 0
+              ? `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=creation&fromdate=${broaderFromDate}&q=${encodeURIComponent(relaxedQuery)}&site=stackoverflow&pagesize=${limit}&page=${page}&filter=withbody`
+              : `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(relaxedQuery)}&site=stackoverflow&pagesize=${limit}&page=${page}&filter=withbody`;
           const fbRes = await fetch(fbUrl, {
             headers: { "User-Agent": "BuildWorth-Market-Intelligence/1.0" },
           });
-          if (fbRes.ok) {
+          if (fbRes && fbRes.ok) {
             const fbJson = await fbRes.json();
             items = fbJson.items || [];
           }

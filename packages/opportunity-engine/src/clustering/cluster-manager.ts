@@ -54,7 +54,7 @@ export function clusterSignals(
       // Create new cluster
       const newCluster: ProblemClusterResult = {
         clusterId: `cluster-${clusters.length + 1}`,
-        title: item.problemSummary.slice(0, 60),
+        title: item.problemSummary.trim(),
         summary: item.problemSummary,
         vertical: item.vertical,
         signalIds: [item.id],

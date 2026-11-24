@@ -124,13 +124,16 @@ const ALLOWLISTED_SOURCE_KEYS = [
   "cisakev",
   "arxiv",
   "devto",
+  "discourse",
+  "lemmy",
+  "mastodon",
 ];
 
-export function formatMeaningfulTitle(text: string, maxLen = 75): string {
-  const cleaned = text
+export function formatMeaningfulTitle(text: string, maxLen = 140): string {
+  const cleaned = (text || "")
     .replace(/[\r\n\t]+/g, " ")
-    .replace(/^Ask HN:\s*/i, "")
-    .replace(/^Feature Request:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .replace(/^(?:Ask HN|Show HN|Feature Request):\s*/i, "")
     .replace(/[.]+$/, "")
     .trim();
 
@@ -138,10 +141,46 @@ export function formatMeaningfulTitle(text: string, maxLen = 75): string {
 
   const sub = cleaned.slice(0, maxLen);
   const lastSpace = sub.lastIndexOf(" ");
-  if (lastSpace > 20) {
-    return sub.slice(0, lastSpace).trim();
+  let trimmed = lastSpace > 20 ? sub.slice(0, lastSpace).trim() : sub.trim();
+  trimmed = trimmed
+    .replace(
+      /\s+(?:with|when|while|where|for|to|in|on|of|at|by|from|into|onto|upon|and|or|nor|but|versus|vs|via|as|than|that|which|who|whom|whose|a|an|the)$/i,
+      "",
+    )
+    .trim();
+  return trimmed || sub.trim();
+}
+
+export function resolveCompleteOpportunityTitle(
+  title?: string | null,
+  problemStatement?: string | null,
+  summary?: string | null,
+): string {
+  const cleanTitle = (title || "").replace(/\s+/g, " ").trim();
+  const fullProblem = (problemStatement || summary || "").replace(/\s+/g, " ").trim();
+
+  if (!cleanTitle) {
+    return formatMeaningfulTitle(fullProblem);
   }
-  return sub.trim();
+
+  if (fullProblem.length > cleanTitle.length) {
+    const cleanLower = cleanTitle.toLowerCase();
+    const fullLower = fullProblem
+      .replace(/^(?:Ask HN|Show HN|Feature Request):\s*/i, "")
+      .trim()
+      .toLowerCase();
+    const prefixCheckLen = Math.min(cleanLower.length, 48);
+    if (
+      fullLower.startsWith(cleanLower) ||
+      (cleanTitle.length <= 65 &&
+        prefixCheckLen >= 20 &&
+        fullLower.startsWith(cleanLower.slice(0, prefixCheckLen)))
+    ) {
+      return formatMeaningfulTitle(fullProblem);
+    }
+  }
+
+  return formatMeaningfulTitle(cleanTitle);
 }
 
 export function generateCollisionSafeSlug(title: string, nonce?: string): string {
@@ -2036,7 +2075,7 @@ export async function buildAndPersistOpportunityBrief(
   pubQualityStatus: string;
   isVerified: boolean;
 }> {
-  const rawTitle = cl.title || cl.summary;
+  const rawTitle = resolveCompleteOpportunityTitle(cl.title, cl.summary);
   const formattedTitle = formatMeaningfulTitle(rawTitle);
   const baseSlug = generateCollisionSafeSlug(formattedTitle);
 
@@ -2707,6 +2746,54 @@ export async function executeManualStagingIngestion(
         attributionRequired: true,
         termsNotes: "Official public Forem / DEV.to REST API (https://dev.to/api/articles) with attribution to authors.",
       },
+      {
+        key: "discourse",
+        name: "Engineering Discourse Forums",
+        description: "Specialist practitioner discussions on Kubernetes, HashiCorp, Grafana, PyTorch, and Hugging Face Discourse forums",
+        sourceFamily: "COMMUNITY",
+        baseUrl: "https://discuss.kubernetes.io",
+        adapterType: "DISCOURSE_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official public Discourse /search.json API across Kubernetes, HashiCorp, Grafana, PyTorch, and Hugging Face engineering forums.",
+      },
+      {
+        key: "lemmy",
+        name: "Lemmy Dev & Self-Hosted",
+        description: "Open federated developer, DevOps, and self-hosted operational discussions via Lemmy v3 JSON API",
+        sourceFamily: "COMMUNITY",
+        baseUrl: "https://lemmy.world",
+        adapterType: "LEMMY_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official public Lemmy v3 search API (lemmy.world & programming.dev) with attribution.",
+      },
+      {
+        key: "mastodon",
+        name: "Hachyderm Engineering Community",
+        description: "Public DevOps, SRE, cloud, and AI engineering discussions on hachyderm.io Mastodon timelines",
+        sourceFamily: "COMMUNITY",
+        baseUrl: "https://hachyderm.io",
+        adapterType: "MASTODON_API",
+        accessMethod: "API",
+        isEnabled: true,
+        policyStatus: "ALLOWED" as any,
+        credibilityTier: "TIER_2_CREDIBLE_PUBLIC" as any,
+        rateLimitPerMinute: 30,
+        permittedExcerptLength: 280,
+        attributionRequired: true,
+        termsNotes: "Official public Mastodon tag timeline API via hachyderm.io with author attribution.",
+      },
     ];
 
     try {
@@ -3017,7 +3104,10 @@ export async function executeManualStagingIngestion(
           src.key === "stackexchange" ||
           src.key === "reddit" ||
           src.key === "devto" ||
-          src.key === "lobsters";
+          src.key === "lobsters" ||
+          src.key === "discourse" ||
+          src.key === "lemmy" ||
+          src.key === "mastodon";
         let queriesToRun: string[] = [];
         let nextQueryIndex = sourceProgress.lastQueryIndex;
 
@@ -3047,18 +3137,14 @@ export async function executeManualStagingIngestion(
             totalPersisted: 0,
           };
 
-          // Prioritize per-query checkpoint if set, otherwise prioritize records newer than last successful collection / latestSignalDate
+          // Use per-query checkpoint when available. For queryable sources on a fresh query
+          // without a per-query checkpoint, avoid applying another query's global latestSignalDate
+          // (which starves rotated queries to a narrow minutes-long window).
           let queryCheckpoint: string | undefined = qState.lastCheckpoint;
-          if (!queryCheckpoint) {
+          if (!queryCheckpoint && !isQueryableSource) {
             const baselineDate = latestSignalDate || src.lastSuccessfulCollection;
             if (baselineDate && !isNaN(baselineDate.getTime())) {
-              if (src.key === "hackernews" || src.key === "stackexchange") {
-                queryCheckpoint = String(Math.floor(baselineDate.getTime() / 1000));
-              } else if (src.key === "github") {
-                queryCheckpoint = baselineDate.toISOString();
-              } else {
-                queryCheckpoint = latestSignalExternalId || baselineDate.toISOString();
-              }
+              queryCheckpoint = latestSignalExternalId || baselineDate.toISOString();
             }
           }
 
@@ -3582,15 +3668,18 @@ export async function executeManualStagingIngestion(
         orderBy: { createdAt: "desc" },
       }).catch(() => []);
 
-      // Sort unlinked signals so problem-rich sources (HN, GitHub, StackExchange, Reddit, DEV.to, Lobsters, TED) come first
+      // Sort unlinked signals so problem-rich sources come first
       const problemSourcePriority: Record<string, number> = {
         hackernews: 1,
         github: 2,
-        stackexchange: 3,
-        reddit: 4,
-        devto: 5,
-        lobsters: 6,
-        ted: 7,
+        discourse: 3,
+        stackexchange: 4,
+        lemmy: 5,
+        reddit: 6,
+        devto: 7,
+        lobsters: 8,
+        mastodon: 9,
+        ted: 10,
       };
       existingUnlinked.sort((a: any, b: any) => {
         const keyA = a.rawSignal?.source?.key || "";
@@ -3705,11 +3794,14 @@ export async function executeManualStagingIngestion(
       const prioMap: Record<string, number> = {
         hackernews: 1,
         github: 2,
-        stackexchange: 3,
-        reddit: 4,
-        devto: 5,
-        lobsters: 6,
-        ted: 7,
+        discourse: 3,
+        stackexchange: 4,
+        lemmy: 5,
+        reddit: 6,
+        devto: 7,
+        lobsters: 8,
+        mastodon: 9,
+        ted: 10,
       };
       sanitizedSignalsToProcess.sort((a, b) => {
         const aConcrete = isConcreteProblemOrWorkaround({ title: a.title, sanitizedExcerpt: a.excerpt }) ? 0 : 1;
@@ -3897,6 +3989,30 @@ export async function executeManualStagingIngestion(
           "AI_MODEL_NOT_FOUND",
           "AI_PROVIDER_ENDPOINT_INVALID",
         ].includes(failCode);
+
+        const isPerSignalOutputError = [
+          "AI_OUTPUT_INVALID",
+          "AI_OUTPUT_TRUNCATED",
+          "AI_OUTPUT_EMPTY",
+        ].includes(failCode);
+
+        if (isPerSignalOutputError) {
+          await prisma.normalizedSignal.update({
+            where: { id: item.normalizedSignalId },
+            data: {
+              signalType: "NOISE" as any,
+              verificationStatus: "REJECTED" as any,
+              isProcessed: true,
+              metadata: {
+                processingAttempts: 1,
+                processingStatus: `SKIPPED_${failCode}`,
+                lastError: msg.slice(0, 200),
+                processedAt: new Date().toISOString(),
+              },
+            },
+          }).catch(() => {});
+          continue;
+        }
 
         if (!isFatalConfigError && (clusterCandidates.length > 0 || preProcessedClusterCandidates.length > 0)) {
           await prisma.normalizedSignal.update({
@@ -4269,9 +4385,15 @@ export async function executeManualStagingIngestion(
         commercialIndicators.evidenceConfidenceScore,
       );
 
+      const resolvedCandidateTitle = resolveCompleteOpportunityTitle(
+        candidate.title,
+        candidate.problemStatement,
+        candidate.oneSentenceSummary,
+      );
+
       const qual = evaluateCandidateQualification(
         {
-          title: candidate.title,
+          title: resolvedCandidateTitle,
           problemStatement: candidate.problemStatement,
           primaryUrl: candidate.evidenceLinks?.[0]?.normalizedSignal?.canonicalUrl || candidate.evidenceLinks?.[0]?.normalizedSignal?.rawSignal?.sourceUrl,
           primarySourceKey: candidate.evidenceLinks?.[0]?.normalizedSignal?.rawSignal?.source?.key,
@@ -4284,7 +4406,7 @@ export async function executeManualStagingIngestion(
 
       const clusterProxy: ProblemClusterResult = {
         clusterId: `cluster-target-${candidate.id}`,
-        title: candidate.title,
+        title: resolvedCandidateTitle,
         summary: candidate.problemStatement,
         vertical: candidate.industry || "DevOps & Compliance",
         signalIds: allCandidateSignals.map((s) => s.normalizedSignal.id),
@@ -4292,13 +4414,13 @@ export async function executeManualStagingIngestion(
       };
 
       const updatedBlueprint = synthesizeOpportunity(clusterProxy, allCandidateSignals.length);
-      const audience = deriveSpecificAudience(`${candidate.title} ${candidate.problemStatement}`);
+      const audience = deriveSpecificAudience(`${resolvedCandidateTitle} ${candidate.problemStatement}`);
       const economicBuyer = deriveEconomicBuyerRole(audience, candidate.industry);
       const endUser = deriveEndUserRole(audience);
-      const productDirection = derivePlausibleProductDirection(candidate.problemStatement || candidate.title, audience);
-      const validationExperiment = deriveSpecificValidationExperiment(candidate.problemStatement || candidate.title, audience);
+      const productDirection = derivePlausibleProductDirection(candidate.problemStatement || resolvedCandidateTitle, audience);
+      const validationExperiment = deriveSpecificValidationExperiment(candidate.problemStatement || resolvedCandidateTitle, audience);
       const domainAlternatives = deriveDomainAlternatives(
-        `${candidate.title || ""} ${candidate.problemStatement || ""}`,
+        `${resolvedCandidateTitle || ""} ${candidate.problemStatement || ""}`,
       );
       const evidenceGaps = deriveEvidenceGaps(
         candidate.problemStatement,
@@ -4317,8 +4439,8 @@ export async function executeManualStagingIngestion(
         evidenceGaps.unshift("Disconfirming evidence: independent practitioners report standard native solution or expected behavior");
       }
 
-      if (qual.isAnnouncement && !domainAlternatives.competitors.includes(candidate.title)) {
-        domainAlternatives.competitors.unshift(candidate.title);
+      if (qual.isAnnouncement && !domainAlternatives.competitors.includes(resolvedCandidateTitle)) {
+        domainAlternatives.competitors.unshift(resolvedCandidateTitle);
       }
 
       const assumedBuyer = economicBuyer.startsWith("[Assumption]") ? economicBuyer : `[Assumption] ${economicBuyer}`;
@@ -4342,7 +4464,7 @@ export async function executeManualStagingIngestion(
       updatedBlueprint.competitorWeaknesses = domainAlternatives.weaknesses;
 
       const oppData = {
-        title: candidate.title,
+        title: resolvedCandidateTitle,
         oneSentenceSummary: updatedBlueprint.oneSentenceSummary,
         problemStatement: updatedBlueprint.problemStatement,
         jobsToBeDone: updatedBlueprint.jobsToBeDone,
@@ -4383,7 +4505,7 @@ export async function executeManualStagingIngestion(
 
       candidateEvaluations.push({
         id: candidate.id,
-        title: candidate.title,
+        title: resolvedCandidateTitle,
         slug: candidate.slug,
         status: qual.finalStatus,
         publicationQualityStatus: qual.pubQualityStatus,

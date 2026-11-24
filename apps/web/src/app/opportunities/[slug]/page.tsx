@@ -13,6 +13,7 @@ import {
   isSingleRepoTicket,
   isProductAnnouncement,
   deriveOpportunityEconomics,
+  resolveCompleteOpportunityTitle,
 } from "@buildworth/opportunity-engine";
 import { resolveBlueprintForOpportunity } from "@/lib/blueprint-resolver";
 
@@ -39,11 +40,16 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   try {
     const dbOpp = await prisma.opportunity.findUnique({
       where: { slug: params.slug },
-      select: { title: true, oneSentenceSummary: true },
+      select: { title: true, problemStatement: true, oneSentenceSummary: true },
     });
     if (dbOpp) {
+      const cleanTitle = resolveCompleteOpportunityTitle(
+        dbOpp.title,
+        dbOpp.problemStatement,
+        dbOpp.oneSentenceSummary,
+      );
       return {
-        title: `${dbOpp.title} — BuildWorth`,
+        title: `${cleanTitle} — BuildWorth`,
         description: dbOpp.oneSentenceSummary,
       };
     }
@@ -262,6 +268,18 @@ export default async function OpportunityDetailPage({
         ? snapshot.evidenceOfWillingnessToPay
         : [];
 
+      const cleanTitle = resolveCompleteOpportunityTitle(
+        dbOpp.title,
+        dbOpp.problemStatement,
+        dbOpp.oneSentenceSummary,
+      );
+
+      if (cleanTitle && cleanTitle !== dbOpp.title) {
+        prisma.opportunity
+          .update({ where: { id: dbOpp.id }, data: { title: cleanTitle } })
+          .catch(() => {});
+      }
+
       const isLegacyHardcodedEconomics =
         dbOpp.estimatedMvpCostMinCents === 600000 &&
         dbOpp.estimatedMvpCostMaxCents === 1200000 &&
@@ -270,7 +288,7 @@ export default async function OpportunityDetailPage({
 
       const derivedEconomics = isLegacyHardcodedEconomics
         ? deriveOpportunityEconomics({
-            title: dbOpp.title,
+            title: cleanTitle,
             problemStatement: dbOpp.problemStatement || dbOpp.oneSentenceSummary,
             proposedProduct: dbOpp.proposedProduct,
             vertical: dbOpp.industry,
@@ -279,7 +297,7 @@ export default async function OpportunityDetailPage({
 
       opp = {
         slug: dbOpp.slug,
-        title: dbOpp.title,
+        title: cleanTitle,
         status: dbOpp.status as any,
         summary: dbOpp.oneSentenceSummary,
         problemStatement: dbOpp.problemStatement,

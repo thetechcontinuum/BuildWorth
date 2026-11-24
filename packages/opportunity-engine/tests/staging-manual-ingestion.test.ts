@@ -1413,5 +1413,100 @@ describe("Staging Manual Ingestion Unit & Hardening Suite", () => {
       expect(run.counters.published).toBe(3);
       expect(run.publishedSlugs.length).toBe(3);
     });
+
+    it("quarantines a single signal with AI_OUTPUT_INVALID schema error instead of failing the whole ingestion job", async () => {
+      const prisma = createMockPrisma();
+      prisma._store.sources = [
+        { id: "src-hn", key: "hackernews", name: "Hacker News", isEnabled: true, permittedExcerptLength: 280 },
+      ];
+
+      const hnSrcObj = { id: "src-hn", key: "hackernews", name: "Hacker News", permittedExcerptLength: 280 };
+
+      // Seed two unnormalized RawSignals: first triggers AI_OUTPUT_INVALID, second succeeds
+      prisma._store.rawSignals.push(
+        {
+          id: "raw-bad-ai-1",
+          sourceId: "src-hn",
+          source: hnSrcObj,
+          externalId: "hn-bad-ai-1",
+          sourceUrl: "https://news.ycombinator.com/item?id=55500001",
+          title: "Random non-problem link with short summary",
+          rawContent: "Random non-problem link that causes empty problemSummary in LLM output",
+          contentHash: "hash-bad-ai-1",
+          publishedAt: new Date(),
+          createdAt: new Date(),
+        },
+        {
+          id: "raw-good-ai-2",
+          sourceId: "src-hn",
+          source: hnSrcObj,
+          externalId: "hn-good-ai-2",
+          sourceUrl: "https://news.ycombinator.com/item?id=55500002",
+          title: "Kubernetes pods OOMKilled before autoscaler reacts",
+          rawContent: "Production Kubernetes pods keep getting OOMKilled causing costly customer outages and manual restarts.",
+          contentHash: "hash-good-ai-2",
+          publishedAt: new Date(),
+          createdAt: new Date(),
+        },
+      );
+
+      vi.stubGlobal("fetch", async () => {
+        return { ok: true, json: async () => ({ hits: [], items: [] }) } as any;
+      });
+
+      const resilientAi: any = {
+        name: "mock-resilient-ai",
+        generateStructured: async (messages: any[], _schema: any, options: any) => {
+          const userMsg = messages.find((m: any) => m.role === "user")?.content || "";
+          if (options?.purpose === "signal_classification") {
+            return {
+              data: { signalType: "PAIN_COMPLAINT", confidence: 0.85, reasoning: "Test classification" },
+              rawResponse: "{}",
+            };
+          }
+          if (userMsg.includes("Random non-problem link")) {
+            throw new Error('AI_OUTPUT_INVALID: Schema validation error: [{"code":"too_small","minimum":5,"path":["problemSummary"]}]');
+          }
+          return {
+            data: {
+              signalType: "PAIN_COMPLAINT",
+              sanitizedExcerpt: "Production Kubernetes pods keep getting OOMKilled causing costly customer outages.",
+              problemSummary: "Kubernetes pods get OOMKilled during traffic spikes before autoscaling reacts",
+              actorRole: "SRE",
+              workflowContext: "Kubernetes production cluster autoscaling",
+              severityScore: 4,
+              frequencyScore: 4,
+              intentToPayScore: 3,
+              extractedEntities: ["Kubernetes"],
+              confidenceScore: 88,
+            },
+            rawResponse: "{}",
+          };
+        },
+        generateEmbedding: async () => ({ embedding: new Array(64).fill(0.5), dimensions: 64, costMinorUnits: 0 }),
+      };
+
+      const run = await executeManualStagingIngestion(prisma, {
+        idempotencyKey: "run-ai-output-invalid-resilience-001",
+        aiProvider: resilientAi,
+        maxFetchItems: 0,
+        maxCandidates: 5,
+        maxPublishedOpportunities: 5,
+        targetSourceKeys: ["hackernews"],
+      });
+
+      expect(run.status).toBe("COMPLETED");
+      const badNorm = prisma._store.normalizedSignals.find((n: any) => n.rawSignalId === "raw-bad-ai-1");
+      expect(badNorm).toBeDefined();
+      expect(badNorm.isProcessed).toBe(true);
+      expect(badNorm.verificationStatus).toBe("REJECTED");
+      expect(badNorm.metadata.processingStatus).toBe("SKIPPED_AI_OUTPUT_INVALID");
+
+      const goodNorm = prisma._store.normalizedSignals.find((n: any) => n.rawSignalId === "raw-good-ai-2");
+      expect(goodNorm).toBeDefined();
+      expect(goodNorm.isProcessed).toBe(true);
+      expect(goodNorm.metadata.processingStatus).toBe("COMPLETED");
+      expect(run.counters.published).toBeGreaterThanOrEqual(1);
+    });
   });
 });

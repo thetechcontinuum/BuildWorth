@@ -16,9 +16,11 @@ import {
 import { useAuth } from "@/context/AuthContext";
 
 export function HeaderNav() {
-  const { user, logout, isAuthModalOpen, openAuthModal, closeAuthModal } = useAuth();
+  const { user, logout, isAuthModalOpen, openAuthModal, closeAuthModal, refreshSession } = useAuth();
   const [loginEmail, setLoginEmail] = useState("");
   const [sentMagicLink, setSentMagicLink] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   useEffect(() => {
     // Session resolution is strictly database-backed via /api/auth/session in AuthContext
   }, []);
@@ -27,15 +29,34 @@ export function HeaderNav() {
 
   const handleMagicLinkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginEmail) return;
-    setSentMagicLink(true);
+    if (!loginEmail || loading) return;
+    setLoading(true);
+    setAuthError(null);
     try {
-      await fetch("/api/auth/magic-link", {
+      const res = await fetch("/api/auth/magic-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: loginEmail }),
       });
-    } catch {}
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.autoAuthenticated) {
+        await refreshSession();
+        closeAuthModal();
+        setSentMagicLink(false);
+        setLoginEmail("");
+        window.location.reload();
+        return;
+      }
+      if (res.ok && data?.success) {
+        setSentMagicLink(true);
+      } else {
+        setAuthError(data?.message || data?.error || "Unable to sign in. Please try again.");
+      }
+    } catch {
+      setAuthError("Network error while signing in. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -115,7 +136,11 @@ export function HeaderNav() {
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 space-y-6 shadow-2xl relative">
             <button
-              onClick={closeAuthModal}
+              onClick={() => {
+                setAuthError(null);
+                setSentMagicLink(false);
+                closeAuthModal();
+              }}
               className="absolute top-4 right-4 text-zinc-400 hover:text-white"
             >
               <X className="w-5 h-5" />
@@ -133,6 +158,12 @@ export function HeaderNav() {
                     venture blueprints.
                   </p>
                 </div>
+
+                {authError && (
+                  <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
+                    {authError}
+                  </div>
+                )}
 
                 <form onSubmit={handleMagicLinkSubmit} className="space-y-3">
                   <div>
@@ -154,9 +185,10 @@ export function HeaderNav() {
 
                   <button
                     type="submit"
-                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2"
+                    disabled={loading}
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2"
                   >
-                    <span>Send Instant Login Link</span>
+                    <span>{loading ? "Signing In..." : "Send Instant Login Link"}</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </form>

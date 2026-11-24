@@ -16,7 +16,7 @@ Extract the structured facts from the market signal and return strictly a single
 REQUIRED JSON SCHEMA CONTRACT:
 - "signalType": (string, required) Exactly one of: "PAIN_COMPLAINT", "WORKAROUND_REQUEST", "PURCHASE_INTENT", "COMPETITOR_DISSATISFACTION", "FEATURE_REQUEST", "EMERGING_TECH", "NOISE".
 - "sanitizedExcerpt": (string, required) A concise factual excerpt or quote from the signal (max 280 chars).
-- "problemSummary": (string, required) Concise, specific statement of the operational or customer workflow problem (10-120 chars). NEVER write meta-critiques about the post itself (e.g., NEVER write "Vague question about...", "Unclear post...", or "Author asks about..."). If the signal is an opinion essay, isolated repo chore, or lacks a concrete customer/workflow problem, set "signalType": "NOISE" and "confidenceScore": 0.
+- "problemSummary": (string, required, min 5 chars) Concise, specific statement of the operational or customer workflow problem (10-120 chars). NEVER return an empty string. NEVER write meta-critiques about the post itself (e.g., NEVER write "Vague question about...", "Unclear post...", or "Author asks about..."). If the signal is an opinion essay, isolated repo chore, or lacks a concrete customer/workflow problem, set "signalType": "NOISE", "confidenceScore": 0, and "problemSummary": "Non-actionable general discussion".
 - "actorRole": (string, optional) Specific role experiencing the problem (e.g. "DevOps Engineer", "FinOps Lead", "Security Compliance Manager", "Data Platform Engineer").
 - "workflowContext": (string, optional) Specific workflow, stack, or operational process involved.
 - "severityScore": (number, required) Integer 1 (minor) to 5 (critical blocker / revenue or production loss).
