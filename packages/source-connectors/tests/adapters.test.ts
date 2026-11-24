@@ -7,9 +7,9 @@ import { deriveIndependenceKey } from "../src/sanitizer.js";
 import * as safeFetchModule from "../src/safe-fetch.js";
 
 describe("Source Registry & Adapters", () => {
-  it("has 16 registered adapters by default including procurement, security, research, and developer sources", () => {
+  it("has 19 registered adapters by default including procurement, security, research, and developer sources", () => {
     const adapters = sourceRegistry.getAllAdapters();
-    expect(adapters.length).toBe(16);
+    expect(adapters.length).toBe(19);
     expect(sourceRegistry.getAdapter("krasia")).toBeDefined();
     expect(sourceRegistry.getAdapter("e27")).toBeDefined();
     expect(sourceRegistry.getAdapter("eustartups")).toBeDefined();
@@ -22,6 +22,9 @@ describe("Source Registry & Adapters", () => {
     expect(sourceRegistry.getAdapter("cisakev")).toBeDefined();
     expect(sourceRegistry.getAdapter("arxiv")).toBeDefined();
     expect(sourceRegistry.getAdapter("devto")).toBeDefined();
+    expect(sourceRegistry.getAdapter("discourse")).toBeDefined();
+    expect(sourceRegistry.getAdapter("lemmy")).toBeDefined();
+    expect(sourceRegistry.getAdapter("mastodon")).toBeDefined();
   });
 
   it("returns zero items cleanly when external API is unreachable or unconfigured", async () => {
@@ -660,6 +663,156 @@ describe("Source Registry & Adapters", () => {
       expect(signals[0].sourceUrl).toBe("https://arxiv.org/abs/2609.99887v1");
       expect(signals[0].title).toBe("Efficient Speculative Decoding for Edge AI Accelerators");
       expect(signals[0].rawContent).toContain("speculative decoding");
+
+      mockFetch.mockRestore();
+    });
+  });
+
+  describe("Engineering Discourse Forums Adapter", () => {
+    it("routes domain queries to specialized Discourse forums, parses topics, and filters exam prep noise", async () => {
+      const adapter = sourceRegistry.getAdapter("discourse");
+      expect(adapter).toBeDefined();
+
+      const mockDiscourseResponse = {
+        posts: [
+          {
+            id: 2001,
+            username: "exam_student",
+            created_at: "2026-11-24T12:00:00Z",
+            blurb: "My 4-week study plan for Terraform Associate (004) certification exam prep.",
+            topic_id: 9001,
+            post_number: 1,
+            like_count: 0,
+          },
+          {
+            id: 2002,
+            username: "infra_lead",
+            created_at: "2026-11-24T15:00:00Z",
+            blurb: "DynamoDB state locks stall CI/CD pipelines when runners terminate mid-apply.",
+            topic_id: 9002,
+            post_number: 1,
+            like_count: 7,
+          },
+        ],
+        topics: [
+          {
+            id: 9001,
+            title: "Terraform Associate (004) exam prep study plan",
+            slug: "terraform-exam-prep",
+            created_at: "2026-11-24T12:00:00Z",
+            reply_count: 0,
+          },
+          {
+            id: 9002,
+            title: "Terraform state lock remains stuck after CI runner preemption",
+            slug: "terraform-state-lock-stuck-ci",
+            created_at: "2026-11-24T15:00:00Z",
+            reply_count: 4,
+          },
+        ],
+      };
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockDiscourseResponse,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5, query: "terraform state lock" });
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("https://discuss.hashicorp.com/search.json"),
+        expect.any(Object),
+      );
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("discourse-hashicorp-9002");
+      expect(signals[0].sourceKey).toBe("discourse");
+      expect(signals[0].sourceUrl).toBe("https://discuss.hashicorp.com/t/terraform-state-lock-stuck-ci/9002");
+      expect(signals[0].rawContent).toContain("DynamoDB state locks stall CI/CD");
+
+      mockFetch.mockRestore();
+    });
+  });
+
+  describe("Lemmy Dev & Self-Hosted Adapter", () => {
+    it("fetches and parses Lemmy v3 JSON search results with community metadata", async () => {
+      const adapter = sourceRegistry.getAdapter("lemmy");
+      expect(adapter).toBeDefined();
+
+      const mockLemmyResponse = {
+        posts: [
+          {
+            post: {
+              id: 34324694,
+              name: "How do you manage backup for kubernetes persistent volumes?",
+              body: "Velero snapshots keep timing out on large stateful databases in production.",
+              ap_id: "https://lemmy.world/post/34324694",
+              published: "2026-11-24T14:00:00Z",
+              removed: false,
+              deleted: false,
+              nsfw: false,
+            },
+            creator: { name: "k8s_operator" },
+            community: { name: "selfhosted" },
+            counts: { score: 19, comments: 12 },
+          },
+        ],
+      };
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockLemmyResponse,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5, query: "kubernetes backup" });
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("lemmy-34324694");
+      expect(signals[0].sourceKey).toBe("lemmy");
+      expect(signals[0].sourceUrl).toBe("https://lemmy.world/post/34324694");
+      expect(signals[0].authorFingerprint).toBe("k8s_operator");
+      expect(signals[0].rawContent).toContain("Velero snapshots keep timing out");
+
+      mockFetch.mockRestore();
+    });
+  });
+
+  describe("Hachyderm Mastodon Engineering Adapter", () => {
+    it("fetches public tag timeline posts and filters out job/hiring spam", async () => {
+      const adapter = sourceRegistry.getAdapter("mastodon");
+      expect(adapter).toBeDefined();
+
+      const mockMastodonResponse = [
+        {
+          id: "117673001",
+          created_at: "2026-11-24T18:00:00Z",
+          url: "https://mastodon.social/@Remotely/117673001",
+          language: "en",
+          content: "<p>Remote IT Systems Administrator. Apply here for our remotejobs opening!</p>",
+          account: { acct: "Remotely@mastodon.social", username: "Remotely", bot: false },
+          tags: [{ name: "devops" }, { name: "remotejobs" }],
+        },
+        {
+          id: "117673002",
+          created_at: "2026-11-24T19:00:00Z",
+          url: "https://hachyderm.io/@sre_dev/117673002",
+          language: "en",
+          content: "<p>Our Prometheus cardinality explosion doubled cloud monitoring spend overnight; anyone have a lightweight workaround?</p>",
+          account: { acct: "sre_dev", username: "sre_dev", bot: false },
+          tags: [{ name: "observability" }, { name: "prometheus" }],
+          favourites_count: 14,
+          replies_count: 5,
+        },
+      ];
+
+      const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockMastodonResponse,
+      } as any);
+
+      const signals = await adapter!.fetchSignals({ limit: 5, query: "prometheus cardinality" });
+      expect(signals.length).toBe(1);
+      expect(signals[0].externalId).toBe("mastodon-117673002");
+      expect(signals[0].sourceKey).toBe("mastodon");
+      expect(signals[0].sourceUrl).toBe("https://hachyderm.io/@sre_dev/117673002");
+      expect(signals[0].rawContent).toContain("Prometheus cardinality explosion");
 
       mockFetch.mockRestore();
     });

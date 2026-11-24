@@ -47,6 +47,17 @@ export function deriveIndependenceKey(
   if (sourceKey === "devto") {
     return { key: `devto:author:${authorFingerprint || externalId}`, method: "AUTHOR_HANDLE" };
   }
+  if (sourceKey === "discourse") {
+    const forumHost = typeof metadata?.forumHost === "string" ? metadata.forumHost : "forum";
+    return { key: `discourse:${forumHost}:${externalId}`, method: "FORUM_TOPIC" };
+  }
+  if (sourceKey === "lemmy") {
+    const community = typeof metadata?.community === "string" ? metadata.community : "general";
+    return { key: `lemmy:${community}:${externalId}`, method: "COMMUNITY_POST" };
+  }
+  if (sourceKey === "mastodon") {
+    return { key: `mastodon:author:${authorFingerprint || externalId}`, method: "AUTHOR_HANDLE" };
+  }
   if (sourceKey === "krasia" || sourceKey === "e27") {
     const synPartner = (metadata?.syndicationPartner || metadata?.syndicatedPublisher || (metadata?.isSyndicated ? authorFingerprint : undefined)) as string | undefined;
     if (synPartner && synPartner.trim().length > 0) {

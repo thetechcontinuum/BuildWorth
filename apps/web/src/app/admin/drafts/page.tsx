@@ -1,6 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { prisma } from "@buildworth/database";
+import { resolveCompleteOpportunityTitle } from "@buildworth/opportunity-engine";
 import {
   FileText,
   AlertTriangle,
@@ -140,7 +141,7 @@ export default async function AdminDraftsPage() {
                       </span>
                     </div>
                     <h2 className="text-xl font-bold text-white tracking-tight">
-                      {idx + 1}. {draft.title}
+                      {idx + 1}. {resolveCompleteOpportunityTitle(draft.title, draft.problemStatement, draft.oneSentenceSummary)}
                     </h2>
                     <p className="text-sm text-zinc-300 font-medium leading-relaxed">
                       {draft.oneSentenceSummary}

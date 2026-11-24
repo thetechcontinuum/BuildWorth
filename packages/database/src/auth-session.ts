@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import crypto from "crypto";
+import { hashToken } from "./auth-identity.js";
 
 export interface ServerSessionUser {
   id: string;
@@ -38,10 +39,18 @@ export async function resolveServerSession(
 ): Promise<ServerSessionUser | null> {
   if (!sessionToken || sessionToken.length < 32) return null;
 
-  const session = await prisma.session.findUnique({
-    where: { sessionToken },
+  const hashedSessionToken = hashToken(sessionToken);
+  let session = await prisma.session.findUnique({
+    where: { sessionToken: hashedSessionToken },
     include: { user: true },
   });
+
+  if (!session) {
+    session = await prisma.session.findUnique({
+      where: { sessionToken },
+      include: { user: true },
+    });
+  }
 
   if (!session) return null;
   if (session.expires < new Date()) {
@@ -64,8 +73,17 @@ export async function revokeServerSession(
   sessionToken: string,
 ): Promise<boolean> {
   try {
-    await prisma.session.delete({ where: { sessionToken } });
-    return true;
+    const hashedSessionToken = hashToken(sessionToken);
+    const deletedHashed = await prisma.session.deleteMany({
+      where: { sessionToken: hashedSessionToken },
+    });
+    if (deletedHashed.count > 0) {
+      return true;
+    }
+    const deletedRaw = await prisma.session.deleteMany({
+      where: { sessionToken },
+    });
+    return deletedRaw.count > 0;
   } catch {
     return false;
   }

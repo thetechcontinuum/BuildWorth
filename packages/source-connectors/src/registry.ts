@@ -15,6 +15,9 @@ import { StackExchangeAdapter } from "./adapters/stackexchange.js";
 import { CisaKevAdapter } from "./adapters/cisakev.js";
 import { ArxivAdapter } from "./adapters/arxiv.js";
 import { DevToAdapter } from "./adapters/devto.js";
+import { DiscourseAdapter } from "./adapters/discourse.js";
+import { LemmyAdapter } from "./adapters/lemmy.js";
+import { MastodonAdapter } from "./adapters/mastodon.js";
 import { GenericRssAdapter, GenericRssConfig } from "./adapters/generic-rss.js";
 import { SourceHealthStatus } from "./types.js";
 
@@ -38,6 +41,9 @@ export class SourceRegistry {
     this.register(new CisaKevAdapter());
     this.register(new ArxivAdapter());
     this.register(new DevToAdapter());
+    this.register(new DiscourseAdapter());
+    this.register(new LemmyAdapter());
+    this.register(new MastodonAdapter());
   }
 
   public register(adapter: BaseSourceAdapter): void {

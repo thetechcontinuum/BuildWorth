@@ -3,18 +3,21 @@ import {
   addStoredOpportunity,
   StoredOpportunity,
 } from "@/lib/opportunity-store";
-import { prisma } from "@buildworth/database";
+import { prisma, ensureProvisionedUserAccount, PROVISIONED_OWNER_EMAIL } from "@buildworth/database";
 import {
   evaluateSolutionFeasibility,
   isSingleRepoTicket,
   isProductAnnouncement,
   deriveOpportunityEconomics,
+  resolveCompleteOpportunityTitle,
 } from "@buildworth/opportunity-engine";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    await ensureProvisionedUserAccount(prisma, PROVISIONED_OWNER_EMAIL).catch(() => {});
+
     const dbOpps = await prisma.opportunity.findMany({
       where: {
         isDemoFixture: false,
@@ -194,6 +197,18 @@ export async function GET() {
               `[Assumption] Direct willingness-to-pay not yet confirmed in public threads; commercial indicator inferred from engineering labor & operational disruption cost.`,
             ];
 
+        const cleanTitle = resolveCompleteOpportunityTitle(
+          o.title,
+          o.problemStatement,
+          o.oneSentenceSummary,
+        );
+
+        if (cleanTitle && cleanTitle !== o.title) {
+          prisma.opportunity
+            .update({ where: { id: o.id }, data: { title: cleanTitle } })
+            .catch(() => {});
+        }
+
         const isLegacyHardcodedEconomics =
           o.estimatedMvpCostMinCents === 600000 &&
           o.estimatedMvpCostMaxCents === 1200000 &&
@@ -202,7 +217,7 @@ export async function GET() {
 
         const derivedEconomics = isLegacyHardcodedEconomics
           ? deriveOpportunityEconomics({
-              title: o.title,
+              title: cleanTitle,
               problemStatement: o.problemStatement || o.oneSentenceSummary,
               proposedProduct: o.proposedProduct,
               vertical: o.industry,
@@ -211,7 +226,7 @@ export async function GET() {
 
         return {
           slug: o.slug,
-          title: o.title,
+          title: cleanTitle,
           summary: o.oneSentenceSummary || o.problemStatement,
           problemStatement: o.problemStatement || o.oneSentenceSummary,
           proposedProduct: o.proposedProduct,
